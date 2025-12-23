@@ -1,6 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { DashboardContent } from '@/components/dashboard/dashboard-content'
+import { Database } from '@/lib/supabase/database.types'
+
+type Profile = Database['public']['Tables']['profiles']['Row']
+type ProfileSelect = Pick<Profile, 'onboarding_completed' | 'full_name'>
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -19,7 +23,9 @@ export default async function DashboardPage() {
     .eq('id', user.id)
     .maybeSingle()
 
-  if (!profile?.onboarding_completed) {
+  const typedProfile = profile as ProfileSelect | null
+
+  if (!typedProfile || !typedProfile.onboarding_completed) {
     redirect('/onboarding/business')
   }
 
@@ -47,7 +53,7 @@ export default async function DashboardPage() {
   const connectedProviders = connectedAccounts?.map((acc) => acc.provider) || []
 
   // Extract first name
-  const firstName = profile?.full_name?.split(' ')[0] || 'there'
+  const firstName = typedProfile?.full_name?.split(' ')[0] || 'there'
 
   return (
     <DashboardContent
