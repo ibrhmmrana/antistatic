@@ -7,6 +7,8 @@ type Profile = Database['public']['Tables']['profiles']['Row']
 type ProfileSelect = Pick<Profile, 'onboarding_completed' | 'full_name'>
 type BusinessLocation = Database['public']['Tables']['business_locations']['Row']
 type BusinessLocationSelect = Pick<BusinessLocation, 'id' | 'name' | 'formatted_address' | 'rating' | 'review_count' | 'category' | 'website' | 'enabled_tools'>
+type ConnectedAccount = Database['public']['Tables']['connected_accounts']['Row']
+type ConnectedAccountSelect = Pick<ConnectedAccount, 'provider' | 'status'>
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -47,12 +49,14 @@ export default async function DashboardPage() {
   }
 
   // Get connected accounts for this business location
-  const { data: connectedAccounts } = await supabase
+  const connectedAccountsResult = await supabase
     .from('connected_accounts')
     .select('provider, status')
     .eq('user_id', user.id)
     .eq('business_location_id', business.id)
     .eq('status', 'connected')
+
+  const connectedAccounts = connectedAccountsResult.data as ConnectedAccountSelect[] | null
 
   const connectedProviders = connectedAccounts?.map((acc) => acc.provider) || []
 
