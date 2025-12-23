@@ -1,5 +1,11 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { Database } from '@/lib/supabase/database.types'
+
+type Profile = Database['public']['Tables']['profiles']['Row']
+type ProfileSelect = Pick<Profile, 'onboarding_completed'>
+type BusinessLocation = Database['public']['Tables']['business_locations']['Row']
+type BusinessLocationSelect = Pick<BusinessLocation, 'name'>
 
 export default async function AppPage() {
   const supabase = await createClient()
@@ -12,24 +18,28 @@ export default async function AppPage() {
   }
 
   // Check onboarding status
-  const { data: profile } = await supabase
+  const profileResult = await supabase
     .from('profiles')
     .select('onboarding_completed')
     .eq('id', user.id)
-    .single()
+    .maybeSingle()
+
+  const profile = profileResult.data as ProfileSelect | null
 
   if (!profile?.onboarding_completed) {
     redirect('/onboarding/business')
   }
 
   // Get user's business location
-  const { data: location } = await supabase
+  const locationResult = await supabase
     .from('business_locations')
     .select('name')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
     .limit(1)
-    .single()
+    .maybeSingle()
+
+  const location = locationResult.data as BusinessLocationSelect | null
 
   return (
     <div className="min-h-screen bg-[var(--google-grey-50)]">
