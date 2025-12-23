@@ -336,15 +336,15 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
       }
 
       // Save social usernames to database
-      const updateData: BusinessLocationUpdate = {
+      const updateData = {
         facebook_username: socialUsernames.facebook || null,
         instagram_username: socialUsernames.instagram || null,
         linkedin_username: socialUsernames.linkedin || null,
         tiktok_username: socialUsernames.tiktok || null,
       }
-      const { error: updateError } = await supabase
+      const { error: updateError } = await (supabase as any)
         .from('business_locations')
-        .update(updateData as any)
+        .update(updateData)
         .eq('id', locationId)
 
       if (updateError) {
