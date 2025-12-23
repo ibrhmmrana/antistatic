@@ -15,7 +15,7 @@ export default async function AuthPage({
   } = await supabase.auth.getUser()
 
   if (user) {
-    const step = await getOnboardingStep(supabase, user.id)
+    const step = await getOnboardingStep(supabase as any, user.id)
     const stepUrl = getOnboardingStepUrl(step)
     redirect(stepUrl)
   }
