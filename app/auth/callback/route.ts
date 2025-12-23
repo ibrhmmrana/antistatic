@@ -49,7 +49,7 @@ export async function GET(request: Request) {
     }
 
     // Redirect to the correct onboarding step
-    const step = await getOnboardingStep(supabase, user.id)
+    const step = await getOnboardingStep(supabase as any, user.id)
     const stepUrl = getOnboardingStepUrl(step)
     return NextResponse.redirect(new URL(stepUrl, requestUrl.origin))
   }
