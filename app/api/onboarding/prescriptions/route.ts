@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { normalizePrescribedModules } from '@/lib/onboarding/prescriptions'
 import type { ModuleKey } from '@/lib/onboarding/module-registry'
+import { Database } from '@/lib/supabase/database.types'
+
+type BusinessInsights = Database['public']['Tables']['business_insights']['Row']
+type BusinessInsightsSelect = Pick<BusinessInsights, 'instagram_ai_analysis' | 'facebook_ai_analysis' | 'gbp_ai_analysis'>
 
 export const dynamic = 'force-dynamic'
 
@@ -52,12 +56,14 @@ export async function GET(request: NextRequest) {
 
     // Fetch all analyses from business_insights
     // Note: Column is gbp_ai_analysis (not gbp_weakness_analysis)
-    const { data: insights } = await supabase
+    const insightsResult = await supabase
       .from('business_insights')
       .select('instagram_ai_analysis, facebook_ai_analysis, gbp_ai_analysis')
       .eq('location_id', locationId)
       .eq('source', 'google')
       .maybeSingle()
+
+    const insights = insightsResult.data as BusinessInsightsSelect | null
 
     if (insights) {
       // Collect from Instagram analysis
