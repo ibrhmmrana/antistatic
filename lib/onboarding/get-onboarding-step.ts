@@ -3,7 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js'
 export type OnboardingStep = 'business' | 'connect' | 'analysis' | 'tools' | 'completed'
 
 export async function getOnboardingStep(
-  supabase: SupabaseClient,
+  supabase: SupabaseClient<any>,
   userId: string
 ): Promise<OnboardingStep> {
   // Check if onboarding is completed
