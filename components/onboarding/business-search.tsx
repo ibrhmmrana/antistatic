@@ -9,6 +9,7 @@ import { Business as BusinessIcon, Star as StarIcon, LocationOn as LocationOnIco
 import { Database } from '@/lib/supabase/database.types'
 
 type ProfileInsert = Database['public']['Tables']['profiles']['Insert']
+type BusinessLocationInsert = Database['public']['Tables']['business_locations']['Insert']
 
 interface Suggestion {
   place_id: string
@@ -364,25 +365,26 @@ export function BusinessSearch({ userName = 'there' }: BusinessSearchProps) {
         ? allCategories.join(', ') 
         : null
       
+      const locationData: BusinessLocationInsert = {
+        user_id: user.id,
+        place_id: details.place_id,
+        name: details.name,
+        formatted_address: details.formatted_address,
+        phone_number: details.phone_number,
+        website: details.website,
+        rating: details.rating,
+        review_count: details.review_count,
+        category: categoryString, // Store all categories as comma-separated string
+        categories: allCategories, // Also store as array for structured access
+        lat: details.lat,
+        lng: details.lng,
+        open_now: details.open_now,
+        photos: details.photos,
+        location_range: locationRange || null,
+      }
       const { data: location, error: insertError } = await supabase
         .from('business_locations')
-        .insert({
-          user_id: user.id,
-          place_id: details.place_id,
-          name: details.name,
-          formatted_address: details.formatted_address,
-          phone_number: details.phone_number,
-          website: details.website,
-          rating: details.rating,
-          review_count: details.review_count,
-          category: categoryString, // Store all categories as comma-separated string
-          categories: allCategories, // Also store as array for structured access
-          lat: details.lat,
-          lng: details.lng,
-          open_now: details.open_now,
-          photos: details.photos,
-          location_range: locationRange || null,
-        })
+        .insert(locationData as any)
         .select()
         .single()
 
