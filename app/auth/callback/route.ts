@@ -38,7 +38,9 @@ export async function GET(request: Request) {
         full_name: user.user_metadata?.full_name || user.user_metadata?.name || null,
         onboarding_completed: false,
       }
-      await supabase.from('profiles').insert(profileData)
+      await supabase
+        .from('profiles')
+        .insert(profileData as any)
     }
 
     // If this was an email confirmation, redirect to auth page with success message
