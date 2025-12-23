@@ -1,6 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { getOnboardingStep, getOnboardingStepUrl } from '@/lib/onboarding/get-onboarding-step'
+import { Database } from '@/lib/supabase/database.types'
+
+type ProfileInsert = Database['public']['Tables']['profiles']['Insert']
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url)
@@ -30,11 +33,12 @@ export async function GET(request: Request) {
 
     if (!existingProfile) {
       // Create profile
-      await supabase.from('profiles').insert({
+      const profileData: ProfileInsert = {
         id: user.id,
-        full_name: user.user_metadata?.full_name || user.user_metadata?.name,
+        full_name: user.user_metadata?.full_name || user.user_metadata?.name || null,
         onboarding_completed: false,
-      })
+      }
+      await supabase.from('profiles').insert(profileData)
     }
 
     // If this was an email confirmation, redirect to auth page with success message
