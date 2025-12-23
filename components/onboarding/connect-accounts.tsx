@@ -6,6 +6,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { createClient } from '@/lib/supabase/client'
 import { ArrowBack as ArrowBackIcon } from '@mui/icons-material'
+import { Database } from '@/lib/supabase/database.types'
+
+type BusinessLocation = Database['public']['Tables']['business_locations']['Row']
+type BusinessLocationSelect = Pick<BusinessLocation, 'facebook_username' | 'instagram_username' | 'linkedin_username' | 'tiktok_username'>
 
 interface ConnectedAccount {
   provider: string
@@ -97,11 +101,13 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
 
         if (!user) return
 
-        const { data: location } = await supabase
+        const locationResult = await supabase
           .from('business_locations')
           .select('facebook_username, instagram_username, linkedin_username, tiktok_username')
           .eq('id', locationId)
-          .single()
+          .maybeSingle()
+        
+        const location = locationResult.data as BusinessLocationSelect | null
 
         if (location) {
           setSocialUsernames({
