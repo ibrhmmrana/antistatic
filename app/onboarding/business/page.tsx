@@ -3,6 +3,10 @@ import { createClient } from '@/lib/supabase/server'
 import { OnboardingLayout } from '@/components/layouts/onboarding-layout'
 import { BusinessSearch } from '@/components/onboarding/business-search'
 import { getOnboardingStep, getOnboardingStepUrl } from '@/lib/onboarding/get-onboarding-step'
+import { Database } from '@/lib/supabase/database.types'
+
+type Profile = Database['public']['Tables']['profiles']['Row']
+type ProfileSelect = Pick<Profile, 'full_name'>
 
 // Force dynamic rendering since we use searchParams
 export const dynamic = 'force-dynamic'
@@ -30,11 +34,13 @@ export default async function BusinessOnboardingPage({
   }
 
   // Get user name
-  const { data: profile } = await supabase
+  const profileResult = await supabase
     .from('profiles')
     .select('full_name')
     .eq('id', user.id)
-    .single()
+    .maybeSingle()
+  
+  const profile = profileResult.data as ProfileSelect | null
 
   // Extract first name
   const fullName = profile?.full_name || user.user_metadata?.full_name || user.user_metadata?.name || ''
