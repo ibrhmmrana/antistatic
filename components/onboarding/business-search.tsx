@@ -6,6 +6,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { createClient } from '@/lib/supabase/client'
 import { Business as BusinessIcon, Star as StarIcon, LocationOn as LocationOnIcon, Phone as PhoneIcon, Language as LanguageIcon, Store as StoreIcon, ArrowBack as ArrowBackIcon, ChevronLeft as ChevronLeftIcon, ChevronRight as ChevronRightIcon } from '@mui/icons-material'
+import { Database } from '@/lib/supabase/database.types'
+
+type ProfileInsert = Database['public']['Tables']['profiles']['Insert']
 
 interface Suggestion {
   place_id: string
@@ -329,11 +332,12 @@ export function BusinessSearch({ userName = 'there' }: BusinessSearchProps) {
 
       if (!existingProfile) {
         // Create profile if it doesn't exist
-        const { error: profileError } = await supabase.from('profiles').insert({
+        const profileData: ProfileInsert = {
           id: user.id,
           full_name: user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || null,
           onboarding_completed: false,
-        })
+        }
+        const { error: profileError } = await supabase.from('profiles').insert(profileData as any)
 
         if (profileError) {
           // If profile creation fails (e.g., unique violation), that's OK - it might have been created concurrently
