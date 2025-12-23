@@ -10,6 +10,7 @@ import { Database } from '@/lib/supabase/database.types'
 
 type BusinessLocation = Database['public']['Tables']['business_locations']['Row']
 type BusinessLocationSelect = Pick<BusinessLocation, 'facebook_username' | 'instagram_username' | 'linkedin_username' | 'tiktok_username'>
+type BusinessLocationUpdate = Database['public']['Tables']['business_locations']['Update']
 
 interface ConnectedAccount {
   provider: string
@@ -335,14 +336,15 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
       }
 
       // Save social usernames to database
+      const updateData: BusinessLocationUpdate = {
+        facebook_username: socialUsernames.facebook || null,
+        instagram_username: socialUsernames.instagram || null,
+        linkedin_username: socialUsernames.linkedin || null,
+        tiktok_username: socialUsernames.tiktok || null,
+      }
       const { error: updateError } = await supabase
         .from('business_locations')
-        .update({
-          facebook_username: socialUsernames.facebook || null,
-          instagram_username: socialUsernames.instagram || null,
-          linkedin_username: socialUsernames.linkedin || null,
-          tiktok_username: socialUsernames.tiktok || null,
-        })
+        .update(updateData as any)
         .eq('id', locationId)
 
       if (updateError) {
