@@ -4,6 +4,10 @@ import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { createClient } from '@/lib/supabase/client'
 import { ChevronLeft, ChevronRight } from '@mui/icons-material'
+import { Database } from '@/lib/supabase/database.types'
+
+type BusinessLocation = Database['public']['Tables']['business_locations']['Row']
+type BusinessLocationSelect = Pick<BusinessLocation, 'name' | 'formatted_address'>
 import StarIcon from '@mui/icons-material/Star'
 import ThumbUpIcon from '@mui/icons-material/ThumbUp'
 import WarningIcon from '@mui/icons-material/Warning'
@@ -246,11 +250,13 @@ export function SocialChannelAnalysis({
       if (!locationId) return
 
       try {
-        const { data: location } = await supabase
+        const locationResult = await supabase
           .from('business_locations')
           .select('name, formatted_address')
           .eq('id', locationId)
-          .single()
+          .maybeSingle()
+        
+        const location = locationResult.data as BusinessLocationSelect | null
 
         if (location) {
           setBusinessInfo({
