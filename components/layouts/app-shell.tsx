@@ -99,15 +99,15 @@ export function AppShell({
   // Handler functions for header actions
   const handleSendReviewRequest = () => {
     // Route to reviews section or open modal
-    router.push('/reviews/send')
+    router?.push('/reviews/send')
   }
 
   const handleHelp = () => {
-    router.push('/help')
+    router?.push('/help')
   }
 
   const handleSettings = () => {
-    router.push('/settings')
+    router?.push('/settings')
   }
 
   return (
