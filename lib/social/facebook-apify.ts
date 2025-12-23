@@ -96,6 +96,9 @@ export async function fetchFacebookRaw(
   // Verify actor exists first
   try {
     const actor = await client.actor(FACEBOOK_ACTOR_ID).get()
+    if (!actor) {
+      throw new Error(`Actor ${FACEBOOK_ACTOR_ID} not found`)
+    }
     console.log('[Facebook Apify] Actor found:', {
       id: actor.id,
       name: actor.name,

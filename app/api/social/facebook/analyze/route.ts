@@ -4,6 +4,10 @@ import { cookies } from 'next/headers'
 import { fetchFacebookRaw } from '@/lib/social/facebook-apify'
 import { calculateFacebookMetrics } from '@/lib/social/facebook-metrics'
 import { generateFacebookAnalysis } from '@/lib/social/facebook-ai'
+import { Database } from '@/lib/supabase/database.types'
+
+type BusinessInsights = Database['public']['Tables']['business_insights']['Row']
+type BusinessInsightsSelect = Pick<BusinessInsights, 'facebook_ai_analysis' | 'facebook_ai_analysis_generated_at' | 'facebook_url' | 'facebook_raw_posts' | 'facebook_metrics'>
 
 // Increase timeout for this route (Apify can take 2+ minutes)
 export const maxDuration = 300 // 5 minutes
@@ -73,12 +77,15 @@ export async function GET(request: NextRequest) {
     }
 
     // Fetch cached analysis (including raw posts)
-    const { data: insights, error: insightsError } = await supabase
+    const insightsResult = await supabase
       .from('business_insights')
       .select('facebook_ai_analysis, facebook_ai_analysis_generated_at, facebook_url, facebook_raw_posts, facebook_metrics')
       .eq('location_id', locationId)
       .eq('source', 'google')
       .maybeSingle()
+    
+    const insights = insightsResult.data as BusinessInsightsSelect | null
+    const insightsError = insightsResult.error
 
     if (insightsError) {
       console.error('[Facebook Analysis API] GET: Database error:', insightsError)
@@ -242,12 +249,14 @@ export async function POST(request: NextRequest) {
 
     // Check for cached analysis (unless force refresh is requested)
     if (!force) {
-      const { data: insights } = await supabase
+      const insightsResult = await supabase
         .from('business_insights')
-        .select('facebook_ai_analysis, facebook_ai_analysis_generated_at, facebook_url')
+        .select('facebook_ai_analysis, facebook_ai_analysis_generated_at, facebook_url, facebook_raw_posts, facebook_metrics')
         .eq('location_id', locationId)
         .eq('source', 'google')
         .maybeSingle()
+      
+      const insights = insightsResult.data as BusinessInsightsSelect | null
 
       // Check if cached analysis exists and is less than 24 hours old
       if (insights?.facebook_ai_analysis && insights.facebook_url === facebookUrl) {

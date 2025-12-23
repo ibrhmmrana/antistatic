@@ -5,6 +5,8 @@ import { Database } from '@/lib/supabase/database.types'
 
 type Profile = Database['public']['Tables']['profiles']['Row']
 type ProfileSelect = Pick<Profile, 'onboarding_completed' | 'full_name'>
+type BusinessLocation = Database['public']['Tables']['business_locations']['Row']
+type BusinessLocationSelect = Pick<BusinessLocation, 'id' | 'name' | 'formatted_address' | 'rating' | 'review_count' | 'category' | 'website' | 'enabled_tools'>
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -30,13 +32,15 @@ export default async function DashboardPage() {
   }
 
   // Get primary business location (most recent)
-  const { data: business } = await supabase
+  const businessResult = await supabase
     .from('business_locations')
     .select('id, name, formatted_address, rating, review_count, category, website, enabled_tools')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
+
+  const business = businessResult.data as BusinessLocationSelect | null
 
   if (!business) {
     redirect('/onboarding/business')
