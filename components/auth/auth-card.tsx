@@ -10,6 +10,8 @@ import { checkPasswordStrength, getPasswordStrengthColor, getPasswordStrengthTex
 import { Database } from '@/lib/supabase/database.types'
 
 type ProfileInsert = Database['public']['Tables']['profiles']['Insert']
+type Profile = Database['public']['Tables']['profiles']['Row']
+type ProfileSelect = Pick<Profile, 'onboarding_completed'>
 
 interface AuthCardProps {
   showVerifiedMessage?: boolean
@@ -174,14 +176,16 @@ export function AuthCard({ showVerifiedMessage: initialShowVerified = false }: A
         await new Promise(resolve => setTimeout(resolve, 150))
 
         // Check if user has completed onboarding
-        const { data: profile, error: profileError } = await supabase
+        const profileResult = await supabase
           .from('profiles')
           .select('onboarding_completed')
           .eq('id', signInData.user.id)
           .maybeSingle()
+        
+        const profile = profileResult.data as ProfileSelect | null
 
-        if (profileError) {
-          console.error('Profile fetch error:', profileError)
+        if (profileResult.error) {
+          console.error('Profile fetch error:', profileResult.error)
           // Continue anyway - profile might not exist yet
         }
 
