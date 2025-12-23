@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import { Roboto } from 'next/font/google'
-// CRITICAL: This import must be in the root layout only. Do not import globals.css elsewhere.
+// IMPORTANT: global CSS must be imported here or Tailwind/shadcn styling will disappear across the app.
 import './globals.css'
 
 const roboto = Roboto({
@@ -26,31 +26,6 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={roboto.variable}>
-      <head>
-        {/* Preload Product Sans fonts for faster loading */}
-        <link
-          rel="preload"
-          href="/fonts/product-sans/ProductSans-Regular.ttf"
-          as="font"
-          type="font/ttf"
-          crossOrigin="anonymous"
-        />
-        <link
-          rel="preload"
-          href="/fonts/product-sans/ProductSans-Medium.ttf"
-          as="font"
-          type="font/ttf"
-          crossOrigin="anonymous"
-        />
-        <link
-          rel="preload"
-          href="/fonts/product-sans/ProductSans-Bold.ttf"
-          as="font"
-          type="font/ttf"
-          crossOrigin="anonymous"
-        />
-        {/* Material Symbols removed - using MUI icons instead */}
-      </head>
       <body className={roboto.variable}>
         {children}
       </body>
