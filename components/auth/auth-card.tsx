@@ -7,6 +7,9 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Person as PersonIcon, Mail as MailIcon, Lock as LockIcon } from '@mui/icons-material'
 import { checkPasswordStrength, getPasswordStrengthColor, getPasswordStrengthText } from '@/lib/utils/password-strength'
+import { Database } from '@/lib/supabase/database.types'
+
+type ProfileInsert = Database['public']['Tables']['profiles']['Insert']
 
 interface AuthCardProps {
   showVerifiedMessage?: boolean
@@ -86,11 +89,12 @@ export function AuthCard({ showVerifiedMessage: initialShowVerified = false }: A
         }
 
         // Create profile (only if we have a session, meaning email confirmation is not required)
-        const { error: profileError } = await supabase.from('profiles').insert({
+        const profileData: ProfileInsert = {
           id: data.user.id,
           full_name: formData.fullName,
           onboarding_completed: false,
-        })
+        }
+        const { error: profileError } = await supabase.from('profiles').insert(profileData as any)
 
         if (profileError && profileError.code !== '23505') {
           // 23505 is unique violation, which means profile already exists (shouldn't happen on signup)
