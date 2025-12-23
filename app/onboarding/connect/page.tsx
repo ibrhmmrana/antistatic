@@ -40,7 +40,7 @@ export default async function ConnectAccountsPage({
   // Check onboarding progress and redirect if needed
   // Allow back navigation if allowBack query param is present
   // Also allow staying on connect page even after GBP is connected (user may want to enter social usernames)
-  const step = await getOnboardingStep(supabase, user.id)
+  const step = await getOnboardingStep(supabase as any, user.id)
   if (step !== 'connect' && !searchParams?.allowBack) {
     const stepUrl = getOnboardingStepUrl(step)
     redirect(stepUrl)

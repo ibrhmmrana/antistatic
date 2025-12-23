@@ -39,7 +39,7 @@ export default async function AnalysisPage({
 
   // Check onboarding progress and redirect if needed
   // Allow back navigation if allowBack query param is present
-  const step = await getOnboardingStep(supabase, user.id)
+  const step = await getOnboardingStep(supabase as any, user.id)
   
   // If user is already on the correct step (analysis), don't redirect
   if (step === 'analysis') {

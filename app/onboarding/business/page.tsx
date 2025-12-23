@@ -23,7 +23,7 @@ export default async function BusinessOnboardingPage({
 
   // Check onboarding progress and redirect if needed
   // Allow back navigation if allowBack query param is present
-  const step = await getOnboardingStep(supabase, user.id)
+  const step = await getOnboardingStep(supabase as any, user.id)
   if (step !== 'business' && !searchParams?.allowBack) {
     const stepUrl = getOnboardingStepUrl(step)
     redirect(stepUrl)
