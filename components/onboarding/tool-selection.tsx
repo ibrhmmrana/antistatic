@@ -7,6 +7,10 @@ import { createClient } from '@/lib/supabase/client'
 import { ArrowBack as ArrowBackIcon, Lock as LockIcon } from '@mui/icons-material'
 import { getPrescribedModules, storePrescribedModules, normalizePrescribedModules } from '@/lib/onboarding/prescriptions'
 import { MODULES, getAllModuleKeys, getModuleInfo, isModuleKey, type ModuleKey } from '@/lib/onboarding/module-registry'
+import { Database } from '@/lib/supabase/database.types'
+
+type BusinessLocationUpdate = Database['public']['Tables']['business_locations']['Update']
+type ProfileUpdate = Database['public']['Tables']['profiles']['Update']
 
 interface ToolSelectionProps {
   userName?: string
@@ -148,9 +152,12 @@ export function ToolSelection({ userName = 'there', savedTools, locationId }: To
       }
 
       // Save to database as snake_case ModuleKey[] only
-      const { error: updateError } = await supabase
+      const locationUpdateData: BusinessLocationUpdate = {
+        enabled_tools: finalTools,
+      }
+      const { error: updateError } = await (supabase as any)
         .from('business_locations')
-        .update({ enabled_tools: finalTools })
+        .update(locationUpdateData)
         .eq('id', locationId)
 
       if (updateError) {
@@ -158,9 +165,12 @@ export function ToolSelection({ userName = 'there', savedTools, locationId }: To
       }
 
       // Mark onboarding as completed
-      await supabase
+      const profileUpdateData: ProfileUpdate = {
+        onboarding_completed: true,
+      }
+      await (supabase as any)
         .from('profiles')
-        .update({ onboarding_completed: true })
+        .update(profileUpdateData)
         .eq('id', user.id)
 
       // Clear onboarding localStorage data
