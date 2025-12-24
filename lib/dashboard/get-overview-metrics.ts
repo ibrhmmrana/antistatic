@@ -50,6 +50,8 @@ export interface OverviewMetrics {
 
 type BusinessReview = Database['public']['Tables']['business_reviews']['Row']
 type BusinessInsight = Database['public']['Tables']['business_insights']['Row']
+type BusinessLocation = Database['public']['Tables']['business_locations']['Row']
+type BusinessLocationSelect = Pick<BusinessLocation, 'google_location_name'>
 
 /**
  * Convert star rating string to number
@@ -97,12 +99,13 @@ export async function fetchGBPPerformanceMetrics(
 
     // Get location name from business_locations or fetch it
     const supabase = await createClient()
-    const { data: businessLocation } = await supabase
+    const businessLocationResult = await supabase
       .from('business_locations')
       .select('google_location_name')
       .eq('id', businessLocationId)
       .maybeSingle()
 
+    const businessLocation = businessLocationResult.data as BusinessLocationSelect | null
     let locationName: string | null = businessLocation?.google_location_name || null
 
     // If we don't have location name stored, fetch it
@@ -281,12 +284,13 @@ export async function fetchGBPImpressionsMetrics(
 
     // Get location name from business_locations or fetch it
     const supabase = await createClient()
-    const { data: businessLocation } = await supabase
+    const businessLocationResult = await supabase
       .from('business_locations')
       .select('google_location_name')
       .eq('id', businessLocationId)
       .maybeSingle()
 
+    const businessLocation = businessLocationResult.data as BusinessLocationSelect | null
     let locationName: string | null = businessLocation?.google_location_name || null
 
     // If we don't have location name stored, fetch it
@@ -469,12 +473,13 @@ export async function fetchGBPCallsAndWebsiteMetrics(
 
     // Get location name from business_locations or fetch it
     const supabase = await createClient()
-    const { data: businessLocation } = await supabase
+    const businessLocationResult = await supabase
       .from('business_locations')
       .select('google_location_name')
       .eq('id', businessLocationId)
       .maybeSingle()
 
+    const businessLocation = businessLocationResult.data as BusinessLocationSelect | null
     let locationName: string | null = businessLocation?.google_location_name || null
 
     // If we don't have location name stored, fetch it
@@ -686,12 +691,13 @@ async function fetchGBPReviewsForMetrics(
 
     // Get location name from business_locations or fetch it
     const supabase = await createClient()
-    const { data: businessLocation } = await supabase
+    const businessLocationResult = await supabase
       .from('business_locations')
       .select('google_location_name')
       .eq('id', businessLocationId)
       .maybeSingle()
 
+    const businessLocation = businessLocationResult.data as BusinessLocationSelect | null
     let locationName: string | null = businessLocation?.google_location_name || null
 
     // If we don't have location name stored, fetch it
