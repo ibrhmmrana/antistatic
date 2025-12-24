@@ -7,6 +7,7 @@ import PinDropIcon from '@mui/icons-material/PinDrop'
 import ForumIcon from '@mui/icons-material/Forum'
 import CampaignIcon from '@mui/icons-material/Campaign'
 import VisibilityIcon from '@mui/icons-material/Visibility'
+import ThumbUpIcon from '@mui/icons-material/ThumbUp'
 import { type OverviewMetrics } from '@/lib/dashboard/get-overview-metrics'
 import { type ModuleKey } from '@/lib/onboarding/module-registry'
 import { getModuleInfo } from '@/lib/onboarding/module-registry'
@@ -152,10 +153,10 @@ export function OverviewGrid({ overviewMetrics, enabledTools, businessLocationId
         lockedReason={`${socialModule.tagline}. ${socialModule.bullets[0]}`}
       />
 
-      {/* Row 2, Col 3: Search Visibility */}
+      {/* Row 2, Col 3: Engagement */}
       <OverviewMetricCard
-        title="Search Visibility"
-        icon={<VisibilityIcon sx={{ fontSize: 20, color: '#4285f4' }} />}
+        title="Engagement"
+        icon={<ThumbUpIcon sx={{ fontSize: 20, color: '#4285f4' }} />}
         primary={overviewMetrics.visibility.likes7d > 0 ? overviewMetrics.visibility.likes7d.toLocaleString() : '0'}
         primaryLabel="likes (this week)"
         secondaryMetric={{
