@@ -1,18 +1,38 @@
 'use client'
 
-import { ReactNode, useState } from 'react'
+import React, { ReactNode, useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
+import SendIcon from '@mui/icons-material/Send'
+import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
+import LockIcon from '@mui/icons-material/Lock'
 import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined'
 import ReviewsOutlinedIcon from '@mui/icons-material/ReviewsOutlined'
 import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined'
 import CampaignOutlinedIcon from '@mui/icons-material/CampaignOutlined'
 import PinDropOutlinedIcon from '@mui/icons-material/PinDropOutlined'
 import BoltOutlinedIcon from '@mui/icons-material/BoltOutlined'
-import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
-import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
-import SendIcon from '@mui/icons-material/Send'
+import AnalyticsOutlinedIcon from '@mui/icons-material/AnalyticsOutlined'
+import PeopleOutlinedIcon from '@mui/icons-material/PeopleOutlined'
 import { AccountMenu } from '@/components/account/account-menu'
+import { NAV_ITEMS, isNavItemEnabled, type NavItemConfig } from '@/lib/navigation/module-nav'
+import { getEnabledToolsForSidebar } from '@/lib/modules/enabled'
+import { type ModuleKey } from '@/lib/onboarding/module-registry'
+import { Tooltip } from '@/components/ui/tooltip'
+
+// Icon map for dynamic icon rendering
+const ICON_MAP: Record<string, React.ComponentType<{ sx?: { fontSize: number } }>> = {
+  DashboardOutlined: DashboardOutlinedIcon,
+  ReviewsOutlined: ReviewsOutlinedIcon,
+  ForumOutlined: ForumOutlinedIcon,
+  CampaignOutlined: CampaignOutlinedIcon,
+  PinDropOutlined: PinDropOutlinedIcon,
+  BoltOutlined: BoltOutlinedIcon,
+  SettingsOutlined: SettingsOutlinedIcon,
+  AnalyticsOutlined: AnalyticsOutlinedIcon,
+  PeopleOutlined: PeopleOutlinedIcon,
+}
 
 interface AppShellProps {
   children: ReactNode
@@ -23,44 +43,35 @@ interface AppShellProps {
   businessReviewCount: number | null
 }
 
-interface NavItemData {
-  label: string
-  href: string
-  icon: ReactNode
-}
-
-const navItems: NavItemData[] = [
-  { label: 'Overview', href: '/dashboard', icon: <DashboardOutlinedIcon sx={{ fontSize: 18 }} /> },
-  { label: 'Reviews', href: '/reviews', icon: <ReviewsOutlinedIcon sx={{ fontSize: 18 }} /> },
-  { label: 'Messaging', href: '/messaging', icon: <ForumOutlinedIcon sx={{ fontSize: 18 }} /> },
-  { label: 'Social', href: '/social', icon: <CampaignOutlinedIcon sx={{ fontSize: 18 }} /> },
-  { label: 'Listings', href: '/listings', icon: <PinDropOutlinedIcon sx={{ fontSize: 18 }} /> },
-  { label: 'Automations', href: '/automations', icon: <BoltOutlinedIcon sx={{ fontSize: 18 }} /> },
-  { label: 'Settings', href: '/settings', icon: <SettingsOutlinedIcon sx={{ fontSize: 18 }} /> },
-]
-
 // Google Cloud style NavItem component
 interface NavItemProps {
-  icon: ReactNode
-  label: string
-  href: string
+  item: NavItemConfig
   active?: boolean
+  enabled: boolean
   onClick?: () => void
 }
 
-function NavItem({ icon, label, href, active, onClick }: NavItemProps) {
-  return (
-    <Link
-      href={href}
-      onClick={onClick}
-      className={`group/item flex items-center gap-3 px-4 group-hover:px-4 px-3 py-2.5 text-sm cursor-pointer select-none transition-all duration-150 hover:bg-slate-100 nav-item-link ${
+function NavItem({ item, active, enabled, onClick }: NavItemProps) {
+  const isLocked = !enabled && !item.alwaysEnabled
+
+  const content = (
+    <div
+      className={`group/item flex items-center gap-3 px-4 group-hover:px-4 px-3 py-2.5 text-sm select-none transition-all duration-150 nav-item-link ${
         active ? 'bg-blue-50 font-bold' : 'font-light'
+      } ${
+        isLocked
+          ? 'opacity-60 cursor-not-allowed'
+          : 'cursor-pointer hover:bg-slate-100'
       }`}
       style={{
         fontFamily: "'Product Sans', 'Google Sans', system-ui, sans-serif",
         color: active ? '#001d35' : '#202124',
         fontWeight: active ? 700 : 300,
       }}
+      onClick={isLocked ? (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+      } : onClick}
     >
       {/* Left accent bar for active item */}
       <span
@@ -73,12 +84,44 @@ function NavItem({ icon, label, href, active, onClick }: NavItemProps) {
         className="flex h-5 w-5 items-center justify-center flex-shrink-0"
         style={{ color: active ? '#001d35' : '#202124' }}
       >
-        {icon}
+        {ICON_MAP[item.iconName] && React.createElement(ICON_MAP[item.iconName], { sx: { fontSize: 18 } })}
       </span>
       {/* Label - hidden when sidebar is collapsed, visible on hover */}
-      <span className="truncate opacity-0 group-hover:opacity-100 transition-opacity duration-300 whitespace-nowrap">
-        {label}
+      <span className="truncate opacity-0 group-hover:opacity-100 transition-opacity duration-300 whitespace-nowrap flex-1">
+        {item.label}
       </span>
+      {/* Lock icon for locked items */}
+      {isLocked && (
+        <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex-shrink-0">
+          <LockIcon sx={{ fontSize: 16, color: '#9aa0a6' }} />
+        </span>
+      )}
+    </div>
+  )
+
+  if (isLocked) {
+    const tooltipContent = (
+      <div className="space-y-1.5">
+        <div className="font-semibold text-white">Locked: {item.label}</div>
+        <div className="text-xs text-gray-300 space-y-1">
+          <div><strong>What it does:</strong> {item.description || 'Module description'}</div>
+          <div><strong>Why locked:</strong> This module isn't enabled for this workspace yet.</div>
+          <div><strong>Unlock:</strong> {item.unlockHint}</div>
+        </div>
+      </div>
+    )
+
+    // For locked items, wrap the content directly in Tooltip (no Link wrapper)
+    return (
+      <Tooltip content={tooltipContent} side="right">
+        {content}
+      </Tooltip>
+    )
+  }
+
+  return (
+    <Link href={item.href} onClick={onClick} className="block">
+      {content}
     </Link>
   )
 }
@@ -95,6 +138,19 @@ export function AppShell({
   const router = useRouter()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [sidebarHovered, setSidebarHovered] = useState(false)
+  const [enabledTools, setEnabledTools] = useState<ModuleKey[]>([])
+
+  // Fetch enabled tools on mount
+  useEffect(() => {
+    getEnabledToolsForSidebar().then((tools) => {
+      console.log('[AppShell] Enabled tools loaded:', tools)
+      setEnabledTools(tools)
+    }).catch((error) => {
+      console.error('[AppShell] Failed to fetch enabled tools:', error)
+      // Fallback to default
+      setEnabledTools(['reputation_hub'])
+    })
+  }, [])
 
   // Handler functions for header actions
   const handleSendReviewRequest = () => {
@@ -170,21 +226,21 @@ export function AppShell({
       <div className="flex flex-1 overflow-hidden pt-14 md:pt-16">
         {/* Side Navigation - Google Cloud Style - Collapsible on Hover */}
         <aside 
-          className="group hidden lg:flex fixed top-14 md:top-16 left-0 h-[calc(100vh-3.5rem)] md:h-[calc(100vh-4rem)] w-16 hover:w-64 flex-col border-r border-slate-200 bg-white transition-all duration-300 ease-in-out overflow-y-auto z-10"
+          className="group hidden lg:flex fixed top-14 md:top-16 left-0 h-[calc(100vh-3.5rem)] md:h-[calc(100vh-4rem)] w-16 hover:w-64 flex-col border-r border-slate-200 bg-white transition-all duration-300 ease-in-out overflow-y-auto overflow-x-visible z-10"
           onMouseEnter={() => setSidebarHovered(true)}
           onMouseLeave={() => setSidebarHovered(false)}
         >
           <nav className="mt-3 flex flex-1 flex-col gap-1 pb-4">
-            {navItems.map((item) => {
+            {NAV_ITEMS.map((item) => {
               const isActive =
                 pathname === item.href || (item.href !== '/dashboard' && pathname?.startsWith(item.href))
+              const enabled = isNavItemEnabled(item, enabledTools)
               return (
                 <NavItem
-                  key={item.href}
-                  icon={item.icon}
-                  label={item.label}
-                  href={item.href}
+                  key={item.key}
+                  item={item}
                   active={isActive}
+                  enabled={enabled}
                 />
               )
             })}
@@ -208,16 +264,16 @@ export function AppShell({
             />
             <aside className="lg:hidden fixed left-0 top-0 bottom-0 w-64 bg-white border-r border-slate-200 z-40 overflow-y-auto">
               <nav className="mt-3 flex flex-1 flex-col gap-1 pb-4">
-                {navItems.map((item) => {
+                {NAV_ITEMS.map((item) => {
                   const isActive =
                     pathname === item.href || (item.href !== '/dashboard' && pathname?.startsWith(item.href))
+                  const enabled = isNavItemEnabled(item, enabledTools)
                   return (
                     <NavItem
-                      key={item.href}
-                      icon={item.icon}
-                      label={item.label}
-                      href={item.href}
+                      key={item.key}
+                      item={item}
                       active={isActive}
+                      enabled={enabled}
                       onClick={() => setMobileNavOpen(false)}
                     />
                   )

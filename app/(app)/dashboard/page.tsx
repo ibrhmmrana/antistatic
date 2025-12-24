@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { DashboardContent } from '@/components/dashboard/dashboard-content'
 import { Database } from '@/lib/supabase/database.types'
+import { getOverviewMetrics } from '@/lib/dashboard/get-overview-metrics'
+import { isModuleKey, type ModuleKey } from '@/lib/onboarding/module-registry'
 
 type Profile = Database['public']['Tables']['profiles']['Row']
 type ProfileSelect = Pick<Profile, 'onboarding_completed' | 'full_name'>
@@ -63,10 +65,20 @@ export default async function DashboardPage() {
   // Extract first name
   const firstName = typedProfile?.full_name?.split(' ')[0] || 'there'
 
+  // Get overview metrics
+  const overviewMetrics = await getOverviewMetrics(user.id, business.id)
+
+  // Normalize enabled_tools to ModuleKey[]
+  const enabledToolsRaw = business.enabled_tools || []
+  const enabledTools: ModuleKey[] = Array.isArray(enabledToolsRaw)
+    ? enabledToolsRaw.filter(isModuleKey)
+    : []
+
   return (
     <DashboardContent
       firstName={firstName}
       business={{
+        id: business.id,
         name: business.name,
         formatted_address: business.formatted_address,
         rating: business.rating,
@@ -74,8 +86,9 @@ export default async function DashboardPage() {
         category: business.category,
         website: business.website,
       }}
-      enabledTools={business.enabled_tools || []}
+      enabledTools={enabledTools}
       connectedProviders={connectedProviders}
+      overviewMetrics={overviewMetrics}
     />
   )
 }

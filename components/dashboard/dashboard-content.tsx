@@ -1,11 +1,14 @@
 'use client'
 
-import { MetricsCards } from './metrics-cards'
+import { OverviewGrid } from './OverviewGrid'
 import { NextStepsChecklist } from './next-steps-checklist'
+import { type OverviewMetrics } from '@/lib/dashboard/get-overview-metrics'
+import { type ModuleKey } from '@/lib/onboarding/module-registry'
 
 interface DashboardContentProps {
   firstName: string
   business: {
+    id: string
     name: string
     formatted_address: string | null
     rating: number | null
@@ -13,8 +16,9 @@ interface DashboardContentProps {
     category: string | null
     website: string | null
   }
-  enabledTools: string[]
+  enabledTools: ModuleKey[]
   connectedProviders: string[]
+  overviewMetrics: OverviewMetrics
 }
 
 export function DashboardContent({
@@ -22,6 +26,7 @@ export function DashboardContent({
   business,
   enabledTools,
   connectedProviders,
+  overviewMetrics,
 }: DashboardContentProps) {
   return (
     <>
@@ -30,7 +35,7 @@ export function DashboardContent({
 
         {/* Inner content container - centered and constrained */}
         <div className="relative z-10 mx-auto max-w-6xl px-4 sm:px-6 py-8">
-          <header className="mb-5 pt-12">
+          <header className="mb-6 pt-12">
             <h1 className="tracking-tight text-slate-900" style={{ fontFamily: 'var(--font-google-sans)', fontSize: '36px', fontWeight: 400 }}>
               Welcome, {firstName}
             </h1>
@@ -38,12 +43,7 @@ export function DashboardContent({
               Here's how {business.name || 'your business'} is doing this week.
             </p>
           </header>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <MetricsCards
-              rating={business.rating}
-              reviewCount={business.review_count}
-            />
-          </div>
+          <OverviewGrid overviewMetrics={overviewMetrics} enabledTools={enabledTools} businessLocationId={business.id} />
         </div>
 
         {/* Decorative background pattern */}
