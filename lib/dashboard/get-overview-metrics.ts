@@ -49,6 +49,7 @@ export interface OverviewMetrics {
 }
 
 type BusinessReview = Database['public']['Tables']['business_reviews']['Row']
+type BusinessReviewSelect = Pick<BusinessReview, 'rating' | 'published_at'>
 type BusinessInsight = Database['public']['Tables']['business_insights']['Row']
 type BusinessLocation = Database['public']['Tables']['business_locations']['Row']
 type BusinessLocationSelect = Pick<BusinessLocation, 'google_location_name'>
@@ -874,7 +875,7 @@ export async function getOverviewMetrics(
     newReviews7d = reviews7d.length
   } else {
     // Fallback: try database if API fails
-    const { data: reviews7d } = await supabase
+    const reviews7dResult = await supabase
       .from('business_reviews')
       .select('rating, published_at')
       .eq('location_id', businessLocationId)
@@ -882,7 +883,7 @@ export async function getOverviewMetrics(
       .gte('published_at', sevenDaysAgo.toISOString())
       .order('published_at', { ascending: true })
 
-    const { data: reviews14d } = await supabase
+    const reviews14dResult = await supabase
       .from('business_reviews')
       .select('rating, published_at')
       .eq('location_id', businessLocationId)
@@ -891,16 +892,21 @@ export async function getOverviewMetrics(
       .lt('published_at', sevenDaysAgo.toISOString())
       .order('published_at', { ascending: true })
 
+    const reviews7d = reviews7dResult.data as BusinessReviewSelect[] | null
+    const reviews14d = reviews14dResult.data as BusinessReviewSelect[] | null
+
     newReviews7d = reviews7d?.length || 0
     newReviews14d = reviews14d?.length || 0
 
     // Get all reviews for rating calculation
-    const { data: allReviewsDb } = await supabase
+    const allReviewsDbResult = await supabase
       .from('business_reviews')
       .select('rating, published_at')
       .eq('location_id', businessLocationId)
       .eq('source', 'gbp')
       .order('published_at', { ascending: true })
+
+    const allReviewsDb = allReviewsDbResult.data as BusinessReviewSelect[] | null
 
     // Calculate average rating for each day
     const ratingByDay = new Map<string, number>()
