@@ -53,6 +53,7 @@ type BusinessReviewSelect = Pick<BusinessReview, 'rating' | 'published_at'>
 type BusinessInsight = Database['public']['Tables']['business_insights']['Row']
 type BusinessLocation = Database['public']['Tables']['business_locations']['Row']
 type BusinessLocationSelect = Pick<BusinessLocation, 'google_location_name'>
+type BusinessLocationSocialSelect = Pick<BusinessLocation, 'facebook_username' | 'instagram_username' | 'linkedin_username' | 'tiktok_username'>
 
 /**
  * Convert star rating string to number
@@ -1132,11 +1133,13 @@ export async function getOverviewMetrics(
   const analyzedChannels: string[] = []
 
   // Get business location to check which social channels were analyzed
-  const { data: location } = await supabase
+  const locationResult = await supabase
     .from('business_locations')
     .select('facebook_username, instagram_username, linkedin_username, tiktok_username')
     .eq('id', businessLocationId)
     .maybeSingle()
+
+  const location = locationResult.data as BusinessLocationSocialSelect | null
 
   if (location) {
     // Track which channels were analyzed (have usernames)
