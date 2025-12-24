@@ -145,7 +145,7 @@ export function OverviewGrid({ overviewMetrics, enabledTools, businessLocationId
       {/* Row 2, Col 2: Social */}
       <OverviewMetricCard
         title="Social"
-        icon={<CampaignIcon sx={{ fontSize: 20, color: '#34a853' }} />}
+        icon={<CampaignIcon sx={{ fontSize: 20, color: '#fbbf24' }} />}
         primary={overviewMetrics.social.posts7d > 0 ? overviewMetrics.social.posts7d.toLocaleString() : '0'}
         primaryLabel="posts (this week)"
         channelIcons={overviewMetrics.social.analyzedChannels}
@@ -156,7 +156,7 @@ export function OverviewGrid({ overviewMetrics, enabledTools, businessLocationId
       {/* Row 2, Col 3: Engagement */}
       <OverviewMetricCard
         title="Engagement"
-        icon={<ThumbUpIcon sx={{ fontSize: 20, color: '#4285f4' }} />}
+        icon={<ThumbUpIcon sx={{ fontSize: 20, color: '#34a853' }} />}
         primary={overviewMetrics.visibility.likes7d > 0 ? overviewMetrics.visibility.likes7d.toLocaleString() : '0'}
         primaryLabel="likes (this week)"
         secondaryMetric={{
