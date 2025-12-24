@@ -51,7 +51,13 @@ export function RatingLineChart({ data, color = '#fbbf24', height = 60 }: Rating
   })
 
   // Build chart data for last 7 days (6 days ago to today)
-  const chartData = []
+  const chartData: Array<{
+    value: number | null
+    label: string
+    dateStr: string
+    isToday: boolean
+    date: Date
+  }> = []
   for (let i = 6; i >= 0; i--) {
     const date = new Date(today)
     date.setDate(date.getDate() - i)
@@ -116,9 +122,11 @@ export function RatingLineChart({ data, color = '#fbbf24', height = 60 }: Rating
         <Tooltip
           content={({ active, payload }) => {
             if (active && payload && payload.length) {
+              const value = payload[0].value
+              const numValue = typeof value === 'number' ? value : null
               return (
                 <div className="bg-slate-900 text-white text-xs px-2 py-1 rounded shadow-lg">
-                  {payload[0].value?.toFixed(1)}
+                  {numValue !== null ? numValue.toFixed(1) : '—'}
                 </div>
               )
             }

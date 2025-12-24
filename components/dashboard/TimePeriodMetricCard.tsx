@@ -28,6 +28,7 @@ interface TimePeriodMetricCardProps {
       type: 'sparkline' | 'bars' | 'line' | 'barsWithLabels' | 'ratingLine'
       data: Array<{ x: string; y: number }>
       color?: string
+      timePeriod?: number
     }
   }
   locked?: boolean
