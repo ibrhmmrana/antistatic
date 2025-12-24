@@ -5,6 +5,10 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { type ModuleKey, isModuleKey } from '@/lib/onboarding/module-registry'
+import { Database } from '@/lib/supabase/database.types'
+
+type BusinessLocation = Database['public']['Tables']['business_locations']['Row']
+type BusinessLocationSelect = Pick<BusinessLocation, 'enabled_tools'>
 
 /**
  * Server-side resolver for enabled tools
@@ -30,7 +34,7 @@ export async function getEnabledToolsServer(): Promise<ModuleKey[]> {
       .limit(1)
       .maybeSingle()
 
-    const business = businessResult.data
+    const business = businessResult.data as BusinessLocationSelect | null
 
     // If enabled_tools exists and is not empty, return it
     if (business?.enabled_tools && Array.isArray(business.enabled_tools) && business.enabled_tools.length > 0) {
