@@ -51,6 +51,7 @@ export interface OverviewMetrics {
 type BusinessReview = Database['public']['Tables']['business_reviews']['Row']
 type BusinessReviewSelect = Pick<BusinessReview, 'rating' | 'published_at'>
 type BusinessInsight = Database['public']['Tables']['business_insights']['Row']
+type BusinessInsightSocialSelect = Pick<BusinessInsight, 'facebook_raw_posts' | 'instagram_raw_posts' | 'instagram_raw_comments'>
 type BusinessLocation = Database['public']['Tables']['business_locations']['Row']
 type BusinessLocationSelect = Pick<BusinessLocation, 'google_location_name'>
 type BusinessLocationSocialSelect = Pick<BusinessLocation, 'facebook_username' | 'instagram_username' | 'linkedin_username' | 'tiktok_username'>
@@ -1150,12 +1151,14 @@ export async function getOverviewMetrics(
   }
 
   // Get social posts from business_insights
-  const { data: insights } = await supabase
+  const insightsResult = await supabase
     .from('business_insights')
     .select('facebook_raw_posts, instagram_raw_posts, instagram_raw_comments')
     .eq('location_id', businessLocationId)
     .eq('source', 'google')
     .maybeSingle()
+
+  const insights = insightsResult.data as BusinessInsightSocialSelect | null
 
   if (insights) {
     const sevenDaysAgoTimestamp = sevenDaysAgo.getTime()
