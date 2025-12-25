@@ -104,14 +104,13 @@ export function ReviewDetail({ review, businessLocationId, businessName, onReply
             {review.text}
           </p>
 
-          {/* Review Images Carousel */}
+          {/* Review Images Grid */}
           {review.images && review.images.length > 0 && (
             <div className="mb-4">
               <ImageCarousel
                 images={review.images}
                 onImageClick={handleImageClick}
-                size="large"
-                showDots={true}
+                maxVisible={6}
               />
             </div>
           )}
