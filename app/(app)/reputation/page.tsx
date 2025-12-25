@@ -48,6 +48,6 @@ export default async function ReputationPage() {
 
   const businessName = typedBusiness.google_location_name || typedBusiness.name || 'our business'
 
-  return <ReputationHubPage businessLocationId={business.id} businessName={businessName} />
+  return <ReputationHubPage businessLocationId={typedBusiness.id} businessName={businessName} />
 }
 
