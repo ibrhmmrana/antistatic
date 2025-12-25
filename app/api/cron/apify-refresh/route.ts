@@ -123,7 +123,7 @@ export async function GET(request: NextRequest) {
 
         const { error: updateError } = await supabase
           .from('business_insights')
-          .upsert(update, {
+          .upsert(update as any, {
             onConflict: 'location_id,source',
           })
 
@@ -159,7 +159,7 @@ export async function GET(request: NextRequest) {
             scrape_status: 'error',
             scrape_error: error.message || 'Unknown error',
             updated_at: new Date().toISOString(),
-          }, {
+          } as any, {
             onConflict: 'location_id,source',
           })
       }
