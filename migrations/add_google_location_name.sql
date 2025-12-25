@@ -9,3 +9,4 @@ ADD COLUMN IF NOT EXISTS google_location_name TEXT;
 COMMENT ON COLUMN business_locations.google_location_name IS 'Google Business Profile location resource name (e.g., accounts/123/locations/456)';
 
 
+

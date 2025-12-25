@@ -15,10 +15,12 @@ interface Review {
   createTime: string
   source: 'google'
   replied: boolean
+  reply?: { comment: string; updateTime?: string } | null
   sentiment: 'positive' | 'neutral' | 'negative'
   categories: string[]
   images?: string[]
   reviewName?: string | null
+  reviewId?: string | null
 }
 
 interface RespondTabProps {
@@ -70,17 +72,99 @@ export function RespondTab({ businessLocationId, businessName }: RespondTabProps
 
   const handleReplyPosted = async (reviewId: string) => {
     try {
-      // The actual posting is handled by AIReplyComposer
-      // This is called after successful post
-      setReviews((prev) =>
-        prev.map((r) => (r.id === reviewId ? { ...r, replied: true } : r))
-      )
-      if (selectedReview?.id === reviewId) {
-        setSelectedReview({ ...selectedReview, replied: true })
+      // Fetch the updated reviews to get the latest reply data
+      const response = await fetch(`/api/reputation/reviews?locationId=${businessLocationId}`)
+      if (response.ok) {
+        const data = await response.json()
+        const updatedReview = data.reviews?.find((r: Review) => r.id === reviewId)
+        if (updatedReview) {
+          setReviews((prev) =>
+            prev.map((r) => (r.id === reviewId ? updatedReview : r))
+          )
+          if (selectedReview?.id === reviewId) {
+            setSelectedReview(updatedReview)
+          }
+        } else {
+          // Fallback: just mark as replied
+          setReviews((prev) =>
+            prev.map((r) => (r.id === reviewId ? { ...r, replied: true } : r))
+          )
+          if (selectedReview?.id === reviewId) {
+            setSelectedReview({ ...selectedReview, replied: true })
+          }
+        }
+      } else {
+        // Fallback: just mark as replied
+        setReviews((prev) =>
+          prev.map((r) => (r.id === reviewId ? { ...r, replied: true } : r))
+        )
+        if (selectedReview?.id === reviewId) {
+          setSelectedReview({ ...selectedReview, replied: true })
+        }
       }
       showToast('Reply posted successfully', 'success')
     } catch (error: any) {
       showToast(error.message || 'Failed to post reply', 'error')
+    }
+  }
+
+  const handleReplyUpdated = async (reviewId: string) => {
+    try {
+      // Fetch the updated reviews to get the latest reply data
+      const response = await fetch(`/api/reputation/reviews?locationId=${businessLocationId}`)
+      if (response.ok) {
+        const data = await response.json()
+        const updatedReview = data.reviews?.find((r: Review) => r.id === reviewId)
+        if (updatedReview) {
+          setReviews((prev) =>
+            prev.map((r) => (r.id === reviewId ? updatedReview : r))
+          )
+          if (selectedReview?.id === reviewId) {
+            setSelectedReview(updatedReview)
+          }
+        }
+      }
+      showToast('Reply updated successfully', 'success')
+    } catch (error: any) {
+      showToast(error.message || 'Failed to update reply', 'error')
+    }
+  }
+
+  const handleReplyDeleted = async (reviewId: string) => {
+    try {
+      // Fetch the updated reviews to reflect the deleted reply
+      const response = await fetch(`/api/reputation/reviews?locationId=${businessLocationId}`)
+      if (response.ok) {
+        const data = await response.json()
+        const updatedReview = data.reviews?.find((r: Review) => r.id === reviewId)
+        if (updatedReview) {
+          setReviews((prev) =>
+            prev.map((r) => (r.id === reviewId ? updatedReview : r))
+          )
+          if (selectedReview?.id === reviewId) {
+            setSelectedReview(updatedReview)
+          }
+        } else {
+          // Fallback: mark as not replied
+          setReviews((prev) =>
+            prev.map((r) => (r.id === reviewId ? { ...r, replied: false, reply: null } : r))
+          )
+          if (selectedReview?.id === reviewId) {
+            setSelectedReview({ ...selectedReview, replied: false, reply: null })
+          }
+        }
+      } else {
+        // Fallback: mark as not replied
+        setReviews((prev) =>
+          prev.map((r) => (r.id === reviewId ? { ...r, replied: false, reply: null } : r))
+        )
+        if (selectedReview?.id === reviewId) {
+          setSelectedReview({ ...selectedReview, replied: false, reply: null })
+        }
+      }
+      showToast('Reply deleted successfully', 'success')
+    } catch (error: any) {
+      showToast(error.message || 'Failed to delete reply', 'error')
     }
   }
 
@@ -109,13 +193,15 @@ export function RespondTab({ businessLocationId, businessName }: RespondTabProps
         <div className="lg:col-span-6 min-h-0 overflow-y-auto pl-4">
           {selectedReview ? (
             <div className="bg-white rounded-lg border border-slate-200 p-6 shadow-sm">
-              <ReviewDetail
-                review={selectedReview}
-                businessLocationId={businessLocationId}
-                businessName={businessName}
-                onReplyPosted={handleReplyPosted}
-                onError={(error: string) => showToast(error, 'error')}
-              />
+            <ReviewDetail
+              review={selectedReview}
+              businessLocationId={businessLocationId}
+              businessName={businessName}
+              onReplyPosted={handleReplyPosted}
+              onReplyUpdated={handleReplyUpdated}
+              onReplyDeleted={handleReplyDeleted}
+              onError={(error: string) => showToast(error, 'error')}
+            />
             </div>
           ) : (
             <div className="flex items-center justify-center h-full min-h-[400px] text-slate-400 bg-white rounded-lg border border-slate-200 p-8">

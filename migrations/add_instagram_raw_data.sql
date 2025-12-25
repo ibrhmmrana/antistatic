@@ -12,3 +12,4 @@ COMMENT ON COLUMN business_insights.instagram_raw_comments IS 'Raw Instagram com
 COMMENT ON COLUMN business_insights.instagram_metrics IS 'Computed Instagram metrics (likes, posting frequency, etc.) for dashboard display.';
 COMMENT ON COLUMN business_insights.instagram_data_fetched_at IS 'Timestamp when the Instagram raw data was last fetched from Apify.';
 
+

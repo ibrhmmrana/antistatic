@@ -10,3 +10,4 @@ COMMENT ON COLUMN business_insights.instagram_ai_analysis IS 'Cached AI analysis
 COMMENT ON COLUMN business_insights.instagram_ai_analysis_generated_at IS 'Timestamp when the Instagram AI analysis was last generated.';
 COMMENT ON COLUMN business_insights.instagram_username IS 'Instagram username used for this analysis.';
 
+

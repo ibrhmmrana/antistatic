@@ -709,7 +709,8 @@ export async function fetchGBPReviewsForLocation(
             updateTime: review.updateTime,
             images: reviewImages.length > 0 ? reviewImages : undefined,
             name: review.rawReview?.name || undefined, // Store full review name for API calls
-            reply: review.rawReview?.reply || undefined, // Store reply if it exists
+            // Store reply from reviewReply field (Google API v4 format)
+            reply: review.rawReview?.reviewReply || review.rawReview?.reply || undefined,
           },
         }
       })

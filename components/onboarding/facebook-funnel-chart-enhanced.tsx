@@ -47,3 +47,4 @@ export default function FunnelChartEnhanced({ data }: FunnelChartEnhancedProps) 
   )
 }
 
+

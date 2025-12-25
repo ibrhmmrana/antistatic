@@ -14,3 +14,4 @@ COMMENT ON COLUMN business_locations.location_range IS 'Location range bucket: 1
 
 
 
+

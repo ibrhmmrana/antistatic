@@ -28,10 +28,12 @@ interface Review {
   createTime: string
   source: 'google'
   replied: boolean
+  reply?: { comment: string; updateTime?: string } | null
   sentiment: 'positive' | 'neutral' | 'negative'
   categories: string[]
   images?: string[]
   reviewName?: string | null
+  reviewId?: string | null
 }
 
 interface ReviewListProps {
@@ -128,6 +130,25 @@ export function ReviewList({ reviews, selectedReview, onSelectReview, loading }:
               <p className="text-sm text-slate-600 line-clamp-2 mb-2" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
                 {review.text}
               </p>
+              
+              {/* Reply Preview */}
+              {review.replied && review.reply && (
+                <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs font-semibold text-blue-800" style={{ fontFamily: 'var(--font-google-sans)' }}>
+                      Your Reply
+                    </span>
+                    {review.reply.updateTime && (
+                      <span className="text-xs text-blue-600">
+                        {formatTimeAgo(new Date(review.reply.updateTime))}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-700 line-clamp-2" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                    {review.reply.comment}
+                  </p>
+                </div>
+              )}
               
               {/* Image Carousel in Preview */}
               {review.images && review.images.length > 0 && (

@@ -11,10 +11,12 @@ interface Review {
   createTime: string
   source: 'google'
   replied: boolean
+  reply?: { comment: string; updateTime?: string } | null
   sentiment: 'positive' | 'neutral' | 'negative'
   categories: string[]
   images?: string[]
   reviewName?: string | null // Full review name for API calls (e.g., "accounts/.../locations/.../reviews/...")
+  reviewId?: string | null // Google review ID for fallback construction
 }
 
 interface AIReplyComposerProps {
@@ -120,11 +122,6 @@ export function AIReplyComposer({ review, businessLocationId, businessName, onRe
       return
     }
 
-    if (!review.reviewName) {
-      setError('Review identifier missing. Please refresh the page and try again.')
-      return
-    }
-
     setPosting(true)
     setError(null)
 
@@ -133,7 +130,8 @@ export function AIReplyComposer({ review, businessLocationId, businessName, onRe
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          reviewName: review.reviewName,
+          reviewName: review.reviewName || null, // Send null if missing, API will try to construct it
+          reviewId: review.reviewId || null, // Send Google review ID as fallback for construction
           comment: replyText,
           businessLocationId,
         }),

@@ -96,21 +96,76 @@ export async function GET(request: NextRequest) {
         if (review.review_id.match(/^accounts\/[^/]+\/locations\/[^/]+\/reviews\/[^/]+$/)) {
           reviewName = review.review_id
         } else if (typedLocation?.google_location_name) {
-          // google_location_name format: "accounts/123/locations/456"
-          // review name format: "accounts/123/locations/456/reviews/789"
-          // Extract review_id (might be just the ID or partial path)
-          const reviewId = review.review_id.includes('/') 
-            ? review.review_id.split('/').pop() 
-            : review.review_id
-          reviewName = `${typedLocation.google_location_name}/reviews/${reviewId}`
+          // Validate google_location_name format: "accounts/123/locations/456"
+          const locationNameMatch = typedLocation.google_location_name.match(/^accounts\/[^/]+\/locations\/[^/]+$/)
+          if (locationNameMatch) {
+            // review name format: "accounts/123/locations/456/reviews/789"
+            // Extract review_id (might be just the ID or partial path)
+            let reviewId = review.review_id
+            if (reviewId.includes('/')) {
+              // If review_id contains slashes, extract the last segment
+              reviewId = reviewId.split('/').pop() || reviewId
+            }
+            // Clean reviewId - remove any whitespace or invalid characters
+            reviewId = reviewId.trim()
+            if (reviewId && reviewId.length > 0) {
+              reviewName = `${typedLocation.google_location_name}/reviews/${reviewId}`
+              console.log('[Reviews API] Constructed reviewName:', {
+                reviewId: review.review_id,
+                extractedReviewId: reviewId,
+                googleLocationName: typedLocation.google_location_name,
+                constructedReviewName: reviewName,
+              })
+            } else {
+              console.warn('[Reviews API] Cannot construct reviewName: reviewId is empty after processing', {
+                originalReviewId: review.review_id,
+              })
+            }
+          } else {
+            console.warn('[Reviews API] Cannot construct reviewName: invalid google_location_name format', {
+              googleLocationName: typedLocation.google_location_name,
+              reviewId: review.review_id,
+            })
+          }
+        } else {
+          console.warn('[Reviews API] Cannot construct reviewName: missing google_location_name', {
+            reviewId: review.review_id,
+            hasLocation: !!typedLocation,
+            hasGoogleLocationName: !!typedLocation?.google_location_name,
+          })
         }
+      } else if (!reviewName) {
+        console.warn('[Reviews API] Cannot construct reviewName: missing review_id', {
+          reviewId: review.review_id,
+        })
       }
 
       // Check if review has a reply (from raw_payload.reply or separate field)
       let replied = false
+      let replyData: { comment: string; updateTime?: string } | null = null
       if (review.raw_payload && typeof review.raw_payload === 'object') {
         const payload = review.raw_payload as any
-        replied = !!(payload.reply && payload.reply.comment)
+        if (payload.reply) {
+          // Check if reply has comment field (Google API format)
+          if (payload.reply.comment) {
+            replied = true
+            replyData = {
+              comment: payload.reply.comment,
+              updateTime: payload.reply.updateTime || payload.reply.update_time,
+            }
+          }
+        }
+      }
+
+      // Validate reviewName format before returning
+      let finalReviewName: string | null = reviewName
+      if (finalReviewName && !finalReviewName.match(/^accounts\/[^/]+\/locations\/[^/]+\/reviews\/[^/]+$/)) {
+        console.error('[Reviews API] Invalid reviewName format constructed:', {
+          reviewName: finalReviewName,
+          reviewId: review.id,
+        })
+        // Don't return invalid reviewName - set to null so frontend shows error
+        finalReviewName = null
       }
 
       return {
@@ -122,10 +177,12 @@ export async function GET(request: NextRequest) {
         createTime: review.published_at || new Date().toISOString(),
         source: 'google' as const,
         replied,
+        reply: replyData, // Include reply data if available
         sentiment,
         categories,
         images: reviewImages,
-        reviewName, // Full review name for API calls (e.g., "accounts/.../locations/.../reviews/...")
+        reviewName: finalReviewName, // Full review name for API calls (e.g., "accounts/.../locations/.../reviews/...")
+        reviewId: review.review_id || null, // Google review ID for fallback construction
       }
     })
 

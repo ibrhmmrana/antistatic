@@ -25,7 +25,7 @@ export function ReputationHubPage({ businessLocationId, businessName }: Reputati
             </h1>
             
             {/* Tabs */}
-            <div className="flex gap-1 border-b border-slate-200">
+            <div className="flex gap-1">
               <button
                 onClick={() => setActiveTab('respond')}
                 className={`px-4 py-2 text-sm font-medium transition-colors ${

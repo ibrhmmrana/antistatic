@@ -5,3 +5,4 @@ ADD COLUMN IF NOT EXISTS categories TEXT[];
 COMMENT ON COLUMN business_locations.categories IS 'Array of Google Places categories/types (e.g., ["Cafe", "Food", "Restaurant"])';
 
 
+

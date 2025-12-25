@@ -16,3 +16,4 @@ COMMENT ON COLUMN business_insights.facebook_raw_posts IS 'Normalized Facebook p
 COMMENT ON COLUMN business_insights.facebook_metrics IS 'Computed Facebook metrics (cadence, engagement, format mix, etc.).';
 COMMENT ON COLUMN business_insights.facebook_data_fetched_at IS 'Timestamp when the Facebook raw data was last fetched from Apify.';
 
+
