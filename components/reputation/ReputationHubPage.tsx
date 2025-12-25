@@ -21,8 +21,8 @@ export function ReputationHubPage({ businessLocationId, businessName }: Reputati
         <div className="shrink-0 relative bg-[#F1F3F4] border-b border-slate-200 overflow-hidden">
           {/* Decorative background pattern */}
           <div className="pointer-events-none absolute inset-0 hidden md:block z-0">
-            {/* Top-left cluster */}
-            <div className="absolute left-10 top-6 flex flex-col gap-3">
+            {/* Second quarter - randomized */}
+            <div className="absolute left-[32%] top-4 flex flex-col gap-3">
               <span
                 className="h-7 w-9 bg-[#34A853] opacity-80"
                 style={{ borderRadius: '60% 40% 55% 45% / 55% 45% 60% 40%' }}
@@ -33,8 +33,94 @@ export function ReputationHubPage({ businessLocationId, businessName }: Reputati
               />
             </div>
 
-            {/* High center cluster */}
-            <div className="absolute left-1/2 -translate-x-1/2 top-2 flex flex-col items-center gap-2">
+            {/* Second quarter - circle between blobs */}
+            <div className="absolute left-[35%] top-16">
+              <svg
+                viewBox="0 0 100 100"
+                className="h-14 w-14 text-[#34A853] opacity-45"
+                aria-hidden="true"
+              >
+                <circle
+                  cx="50"
+                  cy="50"
+                  r="40"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeDasharray="5 5"
+                />
+              </svg>
+            </div>
+
+            {/* Second quarter - randomized */}
+            <div className="absolute left-[38%] bottom-2 flex flex-col gap-2">
+              <span
+                className="h-4 w-6 bg-[#4285F4] opacity-55"
+                style={{ borderRadius: '55% 45% 60% 40% / 50% 50% 45% 55%' }}
+              />
+              <span
+                className="h-3 w-5 bg-[#EA4335] opacity-70 translate-x-3"
+                style={{ borderRadius: '65% 35% 50% 50% / 60% 40% 55% 45%' }}
+              />
+            </div>
+
+            {/* Third quarter - triangle with blobs around it */}
+            <div className="absolute left-[58%] top-12">
+              <svg
+                viewBox="0 0 100 100"
+                className="h-16 w-16 text-[#EA4335] opacity-50"
+                aria-hidden="true"
+              >
+                <polygon
+                  points="50,10 90,80 10,80"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeDasharray="3 3"
+                />
+              </svg>
+            </div>
+
+            {/* Blobs around triangle */}
+            <div className="absolute left-[54%] top-8">
+              <span
+                className="h-4 w-6 bg-[#FBBC05] opacity-70"
+                style={{ borderRadius: '55% 45% 60% 40% / 50% 50% 45% 55%' }}
+              />
+            </div>
+            <div className="absolute left-[62%] top-10">
+              <span
+                className="h-3 w-5 bg-[#4285F4] opacity-65"
+                style={{ borderRadius: '60% 40% 55% 45% / 50% 50% 60% 40%' }}
+              />
+            </div>
+            <div className="absolute left-[56%] top-20">
+              <span
+                className="h-5 w-7 bg-[#34A853] opacity-60"
+                style={{ borderRadius: '50% 50% 45% 55% / 60% 40% 50% 50%' }}
+              />
+            </div>
+            <div className="absolute left-[60%] top-22">
+              <span
+                className="h-3 w-4 bg-[#EA4335] opacity-75"
+                style={{ borderRadius: '65% 35% 50% 50% / 60% 40% 55% 45%' }}
+              />
+            </div>
+
+            {/* Fourth quarter - randomized */}
+            <div className="absolute left-[72%] top-20 flex gap-2">
+              <span
+                className="h-5 w-7 bg-[#FBBC05] opacity-75"
+                style={{ borderRadius: '50% 50% 45% 55% / 60% 40% 50% 50%' }}
+              />
+              <span
+                className="h-4 w-6 bg-[#34A853] opacity-65 -translate-y-1"
+                style={{ borderRadius: '60% 40% 55% 45% / 50% 50% 60% 40%' }}
+              />
+            </div>
+
+            {/* Fourth quarter - randomized */}
+            <div className="absolute left-[82%] top-2 flex flex-col items-center gap-2">
               <span
                 className="h-8 w-11 bg-[#4285F4] opacity-60"
                 style={{ borderRadius: '55% 45% 65% 35% / 50% 60% 40% 50%' }}
@@ -45,8 +131,8 @@ export function ReputationHubPage({ businessLocationId, businessName }: Reputati
               />
             </div>
 
-            {/* Right cluster with diamond + blob */}
-            <div className="absolute right-12 top-10 flex flex-col items-end gap-3">
+            {/* Fourth quarter - randomized */}
+            <div className="absolute left-[76%] top-16 flex flex-col items-end gap-3">
               <svg
                 viewBox="0 0 120 80"
                 className="h-20 w-20 text-[#4285F4] opacity-70"
@@ -66,8 +152,16 @@ export function ReputationHubPage({ businessLocationId, businessName }: Reputati
               />
             </div>
 
-            {/* Lower-right mini cluster */}
-            <div className="absolute right-32 bottom-6 flex gap-3">
+            {/* Third quarter - randomized */}
+            <div className="absolute left-[65%] top-4">
+              <span
+                className="h-6 w-9 bg-[#FBBC05] opacity-60"
+                style={{ borderRadius: '45% 55% 50% 50% / 55% 45% 60% 40%' }}
+              />
+            </div>
+
+            {/* Fourth quarter - randomized */}
+            <div className="absolute left-[84%] bottom-2 flex gap-3">
               <span
                 className="h-3 w-4 bg-[#EA4335] opacity-70 translate-y-2"
                 style={{ borderRadius: '65% 35% 60% 40% / 50% 50% 45% 55%' }}
