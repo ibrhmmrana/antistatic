@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { ReviewFilters } from './ReviewFilters'
 import { ReviewList } from './ReviewList'
 import { ReviewDetail } from './ReviewDetail'
+import { useToast, ToastContainer } from '@/components/ui/toast'
 
 interface Review {
   id: string
@@ -17,6 +18,7 @@ interface Review {
   sentiment: 'positive' | 'neutral' | 'negative'
   categories: string[]
   images?: string[]
+  reviewName?: string | null
 }
 
 interface RespondTabProps {
@@ -34,6 +36,7 @@ export function RespondTab({ businessLocationId, businessName }: RespondTabProps
     categories: [] as string[],
   })
   const [loading, setLoading] = useState(true)
+  const { toasts, showToast, removeToast } = useToast()
 
   useEffect(() => {
     const fetchReviews = async () => {
@@ -65,52 +68,63 @@ export function RespondTab({ businessLocationId, businessName }: RespondTabProps
     return true
   })
 
-  const handleReplyPosted = (reviewId: string) => {
-    setReviews((prev) =>
-      prev.map((r) => (r.id === reviewId ? { ...r, replied: true } : r))
-    )
-    if (selectedReview?.id === reviewId) {
-      setSelectedReview({ ...selectedReview, replied: true })
+  const handleReplyPosted = async (reviewId: string) => {
+    try {
+      // The actual posting is handled by AIReplyComposer
+      // This is called after successful post
+      setReviews((prev) =>
+        prev.map((r) => (r.id === reviewId ? { ...r, replied: true } : r))
+      )
+      if (selectedReview?.id === reviewId) {
+        setSelectedReview({ ...selectedReview, replied: true })
+      }
+      showToast('Reply posted successfully', 'success')
+    } catch (error: any) {
+      showToast(error.message || 'Failed to post reply', 'error')
     }
   }
 
   return (
-    <div className="h-full min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-4">
-      {/* Filters - Left Column */}
-      <div className="lg:col-span-2 min-h-0 overflow-auto">
-        <div className="bg-white rounded-lg border border-slate-200 p-4 shadow-sm">
-          <ReviewFilters filters={filters} onFiltersChange={setFilters} reviews={reviews} />
+    <>
+      <ToastContainer toasts={toasts} onClose={removeToast} />
+      <div className="h-full min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-4">
+        {/* Filters - Left Column */}
+        <div className="lg:col-span-2 min-h-0 overflow-auto">
+          <div className="bg-white rounded-lg border border-slate-200 p-4 shadow-sm">
+            <ReviewFilters filters={filters} onFiltersChange={setFilters} reviews={reviews} />
+          </div>
+        </div>
+
+        {/* List - Middle Column */}
+        <div className="lg:col-span-4 min-h-0 overflow-y-auto border-r border-slate-200 pr-4">
+          <ReviewList
+            reviews={filteredReviews}
+            selectedReview={selectedReview}
+            onSelectReview={setSelectedReview}
+            loading={loading}
+          />
+        </div>
+
+        {/* Detail + Composer - Right Column */}
+        <div className="lg:col-span-6 min-h-0 overflow-y-auto pl-4">
+          {selectedReview ? (
+            <div className="bg-white rounded-lg border border-slate-200 p-6 shadow-sm">
+              <ReviewDetail
+                review={selectedReview}
+                businessLocationId={businessLocationId}
+                businessName={businessName}
+                onReplyPosted={handleReplyPosted}
+                onError={(error: string) => showToast(error, 'error')}
+              />
+            </div>
+          ) : (
+            <div className="flex items-center justify-center h-full min-h-[400px] text-slate-400 bg-white rounded-lg border border-slate-200 p-8">
+              Select a review to view details and compose a reply
+            </div>
+          )}
         </div>
       </div>
-
-      {/* List - Middle Column */}
-      <div className="lg:col-span-4 min-h-0 overflow-y-auto border-r border-slate-200 pr-4">
-        <ReviewList
-          reviews={filteredReviews}
-          selectedReview={selectedReview}
-          onSelectReview={setSelectedReview}
-          loading={loading}
-        />
-      </div>
-
-      {/* Detail + Composer - Right Column */}
-      <div className="lg:col-span-6 min-h-0 overflow-y-auto pl-4">
-        {selectedReview ? (
-          <div className="bg-white rounded-lg border border-slate-200 p-6 shadow-sm">
-            <ReviewDetail
-              review={selectedReview}
-              businessLocationId={businessLocationId}
-              businessName={businessName}
-              onReplyPosted={handleReplyPosted}
-            />
-          </div>
-        ) : (
-          <div className="flex items-center justify-center h-full min-h-[400px] text-slate-400 bg-white rounded-lg border border-slate-200 p-8">
-            Select a review to view details and compose a reply
-          </div>
-        )}
-      </div>
-    </div>
+    </>
   )
 }
 

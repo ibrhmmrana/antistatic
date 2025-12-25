@@ -14,16 +14,18 @@ interface Review {
   sentiment: 'positive' | 'neutral' | 'negative'
   categories: string[]
   images?: string[]
+  reviewName?: string | null // Full review name for API calls (e.g., "accounts/.../locations/.../reviews/...")
 }
 
 interface AIReplyComposerProps {
   review: Review
   businessLocationId: string
   businessName: string
-  onReplyPosted: (reviewId: string) => void
+  onReplyPosted: (reviewId: string) => void | Promise<void>
+  onError?: (error: string) => void
 }
 
-export function AIReplyComposer({ review, businessLocationId, businessName, onReplyPosted }: AIReplyComposerProps) {
+export function AIReplyComposer({ review, businessLocationId, businessName, onReplyPosted, onError }: AIReplyComposerProps) {
   const [tone, setTone] = useState<'warm' | 'professional' | 'apologetic' | 'friendly'>('warm')
   const [length, setLength] = useState<'short' | 'medium' | 'long'>('medium')
   const [generating, setGenerating] = useState(false)
@@ -112,26 +114,65 @@ export function AIReplyComposer({ review, businessLocationId, businessName, onRe
   }
 
   const handlePostReply = async () => {
-    const replyText = customReply
-    if (!replyText.trim()) return
+    const replyText = customReply.trim()
+    if (!replyText) {
+      setError('Please enter a reply before posting')
+      return
+    }
+
+    if (!review.reviewName) {
+      setError('Review identifier missing. Please refresh the page and try again.')
+      return
+    }
 
     setPosting(true)
+    setError(null)
+
     try {
-      // Stub: Just mark as replied locally
-      // In production, this would POST to Google Business Profile API
-      await new Promise((resolve) => setTimeout(resolve, 500))
+      const response = await fetch('/api/reputation/reviews/reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reviewName: review.reviewName,
+          comment: replyText,
+          businessLocationId,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        // Handle specific error codes
+        if (data.code === 'TOKEN_EXPIRED' || data.code === 'AUTH_FAILED') {
+          throw new Error('Google Business Profile connection expired. Please reconnect your account in Settings.')
+        }
+        if (data.code === 'PERMISSION_DENIED') {
+          throw new Error('Permission denied. Please ensure your location is verified and you have permission to reply.')
+        }
+        if (data.code === 'REVIEW_NOT_FOUND') {
+          throw new Error('Review not found. It may have been deleted.')
+        }
+        throw new Error(data.error || 'Failed to post reply')
+      }
+
+      // Success - notify parent and clear state
+      await onReplyPosted(review.id)
       
-      // Show toast (stub)
-      alert('Reply posted (stub)')
-      onReplyPosted(review.id)
       // Clear saved suggestions for this review since it's been replied to
       const storageKey = `reply_suggestions_${review.id}`
       localStorage.removeItem(storageKey)
       setSelectedSuggestion(null)
       setSuggestions([])
       setCustomReply('')
-    } catch (error) {
+    } catch (error: any) {
       console.error('[AIReplyComposer] Failed to post reply:', error)
+      const errorMessage = error.message || 'Failed to post reply. Please try again.'
+      setError(errorMessage)
+      
+      // Notify parent about error for toast
+      if (onError) {
+        onError(errorMessage)
+      }
     } finally {
       setPosting(false)
     }

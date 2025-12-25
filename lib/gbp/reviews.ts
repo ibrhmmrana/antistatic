@@ -708,6 +708,8 @@ export async function fetchGBPReviewsForLocation(
             createTime: review.createTime,
             updateTime: review.updateTime,
             images: reviewImages.length > 0 ? reviewImages : undefined,
+            name: review.rawReview?.name || undefined, // Store full review name for API calls
+            reply: review.rawReview?.reply || undefined, // Store reply if it exists
           },
         }
       })

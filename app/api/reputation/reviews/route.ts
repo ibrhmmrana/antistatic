@@ -66,13 +66,24 @@ export async function GET(request: NextRequest) {
         categories.push('general')
       }
 
-      // Extract images from raw_payload
+      // Extract images and review name from raw_payload
       let reviewImages: string[] = []
+      let reviewName: string | null = null
       if (review.raw_payload && typeof review.raw_payload === 'object') {
         const payload = review.raw_payload as any
         if (payload.images && Array.isArray(payload.images)) {
           reviewImages = payload.images
         }
+        if (payload.name && typeof payload.name === 'string') {
+          reviewName = payload.name
+        }
+      }
+
+      // Check if review has a reply (from raw_payload.reply or separate field)
+      let replied = false
+      if (review.raw_payload && typeof review.raw_payload === 'object') {
+        const payload = review.raw_payload as any
+        replied = !!(payload.reply && payload.reply.comment)
       }
 
       return {
@@ -83,10 +94,11 @@ export async function GET(request: NextRequest) {
         text: review.review_text || '',
         createTime: review.published_at || new Date().toISOString(),
         source: 'google' as const,
-        replied: false, // TODO: Check if replied in separate query or add replied field
+        replied,
         sentiment,
         categories,
         images: reviewImages,
+        reviewName, // Full review name for API calls (e.g., "accounts/.../locations/.../reviews/...")
       }
     })
 

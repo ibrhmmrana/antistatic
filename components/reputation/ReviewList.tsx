@@ -31,6 +31,7 @@ interface Review {
   sentiment: 'positive' | 'neutral' | 'negative'
   categories: string[]
   images?: string[]
+  reviewName?: string | null
 }
 
 interface ReviewListProps {

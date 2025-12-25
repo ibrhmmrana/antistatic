@@ -369,7 +369,11 @@ export async function gbpApiRequest<T>(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Unknown error' }))
-    throw new Error(`GBP API error: ${error.error?.message || JSON.stringify(error)}`)
+    const errorMessage = error.error?.message || JSON.stringify(error)
+    const apiError: any = new Error(`GBP API error: ${errorMessage}`)
+    apiError.status = response.status
+    apiError.message = errorMessage
+    throw apiError
   }
 
   return response.json()

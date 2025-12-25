@@ -32,13 +32,15 @@ interface Review {
   sentiment: 'positive' | 'neutral' | 'negative'
   categories: string[]
   images?: string[]
+  reviewName?: string | null
 }
 
 interface ReviewDetailProps {
   review: Review
   businessLocationId: string
   businessName: string
-  onReplyPosted: (reviewId: string) => void
+  onReplyPosted: (reviewId: string) => void | Promise<void>
+  onError?: (error: string) => void
 }
 
 const sentimentColors = {
@@ -47,7 +49,7 @@ const sentimentColors = {
   negative: 'bg-red-100 text-red-800',
 }
 
-export function ReviewDetail({ review, businessLocationId, businessName, onReplyPosted }: ReviewDetailProps) {
+export function ReviewDetail({ review, businessLocationId, businessName, onReplyPosted, onError }: ReviewDetailProps) {
   const [popupImageIndex, setPopupImageIndex] = useState<number | null>(null)
   const timeAgo = formatTimeAgo(new Date(review.createTime))
 
@@ -133,13 +135,14 @@ export function ReviewDetail({ review, businessLocationId, businessName, onReply
           </div>
         </div>
 
-        {/* AI Reply Composer */}
-        <AIReplyComposer
-          review={review}
-          businessLocationId={businessLocationId}
-          businessName={businessName}
-          onReplyPosted={onReplyPosted}
-        />
+      {/* AI Reply Composer */}
+      <AIReplyComposer
+        review={review}
+        businessLocationId={businessLocationId}
+        businessName={businessName}
+        onReplyPosted={onReplyPosted}
+        onError={onError}
+      />
       </div>
 
       {/* Image Popup */}
