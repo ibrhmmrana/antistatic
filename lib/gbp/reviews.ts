@@ -447,17 +447,19 @@ export async function fetchGBPReviewsForLocation(
     // Now fetch competitors and run Apify (only if GBP is working)
     // First, check if we already have recent Apify data to avoid duplicate runs
     let apifyCompetitorsData: any = null
+    let apifyRawPayload: any[] = [] // Store raw Apify payload for review enrichment
     
     // Check existing insights for recent Apify data and scrape status
     const { data: existingInsights } = await supabase
       .from('business_insights')
-      .select('apify_competitors, scrape_status')
+      .select('apify_competitors, scrape_status, apify_raw_payload')
       .eq('location_id', businessLocationId)
       .eq('source', 'google')
       .single()
 
     const existingApifyData = existingInsights?.apify_competitors as any
     const scrapeStatus = existingInsights?.scrape_status as string | undefined
+    const existingApifyRawPayload = existingInsights?.apify_raw_payload as any[] | undefined
     
     // Prevent double execution: if a scrape is already in progress, skip unless forceRefresh
     if (scrapeStatus === 'in_progress' && !forceRefresh) {
@@ -505,6 +507,10 @@ export async function fetchGBPReviewsForLocation(
         } else {
           console.log('[GBP Reviews] Skipping Apify scrape - using existing data from', existingApifyData.scrapedAt)
           apifyCompetitorsData = existingApifyData
+          // Use existing raw payload if available
+          if (existingApifyRawPayload && Array.isArray(existingApifyRawPayload)) {
+            apifyRawPayload = existingApifyRawPayload
+          }
         }
       }
       
