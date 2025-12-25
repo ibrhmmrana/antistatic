@@ -11,6 +11,7 @@ type BusinessInsight = Database['public']['Tables']['business_insights']['Row']
 type BusinessInsightSelect = Pick<BusinessInsight, 'apify_raw_payload'>
 
 type BusinessReview = Database['public']['Tables']['business_reviews']['Row']
+type BusinessReviewSelect = Pick<BusinessReview, 'id' | 'review_id' | 'author_name' | 'published_at' | 'raw_payload'>
 type BusinessReviewUpdate = Database['public']['Tables']['business_reviews']['Update']
 
 interface ApifyReview {
@@ -139,13 +140,14 @@ export async function enrichReviewsWithApifyImages(locationId: string): Promise<
     return { enriched: 0, errors: 0 }
   }
 
-  console.log('[Enrich Reviews] Found', gbpReviews.length, 'GBP reviews to enrich')
+  const typedGbpReviews = gbpReviews as BusinessReviewSelect[]
+  console.log('[Enrich Reviews] Found', typedGbpReviews.length, 'GBP reviews to enrich')
 
   // Match and enrich reviews
   let enriched = 0
   let errors = 0
 
-  for (const gbpReview of gbpReviews) {
+  for (const gbpReview of typedGbpReviews) {
     const match = matchReview(
       {
         review_id: gbpReview.review_id,
@@ -186,7 +188,7 @@ export async function enrichReviewsWithApifyImages(locationId: string): Promise<
     }
   }
 
-  console.log('[Enrich Reviews] Enrichment complete:', { enriched, errors, total: gbpReviews.length })
+  console.log('[Enrich Reviews] Enrichment complete:', { enriched, errors, total: typedGbpReviews.length })
   return { enriched, errors }
 }
 
