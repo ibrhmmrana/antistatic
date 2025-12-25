@@ -30,6 +30,7 @@ export interface ApifyPlaceData {
 
 export interface ApifyScrapeResult {
   places: CompetitorPlaceInsight[]
+  rawItems: any[] // Full raw items from Apify for storage
 }
 
 /**
@@ -183,6 +184,7 @@ export async function runApifyForPlaceIds(
 
     return {
       places: mappedPlaces,
+      rawItems: items, // Return full raw items for storage
     }
   } catch (error: any) {
     console.error('[Apify Competitors] Apify scrape failed:', {

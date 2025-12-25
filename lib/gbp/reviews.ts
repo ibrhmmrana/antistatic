@@ -23,6 +23,7 @@ export interface GBPReviewData {
   reviewerPhotoUrl?: string
   createTime: string
   updateTime: string
+  rawReview?: any // Store full raw review for images/media
 }
 
 export interface GBPReviewsSummary {
@@ -418,6 +419,8 @@ export async function fetchGBPReviewsForLocation(
         reviewerPhotoUrl: review.reviewer?.profilePhotoUrl || undefined,
         createTime: review.createTime || '',
         updateTime: review.updateTime || review.createTime || '',
+        // Store the full raw review to preserve any image/media data
+        rawReview: review,
       }
     })
 
@@ -541,7 +544,11 @@ export async function fetchGBPReviewsForLocation(
         const apifyResult = await runApifyForPlaceIds(allPlaceIds, competitorDiscovery.anchor.placeId)
         console.log('[GBP Reviews] Apify scrape completed:', {
           placesReturned: apifyResult.places.length,
+          rawItemsCount: apifyResult.rawItems?.length || 0,
         })
+
+        // Store full Apify raw payload for review enrichment
+        const apifyRawPayload = apifyResult.rawItems || []
 
         // Step 3: Compute comparison metrics
         const places = apifyResult.places
@@ -655,6 +662,32 @@ export async function fetchGBPReviewsForLocation(
           console.warn('[GBP Reviews] Failed to parse review date:', review.createTime)
         }
 
+        // Extract review images from raw review data
+        // GBP API may include images in review.media or review.photos
+        const reviewImages: string[] = []
+        if (review.rawReview) {
+          const rawReview = review.rawReview
+          // Check for media/photos in various possible locations
+          if (rawReview.media && Array.isArray(rawReview.media)) {
+            rawReview.media.forEach((media: any) => {
+              if (media.photoUrl) {
+                reviewImages.push(media.photoUrl)
+              } else if (media.thumbnailUrl) {
+                reviewImages.push(media.thumbnailUrl)
+              }
+            })
+          }
+          if (rawReview.photos && Array.isArray(rawReview.photos)) {
+            rawReview.photos.forEach((photo: any) => {
+              if (photo.url) {
+                reviewImages.push(photo.url)
+              } else if (photo.thumbnailUrl) {
+                reviewImages.push(photo.thumbnailUrl)
+              }
+            })
+          }
+        }
+
         return {
           location_id: businessLocationId,
           source: 'gbp',
@@ -668,6 +701,7 @@ export async function fetchGBPReviewsForLocation(
             starRating: review.starRating,
             createTime: review.createTime,
             updateTime: review.updateTime,
+            images: reviewImages.length > 0 ? reviewImages : undefined,
           },
         }
       })
@@ -685,6 +719,21 @@ export async function fetchGBPReviewsForLocation(
         // Don't throw - continue with insights save
       } else {
         console.log('[GBP Reviews] Successfully saved', reviewInserts.length, 'reviews to database')
+        
+        // Enrich reviews with images from Apify if we have Apify data
+        if (apifyRawPayload && apifyRawPayload.length > 0) {
+          try {
+            const { enrichReviewsWithApifyImages } = await import('@/lib/reputation/enrich-reviews-with-apify')
+            const enrichmentResult = await enrichReviewsWithApifyImages(businessLocationId)
+            console.log('[GBP Reviews] Enriched reviews with Apify images:', {
+              enriched: enrichmentResult.enriched,
+              errors: enrichmentResult.errors,
+            })
+          } catch (enrichError: any) {
+            console.error('[GBP Reviews] Failed to enrich reviews with Apify images:', enrichError)
+            // Don't throw - enrichment is optional
+          }
+        }
       }
     }
 
@@ -756,6 +805,7 @@ export async function fetchGBPReviewsForLocation(
       gbp_primary_category: categories.primary,
       gbp_additional_categories: categories.additional.length > 0 ? categories.additional : null,
       apify_competitors: apifyCompetitorsData,
+      apify_raw_payload: apifyRawPayload.length > 0 ? apifyRawPayload : undefined, // Store full raw payload
       updated_at: now,
     }
 

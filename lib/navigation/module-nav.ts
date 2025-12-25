@@ -53,7 +53,7 @@ export const NAV_ITEMS: NavItemConfig[] = [
   {
     key: 'reputation_hub',
     label: 'Reputation Hub',
-    href: '/reviews',
+    href: '/reputation',
     iconName: 'ReviewsOutlined',
     moduleKey: 'reputation_hub',
     description: getModuleDescription('reputation_hub'),

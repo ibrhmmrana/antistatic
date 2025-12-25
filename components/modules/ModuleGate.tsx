@@ -43,6 +43,12 @@ export function ModuleGate({ requiredModule, children }: ModuleGateProps) {
   const moduleInfo = MODULES[requiredModule]
 
   if (!isEnabled) {
+    // Custom message for Reputation Hub
+    const isReputationHub = requiredModule === 'reputation_hub'
+    const customMessage = isReputationHub
+      ? 'This tool protects and grows your trust by helping you reply to reviews faster and request fresh 5★ reviews. Unlock it in Settings → Tools.'
+      : undefined
+
     return (
       <div className="flex items-center justify-center min-h-[400px] bg-white">
         <div className="max-w-md mx-auto text-center px-6 py-12">
@@ -50,18 +56,24 @@ export function ModuleGate({ requiredModule, children }: ModuleGateProps) {
             <LockIcon sx={{ fontSize: 64, color: '#9aa0a6' }} />
           </div>
           <h2 className="text-2xl font-semibold text-slate-900 mb-3" style={{ fontFamily: 'var(--font-google-sans)' }}>
-            Module Locked: {moduleInfo?.name || 'Module'}
+            Locked: {moduleInfo?.name || 'Module'}
           </h2>
           <div className="text-slate-600 mb-6 space-y-2" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-            <p>
-              <strong>What it does:</strong> {moduleInfo?.tagline || moduleInfo?.bullets[0] || 'Module description'}
-            </p>
-            <p>
-              <strong>Why locked:</strong> Not enabled for this workspace yet.
-            </p>
-            <p>
-              <strong>Unlock:</strong> Go to Settings → Tools to enable this module.
-            </p>
+            {customMessage ? (
+              <p>{customMessage}</p>
+            ) : (
+              <>
+                <p>
+                  <strong>What it does:</strong> {moduleInfo?.tagline || moduleInfo?.bullets[0] || 'Module description'}
+                </p>
+                <p>
+                  <strong>Why locked:</strong> Not enabled for this workspace yet.
+                </p>
+                <p>
+                  <strong>Unlock:</strong> Go to Settings → Tools to enable this module.
+                </p>
+              </>
+            )}
           </div>
           <Link
             href="/settings"
@@ -69,7 +81,7 @@ export function ModuleGate({ requiredModule, children }: ModuleGateProps) {
             style={{ fontFamily: 'var(--font-google-sans)' }}
           >
             <SettingsOutlinedIcon sx={{ fontSize: 20 }} />
-            Go to Settings
+            Go to Settings → Tools
           </Link>
         </div>
       </div>
