@@ -116,7 +116,8 @@ export async function enrichReviewsWithApifyImages(locationId: string): Promise<
     return { enriched: 0, errors: 0 }
   }
 
-  const apifyRawPayload = insights.apify_raw_payload as any
+  const typedInsights = insights as BusinessInsightSelect
+  const apifyRawPayload = typedInsights.apify_raw_payload as any
   const apifyReviews = extractApifyReviews(apifyRawPayload)
 
   if (apifyReviews.length === 0) {
