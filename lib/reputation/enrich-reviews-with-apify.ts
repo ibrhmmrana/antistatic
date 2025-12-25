@@ -172,9 +172,9 @@ export async function enrichReviewsWithApifyImages(locationId: string): Promise<
           },
         }
 
-        const { error: updateError } = await supabase
+        const { error: updateError } = await (supabase as any)
           .from('business_reviews')
-          .update(updatedPayload as any)
+          .update(updatedPayload)
           .eq('id', gbpReview.id)
 
         if (updateError) {
