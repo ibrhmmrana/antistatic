@@ -255,7 +255,7 @@ export async function POST(request: NextRequest) {
       // Extract review_id from reviewName (last segment)
       const reviewIdFromName = reviewName.split('/').pop()
       if (reviewIdFromName) {
-        await supabase
+        await (supabase as any)
           .from('business_reviews')
           .update({
             raw_payload: {
@@ -518,7 +518,7 @@ export async function PUT(request: NextRequest) {
       // Update the review in our database
       const reviewIdFromName = reviewName.split('/').pop()
       if (reviewIdFromName) {
-        await supabase
+        await (supabase as any)
           .from('business_reviews')
           .update({
             raw_payload: {
@@ -774,7 +774,7 @@ export async function DELETE(request: NextRequest) {
       // Update the review in our database to remove reply
       const reviewIdFromName = reviewName.split('/').pop()
       if (reviewIdFromName) {
-        await supabase
+        await (supabase as any)
           .from('business_reviews')
           .update({
             raw_payload: {
