@@ -128,13 +128,12 @@ export function ReviewList({ reviews, selectedReview, onSelectReview, loading }:
                 {review.text}
               </p>
               
-              {/* Image Grid in Preview */}
+              {/* Image Carousel in Preview */}
               {review.images && review.images.length > 0 && (
                 <div className="mb-2" onClick={(e) => e.stopPropagation()}>
                   <ImageCarousel
                     images={review.images}
                     onImageClick={(imageUrl, index) => handleImageClick(imageUrl, index, review.images!)}
-                    maxVisible={4}
                   />
                 </div>
               )}
