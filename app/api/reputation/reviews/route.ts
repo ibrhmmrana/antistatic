@@ -3,7 +3,10 @@ import { createClient } from '@/lib/supabase/server'
 import { Database } from '@/lib/supabase/database.types'
 
 type BusinessReview = Database['public']['Tables']['business_reviews']['Row']
-type BusinessReviewSelect = Pick<BusinessReview, 'id' | 'rating' | 'author_name' | 'author_photo_url' | 'review_text' | 'published_at' | 'source' | 'raw_payload'>
+type BusinessReviewSelect = Pick<BusinessReview, 'id' | 'rating' | 'author_name' | 'author_photo_url' | 'review_text' | 'published_at' | 'source' | 'raw_payload' | 'review_id'>
+
+type BusinessLocation = Database['public']['Tables']['business_locations']['Row']
+type BusinessLocationSelect = Pick<BusinessLocation, 'google_location_name'>
 
 export async function GET(request: NextRequest) {
   try {
@@ -26,7 +29,7 @@ export async function GET(request: NextRequest) {
     // Fetch reviews from database
     const reviewsResult = await supabase
       .from('business_reviews')
-      .select('id, rating, author_name, author_photo_url, review_text, published_at, source, raw_payload')
+      .select('id, rating, author_name, author_photo_url, review_text, published_at, source, raw_payload, review_id')
       .eq('location_id', locationId)
       .eq('source', 'gbp')
       .order('published_at', { ascending: false })
@@ -34,6 +37,14 @@ export async function GET(request: NextRequest) {
 
     const reviews = reviewsResult.data as BusinessReviewSelect[] | null
 
+    // Fetch location to get google_location_name for constructing review names
+    const { data: location } = await supabase
+      .from('business_locations')
+      .select('google_location_name')
+      .eq('id', locationId)
+      .maybeSingle()
+
+    const typedLocation = location as BusinessLocationSelect | null
     const typedReviews = reviews || []
 
     // Transform to match frontend interface
@@ -76,6 +87,22 @@ export async function GET(request: NextRequest) {
         }
         if (payload.name && typeof payload.name === 'string') {
           reviewName = payload.name
+        }
+      }
+
+      // Fallback: Construct review name from google_location_name + review_id if missing
+      if (!reviewName && review.review_id) {
+        // Check if review_id is already a full review name path
+        if (review.review_id.match(/^accounts\/[^/]+\/locations\/[^/]+\/reviews\/[^/]+$/)) {
+          reviewName = review.review_id
+        } else if (typedLocation?.google_location_name) {
+          // google_location_name format: "accounts/123/locations/456"
+          // review name format: "accounts/123/locations/456/reviews/789"
+          // Extract review_id (might be just the ID or partial path)
+          const reviewId = review.review_id.includes('/') 
+            ? review.review_id.split('/').pop() 
+            : review.review_id
+          reviewName = `${typedLocation.google_location_name}/reviews/${reviewId}`
         }
       }
 
