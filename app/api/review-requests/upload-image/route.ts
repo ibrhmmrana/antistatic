@@ -74,7 +74,6 @@ export async function POST(request: NextRequest) {
 
     if (uploadError) {
       console.error('[Image Upload] Storage error:', uploadError)
-      console.error('[Image Upload] Error code:', uploadError.statusCode)
       console.error('[Image Upload] Error message:', uploadError.message)
       
       // Provide helpful error messages

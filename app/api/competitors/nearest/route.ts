@@ -168,7 +168,7 @@ export async function GET(request: NextRequest) {
 
     // Fetch all competitor details from Google Places API in parallel
     const nearestCompetitors = await Promise.all(
-      competitorPlaceIds.map(async (placeId) => {
+      competitorPlaceIds.map(async (placeId: string) => {
         const placeDetails = await fetchPlaceDetailsFromPlacesAPI(placeId)
         
         // If Places API fails, return minimal data with place_id

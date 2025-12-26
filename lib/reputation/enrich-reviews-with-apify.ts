@@ -509,7 +509,8 @@ export async function enrichReviewsWithApifyImages(locationId: string): Promise<
       }
 
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'enrich-reviews-with-apify.ts:480',message:'Before database update',data:{reviewId:gbpReview.id,gbpReviewId:gbpReview.review_id,imagesToSave:match.reviewImageUrls.length,updatedPayloadImages:updatedPayload.raw_payload.images.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      const payloadImages = (updatedPayload.raw_payload as any)?.images || []
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'enrich-reviews-with-apify.ts:480',message:'Before database update',data:{reviewId:gbpReview.id,gbpReviewId:gbpReview.review_id,imagesToSave:match.reviewImageUrls.length,updatedPayloadImages:Array.isArray(payloadImages)?payloadImages.length:0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
       // #endregion
       const { error: updateError, data: updatedData } = await (supabase as any)
         .from('business_reviews')

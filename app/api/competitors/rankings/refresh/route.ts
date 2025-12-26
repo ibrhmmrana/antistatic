@@ -203,7 +203,7 @@ export async function POST(request: NextRequest) {
         captured_at: new Date().toISOString(),
         results,
         your_place_id: location.place_id,
-        your_rank: yourRank > 0 ? yourRank : null,
+        your_rank: yourRank && yourRank > 0 ? yourRank : null,
       })
       .select()
       .single()
