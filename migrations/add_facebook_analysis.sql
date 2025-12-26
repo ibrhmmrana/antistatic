@@ -17,3 +17,4 @@ COMMENT ON COLUMN business_insights.facebook_metrics IS 'Computed Facebook metri
 COMMENT ON COLUMN business_insights.facebook_data_fetched_at IS 'Timestamp when the Facebook raw data was last fetched from Apify.';
 
 
+

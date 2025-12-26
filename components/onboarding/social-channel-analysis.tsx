@@ -1128,7 +1128,8 @@ export function SocialChannelAnalysis({
                                       {aiAnalysis.themes.length > 0 && (
                                         <div className="space-y-3">
                                           {aiAnalysis.themes.map((theme, idx) => {
-                                            const moduleIds = theme.prescribedModules || []
+                                            const moduleIds = (theme.prescribedModules || [])
+                                              .filter((id) => id !== 'insightsLab' && id !== 'profileManager')
                                             const modules = getModules(moduleIds)
 
                                             return (
@@ -1333,6 +1334,7 @@ export function SocialChannelAnalysis({
                                           const moduleIds = risk.prescribedModules
                                             .map((name) => moduleMap[name])
                                             .filter((id): id is AntistaticModuleId => id !== undefined)
+                                            .filter((id) => id !== 'insightsLab' && id !== 'profileManager')
 
                                           const severityColors = {
                                             low: 'bg-yellow-100 text-yellow-700 border-yellow-200',

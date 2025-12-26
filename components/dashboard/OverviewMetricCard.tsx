@@ -17,7 +17,7 @@ interface OverviewMetricCardProps {
   primaryLabel?: string
   subLeft?: string
   delta?: {
-    value: number
+    value: number // Previous period value (not the difference)
     label: string
   }
   secondaryMetric?: {
@@ -40,6 +40,9 @@ interface OverviewMetricCardProps {
   href?: string
   locked?: boolean
   lockedReason?: string
+  titleTooltip?: string // Tooltip text to show on hover of the title
+  rating?: number // Small rating display (e.g., 4.6) - shown as a small visual element
+  loading?: boolean // Show loading animation for the primary metric
 }
 
 // Helper to get channel icon path
@@ -73,6 +76,9 @@ export function OverviewMetricCard({
   href,
   locked = false,
   lockedReason,
+  rating,
+  titleTooltip,
+  loading = false,
 }: OverviewMetricCardProps) {
   const [selectedTimePeriod, setSelectedTimePeriod] = useState(timePeriodOptions?.[0]?.value || '7')
   const [showTimePeriodDropdown, setShowTimePeriodDropdown] = useState(false)
@@ -89,12 +95,23 @@ export function OverviewMetricCard({
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           {icon}
-          <h3
-            className="text-sm font-medium text-slate-700"
-            style={{ fontFamily: 'var(--font-roboto-stack)' }}
-          >
-            {title}
-          </h3>
+          {titleTooltip ? (
+            <Tooltip content={titleTooltip} side="top">
+              <h3
+                className="text-sm font-medium text-slate-700 cursor-help"
+                style={{ fontFamily: 'var(--font-roboto-stack)' }}
+              >
+                {title}
+              </h3>
+            </Tooltip>
+          ) : (
+            <h3
+              className="text-sm font-medium text-slate-700"
+              style={{ fontFamily: 'var(--font-roboto-stack)' }}
+            >
+              {title}
+            </h3>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {timePeriodOptions && timePeriodOptions.length > 0 && !locked && (
@@ -156,12 +173,21 @@ export function OverviewMetricCard({
         <div className="flex items-start gap-6">
           {/* Primary metric */}
           <div className="flex-1">
-            <div
-              className="text-3xl font-medium text-slate-900 mb-1"
-              style={{ fontFamily: 'var(--font-google-sans)' }}
-            >
-              {primary}
-            </div>
+            {loading ? (
+              <div className="h-9 mb-1 flex items-center">
+                <svg className="animate-spin h-6 w-6 text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              </div>
+            ) : (
+              <div
+                className="text-3xl font-medium text-slate-900 mb-1"
+                style={{ fontFamily: 'var(--font-google-sans)' }}
+              >
+                {primary}
+              </div>
+            )}
             {primaryLabel && (
               <p
                 className="text-xs text-slate-500 mb-2"
@@ -170,47 +196,68 @@ export function OverviewMetricCard({
                 {primaryLabel}
               </p>
             )}
-            {delta && (
-              <div className="mt-2 flex items-center gap-1">
-                {Math.abs(delta.value) < 0.1 ? (
-                  <svg className="w-3 h-3 text-slate-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 000 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
-                  </svg>
-                ) : delta.value > 0 ? (
-                  <svg className="w-3 h-3 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                  </svg>
-                ) : (
-                  <svg className="w-3 h-3 text-red-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 12.586V5a1 1 0 012 0v7.586l2.293-2.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                  </svg>
-                )}
-                <span
-                  className={`text-xs font-medium ${
-                    Math.abs(delta.value) < 0.1
-                      ? 'text-slate-400'
-                      : delta.value > 0
-                        ? 'text-green-600'
-                        : 'text-red-600'
-                  }`}
-                  style={{ fontFamily: 'var(--font-roboto-stack)' }}
-                >
-                  {delta.label.includes('stars') || delta.label.includes('requests') || delta.label.includes('impressions') || delta.label.includes('calls')
-                    ? `${Math.abs(delta.value).toFixed(0)} ${delta.label}`
-                    : `${delta.value >= 0 ? '+' : ''}${delta.value.toFixed(1)}% ${delta.label}`}
-                </span>
-              </div>
-            )}
+            {delta && (() => {
+              // Parse current value from primary (handle both string and number)
+              const currentValue = typeof primary === 'string' 
+                ? parseFloat(primary.replace(/,/g, '')) || 0
+                : typeof primary === 'number' ? primary : 0
+              const previousValue = delta.value ?? 0
+              const difference = currentValue - previousValue
+              const isIncrease = difference > 0.1
+              const isDecrease = difference < -0.1
+              const isNeutral = Math.abs(difference) <= 0.1
+
+              return (
+                <div className="mt-2 flex items-center gap-1">
+                  {isNeutral ? (
+                    <svg className="w-3 h-3 text-slate-400" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 000 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+                    </svg>
+                  ) : isIncrease ? (
+                    <svg className="w-3 h-3 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                    </svg>
+                  ) : (
+                    <svg className="w-3 h-3 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 12.586V5a1 1 0 012 0v7.586l2.293-2.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                  )}
+                  <span
+                    className={`text-xs font-medium ${
+                      isNeutral
+                        ? 'text-slate-400'
+                        : isIncrease
+                          ? 'text-green-600'
+                          : 'text-red-600'
+                    }`}
+                    style={{ fontFamily: 'var(--font-roboto-stack)' }}
+                  >
+                    {delta.label.includes('stars') || delta.label.includes('requests') || delta.label.includes('impressions') || delta.label.includes('calls') || delta.label.includes('reviews') || delta.label.includes('visits')
+                      ? `${(delta.value ?? 0).toLocaleString()} (previous period)`
+                      : `${delta.value.toFixed(1)}% (previous period)`}
+                  </span>
+                </div>
+              )
+            })()}
           </div>
 
           {/* Secondary metric */}
           <div className="flex-1">
-            <div
-              className="text-3xl font-medium text-slate-900 mb-1"
-              style={{ fontFamily: 'var(--font-google-sans)' }}
-            >
-              {secondaryMetric.value}
-            </div>
+            {loading ? (
+              <div className="h-9 mb-1 flex items-center">
+                <svg className="animate-spin h-6 w-6 text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              </div>
+            ) : (
+              <div
+                className="text-3xl font-medium text-slate-900 mb-1"
+                style={{ fontFamily: 'var(--font-google-sans)' }}
+              >
+                {secondaryMetric.value}
+              </div>
+            )}
             {secondaryMetric.label && (
               <p
                 className="text-xs text-slate-500 mb-2"
@@ -219,37 +266,49 @@ export function OverviewMetricCard({
                 {secondaryMetric.label}
               </p>
             )}
-            {secondaryMetric.delta && (
-              <div className="mt-2 flex items-center gap-1">
-                {Math.abs(secondaryMetric.delta.value) < 0.1 ? (
-                  <svg className="w-3 h-3 text-slate-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 000 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
-                  </svg>
-                ) : secondaryMetric.delta.value > 0 ? (
-                  <svg className="w-3 h-3 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                  </svg>
-                ) : (
-                  <svg className="w-3 h-3 text-red-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 12.586V5a1 1 0 012 0v7.586l2.293-2.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                  </svg>
-                )}
-                <span
-                  className={`text-xs font-medium ${
-                    Math.abs(secondaryMetric.delta.value) < 0.1
-                      ? 'text-slate-400'
-                      : secondaryMetric.delta.value > 0
-                        ? 'text-green-600'
-                        : 'text-red-600'
-                  }`}
-                  style={{ fontFamily: 'var(--font-roboto-stack)' }}
-                >
-                  {secondaryMetric.delta.label.includes('stars') || secondaryMetric.delta.label.includes('requests') || secondaryMetric.delta.label.includes('impressions') || secondaryMetric.delta.label.includes('calls') || secondaryMetric.delta.label.includes('visits')
-                    ? `${Math.abs(secondaryMetric.delta.value).toFixed(0)} ${secondaryMetric.delta.label}`
-                    : `${secondaryMetric.delta.value >= 0 ? '+' : ''}${secondaryMetric.delta.value.toFixed(1)}% ${secondaryMetric.delta.label}`}
-                </span>
-              </div>
-            )}
+            {secondaryMetric.delta && (() => {
+              // Parse current value from secondaryMetric (handle both string and number)
+              const currentValue = typeof secondaryMetric.value === 'string' 
+                ? parseFloat(secondaryMetric.value.replace(/,/g, '')) || 0
+                : typeof secondaryMetric.value === 'number' ? secondaryMetric.value : 0
+              const previousValue = secondaryMetric.delta.value ?? 0
+              const difference = currentValue - previousValue
+              const isIncrease = difference > 0.1
+              const isDecrease = difference < -0.1
+              const isNeutral = Math.abs(difference) <= 0.1
+
+              return (
+                <div className="mt-2 flex items-center gap-1">
+                  {isNeutral ? (
+                    <svg className="w-3 h-3 text-slate-400" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 000 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+                    </svg>
+                  ) : isIncrease ? (
+                    <svg className="w-3 h-3 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                    </svg>
+                  ) : (
+                    <svg className="w-3 h-3 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 12.586V5a1 1 0 012 0v7.586l2.293-2.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                  )}
+                  <span
+                    className={`text-xs font-medium ${
+                      isNeutral
+                        ? 'text-slate-400'
+                        : isIncrease
+                          ? 'text-green-600'
+                          : 'text-red-600'
+                    }`}
+                    style={{ fontFamily: 'var(--font-roboto-stack)' }}
+                  >
+                    {secondaryMetric.delta.label.includes('stars') || secondaryMetric.delta.label.includes('requests') || secondaryMetric.delta.label.includes('impressions') || secondaryMetric.delta.label.includes('calls') || secondaryMetric.delta.label.includes('visits') || secondaryMetric.delta.label.includes('reviews')
+                      ? `${(secondaryMetric.delta.value ?? 0).toLocaleString()} (previous period)`
+                      : `${secondaryMetric.delta.value.toFixed(1)}% (previous period)`}
+                  </span>
+                </div>
+              )
+            })()}
           </div>
         </div>
       ) : (
@@ -258,12 +317,21 @@ export function OverviewMetricCard({
           {/* Left: Numbers */}
           <div className="flex-1 min-w-0">
             {/* Primary number */}
-            <div
-              className="text-3xl font-medium text-slate-900 mb-1"
-              style={{ fontFamily: 'var(--font-google-sans)' }}
-            >
-              {primary}
-            </div>
+            {loading ? (
+              <div className="h-9 mb-1 flex items-center">
+                <svg className="animate-spin h-6 w-6 text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              </div>
+            ) : (
+              <div
+                className="text-3xl font-medium text-slate-900 mb-1"
+                style={{ fontFamily: 'var(--font-google-sans)' }}
+              >
+                {primary}
+              </div>
+            )}
 
             {/* Primary label */}
             {primaryLabel && (
@@ -285,41 +353,50 @@ export function OverviewMetricCard({
               </p>
             )}
 
-            {/* Delta */}
-            {delta && (
-              <div className="mt-2 flex items-center gap-1">
-                {Math.abs(delta.value) < 0.1 ? (
-                  // No change - grey
-                  <svg className="w-3 h-3 text-slate-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 000 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
-                  </svg>
-                ) : delta.value > 0 ? (
-                  // Positive change - green
-                  <svg className="w-3 h-3 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                  </svg>
-                ) : (
-                  // Negative change - red
-                  <svg className="w-3 h-3 text-red-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 12.586V5a1 1 0 012 0v7.586l2.293-2.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                  </svg>
-                )}
-                <span
-                  className={`text-xs font-medium ${
-                    Math.abs(delta.value) < 0.1
-                      ? 'text-slate-400'
-                      : delta.value > 0
-                        ? 'text-green-600'
-                        : 'text-red-600'
-                  }`}
-                  style={{ fontFamily: 'var(--font-roboto-stack)' }}
-                >
-                  {delta.label.includes('stars') || delta.label.includes('requests') || delta.label.includes('impressions') || delta.label.includes('calls')
-                    ? `${Math.abs(delta.value).toFixed(0)} ${delta.label}`
-                    : `${delta.value >= 0 ? '+' : ''}${delta.value.toFixed(1)}% ${delta.label}`}
-                </span>
-              </div>
-            )}
+            {/* Previous Period */}
+            {delta && (() => {
+              // Parse current value from primary (handle both string and number)
+              const currentValue = typeof primary === 'string' 
+                ? parseFloat(primary.replace(/,/g, '')) || 0
+                : typeof primary === 'number' ? primary : 0
+              const previousValue = delta.value ?? 0
+              const difference = currentValue - previousValue
+              const isIncrease = difference > 0.1
+              const isDecrease = difference < -0.1
+              const isNeutral = Math.abs(difference) <= 0.1
+
+              return (
+                <div className="mt-2 flex items-center gap-1">
+                  {isNeutral ? (
+                    <svg className="w-3 h-3 text-slate-400" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 000 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+                    </svg>
+                  ) : isIncrease ? (
+                    <svg className="w-3 h-3 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                    </svg>
+                  ) : (
+                    <svg className="w-3 h-3 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 12.586V5a1 1 0 012 0v7.586l2.293-2.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                  )}
+                  <span
+                    className={`text-xs font-medium ${
+                      isNeutral
+                        ? 'text-slate-400'
+                        : isIncrease
+                          ? 'text-green-600'
+                          : 'text-red-600'
+                    }`}
+                    style={{ fontFamily: 'var(--font-roboto-stack)' }}
+                  >
+                    {delta.label.includes('stars') || delta.label.includes('requests') || delta.label.includes('impressions') || delta.label.includes('calls') || delta.label.includes('reviews') || delta.label.includes('visits')
+                      ? `${(delta.value ?? 0).toLocaleString()} (previous period)`
+                      : `${delta.value.toFixed(1)}% (previous period)`}
+                  </span>
+                </div>
+              )
+            })()}
           </div>
 
           {/* Right: Chart */}

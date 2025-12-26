@@ -10,3 +10,4 @@ COMMENT ON COLUMN business_reviews.competitor_business_name IS 'Name of the comp
 CREATE INDEX IF NOT EXISTS idx_business_reviews_competitor_name ON business_reviews(competitor_business_name) WHERE source = 'apify';
 
 
+

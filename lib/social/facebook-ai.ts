@@ -10,7 +10,7 @@ import type { FacebookMetrics, FacebookAiAnalysis } from './facebook-types'
 
 // Zod schema for AI response validation
 const FacebookPrescriptionSchema = z.object({
-  moduleId: z.enum(['SOCIAL_STUDIO', 'INSIGHTS_LAB', 'PROFILE_MANAGER', 'REPUTATION_HUB']),
+  moduleId: z.enum(['SOCIAL_STUDIO', 'REPUTATION_HUB']), // INSIGHTS_LAB and PROFILE_MANAGER are coming soon
   moduleName: z.string(),
   tooltipBullets: z.array(z.string()).min(3).max(6),
 })
@@ -136,8 +136,7 @@ TASKS:
      - "recommendedActions": 2-5 concrete actions
      - "prescription": ONLY include if status = "needs_attention" AND the problem clearly maps to a module
        - moduleId: "SOCIAL_STUDIO" (content, posting, creative)
-       - moduleId: "INSIGHTS_LAB" (measure performance, experiments)
-       - moduleId: "PROFILE_MANAGER" (page completeness - only if we can infer missing basics, be conservative)
+       - Note: INSIGHTS_LAB and PROFILE_MANAGER are coming soon and should NOT be prescribed
        - moduleId: "REPUTATION_HUB" (generally NOT from posts alone, only if clear community management gaps)
      - moduleName: friendly name (e.g., "Social Studio")
      - tooltipBullets: 3-6 bullets explaining what the module does
@@ -152,8 +151,8 @@ TASKS:
 
 PRESCRIPTION RULES:
 - Only prescribe when status = "needs_attention" AND confidence is decent
-- Most Facebook issues map to SOCIAL_STUDIO or INSIGHTS_LAB
-- PROFILE_MANAGER: only if we can infer missing page basics (be conservative)
+- Most Facebook issues map to SOCIAL_STUDIO or REPUTATION_HUB
+- Note: INSIGHTS_LAB and PROFILE_MANAGER are coming soon and should NOT be prescribed
 - REPUTATION_HUB: generally NOT from posts alone (default no)
 
 Return ONLY valid JSON with this exact structure:
@@ -170,7 +169,7 @@ Return ONLY valid JSON with this exact structure:
       "whyItMatters": string,
       "recommendedActions": string[],
       "prescription": {
-        "moduleId": "SOCIAL_STUDIO" | "INSIGHTS_LAB" | "PROFILE_MANAGER" | "REPUTATION_HUB",
+        "moduleId": "SOCIAL_STUDIO" | "REPUTATION_HUB",
         "moduleName": string,
         "tooltipBullets": string[]
       } (optional, only if status = "needs_attention")
@@ -285,5 +284,6 @@ Return ONLY valid JSON with this exact structure:
     throw new Error(`Failed to generate Facebook analysis: ${error.message}`)
   }
 }
+
 
 

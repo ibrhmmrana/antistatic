@@ -129,3 +129,4 @@ export function ImagePopup({ images, currentIndex, isOpen, onClose, onNavigate }
 }
 
 
+

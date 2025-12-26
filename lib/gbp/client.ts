@@ -352,7 +352,7 @@ export async function gbpApiRequest<T>(
   }
   
   // If endpoint is for performance metrics, use performance API base
-  if (endpoint.includes('/fetchMultiDailyMetricsTimeSeries') || endpoint.includes('/reports')) {
+  if (endpoint.includes('/fetchMultiDailyMetricsTimeSeries') || endpoint.includes('/reports') || endpoint.includes('/searchkeywords') || endpoint.includes('/locations/') && endpoint.includes('/impressions')) {
     baseUrl = 'https://businessprofileperformance.googleapis.com/v1'
   }
   

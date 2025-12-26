@@ -21,6 +21,14 @@ NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 GOOGLE_PLACES_API_KEY=your_google_places_api_key
 GOOGLE_MAPS_API_KEY=your_google_maps_api_key
+
+# WhatsApp Business API (for review requests)
+WHATSAPP_PHONE_NUMBER_ID=your_whatsapp_phone_number_id
+WHATSAPP_ACCESS_TOKEN=your_whatsapp_access_token
+WHATSAPP_GRAPH_VERSION=v23.0
+
+# Supabase Storage (optional, for image uploads)
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 ```
 
 ### Getting Supabase Credentials
@@ -39,6 +47,18 @@ GOOGLE_MAPS_API_KEY=your_google_maps_api_key
    - Maps Static API
 4. Go to Credentials > Create Credentials > API Key
 5. Restrict the API key to only the APIs you need (recommended for production)
+
+### Getting WhatsApp Business API Credentials
+
+1. Go to [Meta for Developers](https://developers.facebook.com/)
+2. Create a Meta App or use an existing one
+3. Add the "WhatsApp" product to your app
+4. Go to WhatsApp > API Setup
+5. Copy your **Phone Number ID** (this is your `WHATSAPP_PHONE_NUMBER_ID`)
+6. Generate a **Temporary Access Token** or set up a **System User** for a permanent token (this is your `WHATSAPP_ACCESS_TOKEN`)
+7. **Important**: Make sure your WhatsApp template `review_temp_1` is approved in Meta Business Manager before sending messages
+
+**Note**: For production, use a System User access token instead of a temporary token. Temporary tokens expire after 24 hours.
 
 ## Step 3: Set Up Supabase Database
 
@@ -167,4 +187,10 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 ### Database errors
 - Make sure all SQL migrations have been run
 - Verify RLS policies allow the current user to access their data
+
+### "WhatsApp service not configured"
+- Make sure `WHATSAPP_PHONE_NUMBER_ID` and `WHATSAPP_ACCESS_TOKEN` are set in `.env.local`
+- Restart the dev server after adding environment variables
+- Verify your WhatsApp template `review_temp_1` is approved in Meta Business Manager
+- Check that your access token has the `whatsapp_business_messaging` permission
 

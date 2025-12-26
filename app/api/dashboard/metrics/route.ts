@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { fetchGBPPerformanceMetrics, fetchGBPImpressionsMetrics, fetchGBPCallsAndWebsiteMetrics } from '@/lib/dashboard/get-overview-metrics'
+import { fetchGBPReviewsMetrics } from '@/lib/dashboard/get-reviews-metrics'
 
 export async function GET(request: NextRequest) {
   try {
@@ -16,7 +17,7 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const businessLocationId = searchParams.get('businessLocationId')
     const timePeriod = parseInt(searchParams.get('timePeriod') || '7', 10) // Days
-    const metricType = searchParams.get('metricType') // 'listings' | 'impressions' | 'callsAndWebsite'
+    const metricType = searchParams.get('metricType') // 'listings' | 'impressions' | 'callsAndWebsite' | 'reviews'
 
     if (!businessLocationId) {
       return NextResponse.json({ error: 'businessLocationId is required' }, { status: 400 })
@@ -139,6 +140,37 @@ export async function GET(request: NextRequest) {
               deltaWebsite,
               callsSeries7d: callsAndWebsiteMetrics.callsSeries7d,
               websiteSeries7d: callsAndWebsiteMetrics.websiteSeries7d,
+            },
+          },
+        }
+      }
+    } else if (metricType === 'reviews') {
+      const reviewsMetrics = await fetchGBPReviewsMetrics(
+        user.id,
+        businessLocationId,
+        fetchStartDate, // Fetch from previous period start to get all data
+        now,
+        chartStartDate, // Chart shows selected period
+        prevPeriodStart,
+        prevPeriodEnd
+      )
+
+      if (reviewsMetrics) {
+        // Always calculate delta (difference between current and previous period)
+        // If previous period has no reviews, delta is just the current count (positive change)
+        // If previous period has reviews, delta is the difference (can be positive or negative)
+        const delta = reviewsMetrics.reviews7dPrev >= 0
+          ? reviewsMetrics.reviews7d - reviewsMetrics.reviews7dPrev
+          : (reviewsMetrics.reviews7d > 0 ? reviewsMetrics.reviews7d : undefined)
+
+        result = {
+          metrics: {
+            reviews: {
+              reviews7d: reviewsMetrics.reviews7d,
+              reviews7dPrev: reviewsMetrics.reviews7dPrev,
+              deltaReviews: delta,
+              series7d: reviewsMetrics.series7d,
+              overallRating: reviewsMetrics.overallRating,
             },
           },
         }

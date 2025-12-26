@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { Database } from '@/lib/supabase/database.types'
+import { enrichReviewsWithApifyImages } from '@/lib/reputation/enrich-reviews-with-apify'
 
 type BusinessReview = Database['public']['Tables']['business_reviews']['Row']
 type BusinessReviewSelect = Pick<BusinessReview, 'id' | 'rating' | 'author_name' | 'author_photo_url' | 'review_text' | 'published_at' | 'source' | 'raw_payload' | 'review_id'>
@@ -45,7 +46,52 @@ export async function GET(request: NextRequest) {
       .maybeSingle()
 
     const typedLocation = location as BusinessLocationSelect | null
-    const typedReviews = reviews || []
+    let typedReviews = reviews || []
+
+    // Enrich reviews with images from Apify if we have Apify data
+    // This ensures images are added even if enrichment didn't run during onboarding
+    try {
+      // Check if apify_raw_payload exists before attempting enrichment
+      const { data: insightsCheck } = await supabase
+        .from('business_insights')
+        .select('apify_raw_payload')
+        .eq('location_id', locationId)
+        .eq('source', 'google')
+        .maybeSingle()
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'reviews/route.ts:54',message:'Pre-enrichment check',data:{hasInsights:!!insightsCheck,hasApifyPayload:!!insightsCheck?.apify_raw_payload,payloadIsNull:insightsCheck?.apify_raw_payload===null,payloadType:typeof insightsCheck?.apify_raw_payload,payloadIsArray:Array.isArray(insightsCheck?.apify_raw_payload)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
+      
+      // Note: If payload is null, enrichment will gracefully handle it and return { enriched: 0, errors: 0 }
+      // No need to trigger re-scrape here - payload should already exist from onboarding
+      
+      const enrichmentResult = await enrichReviewsWithApifyImages(locationId)
+      console.log('[Reviews API] Enrichment result:', enrichmentResult)
+      
+      // Always re-fetch reviews after enrichment attempt to get any updated images
+      // (even if enriched count is 0, there might have been matches that didn't update)
+      const updatedReviewsResult = await supabase
+        .from('business_reviews')
+        .select('id, rating, author_name, author_photo_url, review_text, published_at, source, raw_payload, review_id')
+        .eq('location_id', locationId)
+        .eq('source', 'gbp')
+        .order('published_at', { ascending: false })
+        .limit(100)
+      
+      if (updatedReviewsResult.data) {
+        // Use updated reviews
+        typedReviews = updatedReviewsResult.data as BusinessReviewSelect[]
+        console.log('[Reviews API] Re-fetched', typedReviews.length, 'reviews after enrichment')
+        // #region agent log
+        const sampleReview = typedReviews.find(r=>r.review_id?.includes('AbFvOqmaDMDI8CTPXGzer0Bx9ezg'))
+        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'reviews/route.ts:70',message:'After re-fetch reviews',data:{totalReviews:typedReviews.length,targetReviewFound:!!sampleReview,targetReviewRawPayload:sampleReview?.raw_payload?JSON.stringify(sampleReview.raw_payload).substring(0,200):null,targetReviewImages:((sampleReview?.raw_payload as any)?.images||[]).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
+      }
+    } catch (enrichError: any) {
+      console.error('[Reviews API] Failed to enrich reviews with Apify images:', enrichError)
+      // Don't throw - continue with existing reviews even if enrichment fails
+    }
 
     // Transform to match frontend interface
     // For MVP, we'll infer sentiment and categories from rating and text
@@ -82,11 +128,34 @@ export async function GET(request: NextRequest) {
       let reviewName: string | null = null
       if (review.raw_payload && typeof review.raw_payload === 'object') {
         const payload = review.raw_payload as any
+        // #region agent log
+        if(review.review_id?.includes('AbFvOqmaDMDI8CTPXGzer0Bx9ezg')){
+          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'reviews/route.ts:111',message:'Reading images from raw_payload',data:{reviewId:review.review_id,rawPayloadType:typeof review.raw_payload,payloadKeys:Object.keys(payload),hasImagesKey:'images' in payload,imagesValue:payload.images,imagesIsArray:Array.isArray(payload.images),imagesLength:Array.isArray(payload.images)?payload.images.length:0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+        }
+        // #endregion
         if (payload.images && Array.isArray(payload.images)) {
           reviewImages = payload.images
         }
         if (payload.name && typeof payload.name === 'string') {
           reviewName = payload.name
+        }
+        
+        // Debug logging for reviews with missing images
+        if (reviewImages.length === 0 && review.review_id) {
+          console.log('[Reviews API] Review has no images:', {
+            reviewId: review.review_id,
+            authorName: review.author_name,
+            payloadKeys: Object.keys(payload),
+            hasImagesKey: 'images' in payload,
+            imagesValue: payload.images,
+            fullPayload: JSON.stringify(payload).substring(0, 500), // Log first 500 chars of payload
+          })
+        } else if (reviewImages.length > 0) {
+          console.log('[Reviews API] Review HAS images:', {
+            reviewId: review.review_id,
+            imageCount: reviewImages.length,
+            firstImage: reviewImages[0],
+          })
         }
       }
 

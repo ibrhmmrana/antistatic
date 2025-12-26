@@ -23,42 +23,42 @@ export function OverviewGrid({ overviewMetrics, enabledTools, businessLocationId
 
   // Row 1: Reviews | Listings | New Leads
   const reviewsEnabled = isModuleEnabled('reputation_hub')
-  const listingsEnabled = isModuleEnabled('profile_manager')
-  const newLeadsEnabled = isModuleEnabled('insights_lab')
+  // Google Maps (listings) is a basic GBP metric, always available
+  const listingsEnabled = true
+  // Impressions is a basic GBP metric, always available
+  const newLeadsEnabled = true
 
   // Row 2: Inbox | Social | Visibility
   const inboxEnabled = isModuleEnabled('reputation_hub') // Same as reviews
   const socialEnabled = isModuleEnabled('social_studio')
-  const visibilityEnabled = isModuleEnabled('insights_lab')
+  // Engagement is a basic social metric, always available if social is enabled
+  const visibilityEnabled = isModuleEnabled('social_studio')
 
   const reviewsModule = getModuleInfo('reputation_hub')
-  const listingsModule = getModuleInfo('profile_manager')
-  const insightsModule = getModuleInfo('insights_lab')
   const socialModule = getModuleInfo('social_studio')
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 auto-rows-fr">
       {/* Row 1, Col 1: Reviews */}
-      <OverviewMetricCard
+      <TimePeriodMetricCard
         title="Reviews"
         icon={<StarIcon sx={{ fontSize: 20, color: '#fbbf24' }} />}
-        primary={overviewMetrics.reviews.ratingAvg > 0 ? overviewMetrics.reviews.ratingAvg.toFixed(1) : '—'}
-        primaryLabel="overall rating"
-        delta={
-          overviewMetrics.reviews.deltaRating !== undefined
-            ? {
-                value: overviewMetrics.reviews.deltaRating,
-                label: 'stars in past week',
-              }
-            : undefined
-        }
-        chart={{
-          type: 'ratingLine',
-          data: overviewMetrics.reviews.series7d,
-          color: '#fbbf24',
+        metricType="reviews"
+        businessLocationId={businessLocationId}
+        initialData={{
+          primary: (overviewMetrics.reviews.newReviews7d ?? 0).toLocaleString(),
+          primaryLabel: 'reviews (7 days)',
+          rating: overviewMetrics.reviews.ratingAvg > 0 ? overviewMetrics.reviews.ratingAvg : undefined,
+          chart: {
+            type: 'barsWithLabels',
+            data: [], // Will be populated by API based on selected time period
+            color: '#fbbf24',
+            timePeriod: 7,
+          },
         }}
         locked={!reviewsEnabled}
         lockedReason={`${reviewsModule.tagline}. ${reviewsModule.bullets[0]}`}
+        titleTooltip="Total number of customer reviews received on your Google Business Profile for the selected time period."
       />
 
       {/* Row 1, Col 2: Google Maps */}
@@ -70,10 +70,10 @@ export function OverviewGrid({ overviewMetrics, enabledTools, businessLocationId
         initialData={{
           primary: overviewMetrics.listings.directions7d,
           primaryLabel: 'direction requests (this week)',
-          delta: overviewMetrics.listings.deltaDirections !== undefined
+          delta: overviewMetrics.listings.directions7dPrev !== undefined
             ? {
-                value: overviewMetrics.listings.deltaDirections,
-                label: 'requests vs last week',
+                value: overviewMetrics.listings.directions7dPrev,
+                label: 'requests',
               }
             : undefined,
           chart: {
@@ -82,8 +82,8 @@ export function OverviewGrid({ overviewMetrics, enabledTools, businessLocationId
             color: '#34a853',
           },
         }}
-        locked={!listingsEnabled}
-        lockedReason={`${listingsModule.tagline}. ${listingsModule.bullets[0]}`}
+        locked={false}
+        titleTooltip="Number of times customers requested directions to your business location through Google Maps for the selected time period."
       />
 
       {/* Row 1, Col 3: Impressions */}
@@ -93,12 +93,12 @@ export function OverviewGrid({ overviewMetrics, enabledTools, businessLocationId
         metricType="impressions"
         businessLocationId={businessLocationId}
         initialData={{
-          primary: overviewMetrics.impressions.impressions7d > 0 ? overviewMetrics.impressions.impressions7d.toLocaleString() : '—',
+          primary: (overviewMetrics.impressions.impressions7d ?? 0).toLocaleString(),
           primaryLabel: 'impressions (this week)',
-          delta: overviewMetrics.impressions.deltaImpressions !== undefined
+          delta: overviewMetrics.impressions.impressions7dPrev !== undefined
             ? {
-                value: overviewMetrics.impressions.deltaImpressions,
-                label: 'impressions vs last week',
+                value: overviewMetrics.impressions.impressions7dPrev,
+                label: 'impressions',
               }
             : undefined,
           chart: {
@@ -107,8 +107,8 @@ export function OverviewGrid({ overviewMetrics, enabledTools, businessLocationId
             color: '#4285f4',
           },
         }}
-        locked={!newLeadsEnabled}
-        lockedReason={`${insightsModule.tagline}. ${insightsModule.bullets[0]}`}
+        locked={false}
+        titleTooltip="Total number of times your business appeared in Google search results and Maps for the selected time period, regardless of whether users clicked on it."
       />
 
       {/* Row 2, Col 1: Calls & Website */}
@@ -118,28 +118,29 @@ export function OverviewGrid({ overviewMetrics, enabledTools, businessLocationId
         metricType="callsAndWebsite"
         businessLocationId={businessLocationId}
         initialData={{
-          primary: overviewMetrics.callsAndWebsite.calls7d > 0 ? overviewMetrics.callsAndWebsite.calls7d.toLocaleString() : '—',
+          primary: (overviewMetrics.callsAndWebsite.calls7d ?? 0).toLocaleString(),
           primaryLabel: 'calls (this week)',
-          delta: overviewMetrics.callsAndWebsite.deltaCalls !== undefined
+          delta: overviewMetrics.callsAndWebsite.calls7dPrev !== undefined
             ? {
-                value: overviewMetrics.callsAndWebsite.deltaCalls,
-                label: 'calls vs last week',
+                value: overviewMetrics.callsAndWebsite.calls7dPrev,
+                label: 'calls',
               }
             : undefined,
           secondaryMetric: {
-            value: overviewMetrics.callsAndWebsite.websiteClicks7d > 0 ? overviewMetrics.callsAndWebsite.websiteClicks7d.toLocaleString() : '—',
+            value: (overviewMetrics.callsAndWebsite.websiteClicks7d ?? 0).toLocaleString(),
             label: 'website visits (this week)',
             delta:
-              overviewMetrics.callsAndWebsite.deltaWebsite !== undefined
+              overviewMetrics.callsAndWebsite.websiteClicks7dPrev !== undefined
                 ? {
-                    value: overviewMetrics.callsAndWebsite.deltaWebsite,
-                    label: 'visits vs last week',
+                    value: overviewMetrics.callsAndWebsite.websiteClicks7dPrev,
+                    label: 'visits',
                   }
                 : undefined,
           },
         }}
         locked={!inboxEnabled}
         lockedReason={`${reviewsModule.tagline}. ${reviewsModule.bullets[0]}`}
+        titleTooltip="Number of phone calls made directly from your Google Business Profile and clicks to your website for the selected time period."
       />
 
       {/* Row 2, Col 2: Social */}
@@ -151,6 +152,7 @@ export function OverviewGrid({ overviewMetrics, enabledTools, businessLocationId
         channelIcons={overviewMetrics.social.analyzedChannels}
         locked={!socialEnabled}
         lockedReason={`${socialModule.tagline}. ${socialModule.bullets[0]}`}
+        titleTooltip="Total number of posts published across your connected social media channels (Facebook, Instagram, LinkedIn, TikTok) in the past 7 days."
       />
 
       {/* Row 2, Col 3: Engagement */}
@@ -165,7 +167,8 @@ export function OverviewGrid({ overviewMetrics, enabledTools, businessLocationId
         }}
         channelIcons={overviewMetrics.visibility.analyzedChannels}
         locked={!visibilityEnabled}
-        lockedReason={`${insightsModule.tagline}. ${insightsModule.bullets[0]}`}
+        lockedReason={visibilityEnabled ? undefined : `${socialModule.tagline}. ${socialModule.bullets[0]}`}
+        titleTooltip="Total engagement (likes and comments) received on your social media posts across all connected channels in the past 7 days."
       />
     </div>
   )

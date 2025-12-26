@@ -25,6 +25,7 @@ export function ToolSelection({ userName = 'there', savedTools, locationId }: To
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [goingBack, setGoingBack] = useState(false)
+  const [buildOwnSolution, setBuildOwnSolution] = useState(false)
   const router = useRouter()
   const supabase = createClient()
 
@@ -106,7 +107,10 @@ export function ToolSelection({ userName = 'there', savedTools, locationId }: To
         optional = ['reputation_hub'].filter(isModuleKey)
       }
       
-      setOptionalSelected(optional)
+      // Pre-select prescribed modules (they can be deselected if user builds own solution)
+      // Combine prescribed and optional for initial selection
+      const initialSelection = Array.from(new Set([...prescribed, ...optional]))
+      setOptionalSelected(initialSelection)
     }
     
     initialize()
@@ -119,8 +123,9 @@ export function ToolSelection({ userName = 'there', savedTools, locationId }: To
 
   // Handlers
   const toggleOptionalTool = (toolId: ModuleKey) => {
-    // Prevent toggling prescribed modules
-    if (prescribedModules.includes(toolId)) {
+    // When building own solution, allow toggling any module
+    // Otherwise, prevent toggling prescribed modules
+    if (!buildOwnSolution && prescribedModules.includes(toolId)) {
       return
     }
     
@@ -135,7 +140,10 @@ export function ToolSelection({ userName = 'there', savedTools, locationId }: To
 
   const handleContinue = async () => {
     // Combine prescribed and optional, ensuring uniqueness
-    const finalTools = Array.from(new Set([...prescribedModules, ...optionalSelected]))
+    // If building own solution, only use optionalSelected
+    const finalTools = buildOwnSolution
+      ? Array.from(new Set(optionalSelected))
+      : Array.from(new Set([...prescribedModules, ...optionalSelected]))
     
     if (finalTools.length === 0) {
       return
@@ -164,21 +172,13 @@ export function ToolSelection({ userName = 'there', savedTools, locationId }: To
         throw updateError
       }
 
-      // Mark onboarding as completed
-      const profileUpdateData: ProfileUpdate = {
-        onboarding_completed: true,
-      }
-      await (supabase as any)
-        .from('profiles')
-        .update(profileUpdateData)
-        .eq('id', user.id)
-
       // Clear onboarding localStorage data
       localStorage.removeItem('onboarding_business_data')
       localStorage.removeItem('onboarding_tools_data')
       localStorage.removeItem('onboarding_prescribed_modules')
 
-      router.push('/dashboard')
+      // Redirect to review request step (don't mark onboarding as completed yet)
+      router.push('/onboarding/review')
     } catch (err: any) {
       console.error('Failed to save tools:', err)
       setError(err.message || 'Failed to save tool selection')
@@ -195,11 +195,29 @@ export function ToolSelection({ userName = 'there', savedTools, locationId }: To
   const { availablePrescribed, availableOptional, hasPrescriptions } = useMemo(() => {
     const allModuleKeys = getAllModuleKeys()
     
-    // Filter prescribed modules to only include those in our registry
-    const prescribed: ModuleKey[] = prescribedModules.filter(isModuleKey)
+    // Filter out coming soon modules
+    const availableModuleKeys = allModuleKeys.filter((key) => {
+      const module = getModuleInfo(key)
+      return !module.comingSoon
+    })
     
-    // Optional modules = all modules minus prescribed
-    const optional: ModuleKey[] = allModuleKeys.filter((key) => !prescribed.includes(key))
+    // If building own solution, treat all as optional (no prescribed)
+    if (buildOwnSolution) {
+      return {
+        availablePrescribed: [],
+        availableOptional: availableModuleKeys,
+        hasPrescriptions: false,
+      }
+    }
+    
+    // Filter prescribed modules to only include those in our registry and not coming soon
+    const prescribed: ModuleKey[] = prescribedModules.filter(isModuleKey).filter((key) => {
+      const module = getModuleInfo(key)
+      return !module.comingSoon
+    })
+    
+    // Optional modules = all available modules minus prescribed
+    const optional: ModuleKey[] = availableModuleKeys.filter((key) => !prescribed.includes(key))
 
 
     return {
@@ -207,7 +225,7 @@ export function ToolSelection({ userName = 'there', savedTools, locationId }: To
       availableOptional: optional,
       hasPrescriptions: prescribed.length > 0, // Use availablePrescribed length, not raw state
     }
-  }, [prescribedModules])
+  }, [prescribedModules, buildOwnSolution])
 
 
   // Render
@@ -225,17 +243,19 @@ export function ToolSelection({ userName = 'there', savedTools, locationId }: To
       </button>
 
       <h1 className="text-2xl lg:text-3xl font-medium mb-3 text-[var(--google-grey-900)]" style={{ fontFamily: 'var(--font-google-sans)' }}>
-        {hasPrescriptions ? 'Your recommended setup' : 'Your setup'}
+        {buildOwnSolution ? 'Your setup' : (hasPrescriptions ? 'Your recommended setup' : 'Your setup')}
       </h1>
       <p className="text-base text-[var(--google-grey-600)] mb-8" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-        {hasPrescriptions
-          ? 'Based on your channel diagnosis, we\'ve selected the tools that will move the needle first.'
-          : 'Pick what you\'d like to start with. You can change this later in Settings → Tools.'}
+        {buildOwnSolution
+          ? 'Deselect any tools you don\'t want. You can change this later in Settings → Tools.'
+          : (hasPrescriptions
+            ? 'Based on your channel diagnosis, we\'ve selected the tools that will move the needle first.'
+            : 'Pick what you\'d like to start with. You can change this later in Settings → Tools.')}
       </p>
 
       <div className="space-y-8">
         {/* Prescribed Modules Section */}
-            {hasPrescriptions && availablePrescribed.length > 0 && (
+            {!buildOwnSolution && hasPrescriptions && availablePrescribed.length > 0 && (
               <div className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {availablePrescribed.map((moduleKey) => {
@@ -289,11 +309,11 @@ export function ToolSelection({ userName = 'there', savedTools, locationId }: To
         )}
 
         {/* Optional Modules Section */}
-        {availableOptional.length > 0 && (
+        {(buildOwnSolution ? availableOptional.length > 0 : availableOptional.length > 0) && (
           <div className="space-y-4">
             <div>
               <h2 className="text-lg font-semibold text-[var(--google-grey-900)] mb-1" style={{ fontFamily: 'var(--font-google-sans)' }}>
-                Add more tools (optional)
+                {buildOwnSolution ? 'Choose your tools' : 'Add more tools (optional)'}
               </h2>
               <p className="text-sm text-[var(--google-grey-600)]" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
                 You can always add/remove tools later in Settings → Tools.
@@ -374,15 +394,31 @@ export function ToolSelection({ userName = 'there', savedTools, locationId }: To
           </div>
         )}
 
-        <div className="mt-6">
+        <div className="mt-6 relative">
           <Button
             variant="primary"
             size="md"
             onClick={handleContinue}
-            disabled={(prescribedModules.length === 0 && optionalSelected.length === 0) || loading}
+            disabled={(buildOwnSolution ? optionalSelected.length === 0 : (prescribedModules.length === 0 && optionalSelected.length === 0)) || loading}
           >
             {loading ? 'Loading...' : 'Continue to dashboard'}
           </Button>
+          {hasPrescriptions && !buildOwnSolution && (
+            <button
+              onClick={() => {
+                // When switching to build own solution, ensure prescribed modules are in optionalSelected
+                setOptionalSelected((prev) => {
+                  const combined = Array.from(new Set([...prescribedModules, ...prev]))
+                  return combined
+                })
+                setBuildOwnSolution(true)
+              }}
+              className="absolute right-0 top-0 text-sm text-[var(--google-grey-600)] hover:text-[var(--google-grey-900)] underline transition-colors"
+              style={{ fontFamily: 'var(--font-roboto-stack)' }}
+            >
+              Build your own solution
+            </button>
+          )}
         </div>
 
       </div>

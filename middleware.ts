@@ -98,10 +98,12 @@ export async function middleware(request: NextRequest) {
         ? 'connect'
         : pathname.includes('/tools')
         ? 'tools'
+        : pathname.includes('/review')
+        ? 'review'
         : 'business'
 
       // Define step order for navigation
-      const stepOrder: OnboardingStep[] = ['business', 'connect', 'analysis', 'tools']
+      const stepOrder: OnboardingStep[] = ['business', 'connect', 'analysis', 'tools', 'review']
       const currentStepIndex = stepOrder.indexOf(step)
       const requestedStepIndex = stepOrder.indexOf(requestedStep)
 

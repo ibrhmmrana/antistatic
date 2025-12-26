@@ -280,23 +280,7 @@ export function generatePrescriptions(
   const postsWithCTA = postsToCheck.filter(p => hasCTA(p.text)).length
   const ctaCoveragePct = postsToCheck.length > 0 ? (postsWithCTA / postsToCheck.length) * 100 : 0
 
-  // Prescription 1: Insights Lab (always show - either for conversion gap or for scale)
-  prescriptions.push({
-    moduleId: 'INSIGHTS_LAB',
-    moduleName: 'Insights Lab',
-    outcome: 'Turn reach into visits + leads',
-    triggerEvidence: hasConversionGap 
-      ? `Conversion rate is ${signals.find(s => s.id === 'conversion')?.proofBullets[0].value || 'low'}`
-      : 'Track what drives results and scale what works',
-    tooltipBullets: [
-      'Track which posts drive website visits and leads',
-      'Run experiments to test what converts best',
-      'See which content types drive real business results',
-      'Measure ROI of your Facebook content'
-    ]
-  })
-
-  // Prescription 2: Social Studio (if CTA gap or always for scale)
+  // Prescription 1: Social Studio (if CTA gap or always for scale)
   prescriptions.push({
     moduleId: 'SOCIAL_STUDIO',
     moduleName: 'Social Studio',
@@ -312,25 +296,7 @@ export function generatePrescriptions(
     ]
   })
 
-  // Prescription 3: Profile Manager (if profile actions gap or for scale)
-  if (hasProfileActions || prescriptions.length < 3) {
-    prescriptions.push({
-      moduleId: 'PROFILE_MANAGER',
-      moduleName: 'Profile Manager',
-      outcome: 'Optimize page CTA button + info',
-      triggerEvidence: hasProfileActions
-        ? 'Profile action rate is below optimal'
-        : 'Turn visitors into customers with optimized page',
-      tooltipBullets: [
-        'Optimize your Facebook page CTA button',
-        'Ensure business info is complete and accurate',
-        'Add compelling page description and cover',
-        'Cross-post winning content to other channels'
-      ]
-    })
-  }
-
-  // Limit to 3 prescriptions max
-  return prescriptions.slice(0, 3)
+  // Limit to 2 prescriptions max (Insights Lab and Profile Manager are coming soon)
+  return prescriptions.slice(0, 2)
 }
 

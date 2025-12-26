@@ -81,11 +81,11 @@ export const ANTISTATIC_MODULES: Record<AntistaticModuleId, AntistaticModule> = 
   },
   competitorTracker: {
     id: 'competitorTracker',
-    label: 'Competitor Tracker',
-    shortLabel: 'Competitor Tracker',
+    label: 'Competitor Radar',
+    shortLabel: 'Competitor Radar',
     colorClass: 'bg-orange-50 border-orange-200',
     textColorClass: 'text-orange-700',
-    tooltipTitle: 'Competitor Tracker',
+    tooltipTitle: 'Competitor Radar',
     tooltipBullets: [
       'Lets you "follow" specific competitors in your area',
       'Alerts you when they get new reviews (especially very positive or very negative ones)',
@@ -118,8 +118,12 @@ export function getModule(id: AntistaticModuleId): AntistaticModule {
 
 /**
  * Get multiple modules by IDs
+ * Filters out coming soon modules (insightsLab and profileManager)
  */
 export function getModules(ids: AntistaticModuleId[]): AntistaticModule[] {
-  return ids.map(id => ANTISTATIC_MODULES[id]).filter(Boolean)
+  return ids
+    .filter((id) => id !== 'insightsLab' && id !== 'profileManager')
+    .map(id => ANTISTATIC_MODULES[id])
+    .filter(Boolean)
 }
 

@@ -11,3 +11,4 @@ COMMENT ON COLUMN business_insights.instagram_ai_analysis_generated_at IS 'Times
 COMMENT ON COLUMN business_insights.instagram_username IS 'Instagram username used for this analysis.';
 
 
+

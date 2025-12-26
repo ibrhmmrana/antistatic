@@ -7,7 +7,7 @@
  * 3. Default: ['reputation_hub']
  */
 
-import { type ModuleKey, isModuleKey } from '@/lib/onboarding/module-registry'
+import { type ModuleKey, isModuleKey, getModuleInfo } from '@/lib/onboarding/module-registry'
 import { getPrescribedModules } from '@/lib/onboarding/prescriptions'
 
 /**
@@ -24,8 +24,11 @@ export async function getEnabledToolsForSidebar(): Promise<ModuleKey[]> {
     if (response.ok) {
       const data = await response.json()
       if (data.enabledTools && Array.isArray(data.enabledTools) && data.enabledTools.length > 0) {
-        // Validate all are ModuleKeys
-        const validTools = data.enabledTools.filter(isModuleKey) as ModuleKey[]
+        // Validate all are ModuleKeys and filter out coming soon modules
+        const validTools = data.enabledTools.filter(isModuleKey).filter((key: ModuleKey) => {
+          const module = getModuleInfo(key)
+          return !module.comingSoon
+        }) as ModuleKey[]
         if (validTools.length > 0) {
           return validTools
         }
@@ -39,8 +42,13 @@ export async function getEnabledToolsForSidebar(): Promise<ModuleKey[]> {
   if (typeof window !== 'undefined') {
     try {
       const prescribed = getPrescribedModules()
-      if (prescribed.length > 0) {
-        return prescribed
+      // Filter out coming soon modules
+      const availablePrescribed = prescribed.filter((key: ModuleKey) => {
+        const module = getModuleInfo(key)
+        return !module.comingSoon
+      })
+      if (availablePrescribed.length > 0) {
+        return availablePrescribed
       }
     } catch (error) {
       console.warn('[Enabled Tools] Failed to read from localStorage:', error)

@@ -11,3 +11,4 @@ COMMENT ON COLUMN business_insights.gbp_ai_analysis IS 'Cached AI-generated GBP 
 COMMENT ON COLUMN business_insights.gbp_ai_analysis_generated_at IS 'Timestamp when the AI analysis was last generated';
 
 
+

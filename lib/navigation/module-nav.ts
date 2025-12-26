@@ -77,33 +77,35 @@ export const NAV_ITEMS: NavItemConfig[] = [
     description: getModuleDescription('social_studio'),
     unlockHint: 'Go to Settings → Tools to enable it.',
   },
-  {
-    key: 'profile_manager',
-    label: 'Profile Manager',
-    href: '/listings',
-    iconName: 'PinDropOutlined',
-    moduleKey: 'profile_manager',
-    description: getModuleDescription('profile_manager'),
-    unlockHint: 'Go to Settings → Tools to enable it.',
-  },
+  // Profile Manager - Coming Soon (disabled)
+  // {
+  //   key: 'profile_manager',
+  //   label: 'Profile Manager',
+  //   href: '/listings',
+  //   iconName: 'PinDropOutlined',
+  //   moduleKey: 'profile_manager',
+  //   description: getModuleDescription('profile_manager'),
+  //   unlockHint: 'Go to Settings → Tools to enable it.',
+  // },
   {
     key: 'competitor_radar',
     label: 'Competitor Radar',
-    href: '/automations',
+    href: '/competitors',
     iconName: 'BoltOutlined',
     moduleKey: 'competitor_radar',
     description: getModuleDescription('competitor_radar'),
     unlockHint: 'Go to Settings → Tools to enable it.',
   },
-  {
-    key: 'insights_lab',
-    label: 'Insights Lab',
-    href: '/insights', // Route may not exist yet
-    iconName: 'AnalyticsOutlined',
-    moduleKey: 'insights_lab',
-    description: getModuleDescription('insights_lab'),
-    unlockHint: 'Go to Settings → Tools to enable it.',
-  },
+  // Insights Lab - Coming Soon (disabled)
+  // {
+  //   key: 'insights_lab',
+  //   label: 'Insights Lab',
+  //   href: '/insights', // Route may not exist yet
+  //   iconName: 'AnalyticsOutlined',
+  //   moduleKey: 'insights_lab',
+  //   description: getModuleDescription('insights_lab'),
+  //   unlockHint: 'Go to Settings → Tools to enable it.',
+  // },
   {
     key: 'influencer_hub',
     label: 'Influencer Hub',
@@ -112,14 +114,6 @@ export const NAV_ITEMS: NavItemConfig[] = [
     moduleKey: 'influencer_hub',
     description: getModuleDescription('influencer_hub'),
     unlockHint: 'Go to Settings → Tools to enable it.',
-  },
-  {
-    key: 'settings',
-    label: 'Settings',
-    href: '/settings',
-    iconName: 'SettingsOutlined',
-    alwaysEnabled: true,
-    unlockHint: '', // Not applicable
   },
 ]
 

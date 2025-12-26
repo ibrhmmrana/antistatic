@@ -86,3 +86,5 @@ COMMENT ON COLUMN business_reviews.review_id IS 'External review identifier from
 
 
 
+
+

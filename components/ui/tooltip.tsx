@@ -22,6 +22,21 @@ export function Tooltip({ children, content, side = 'right' }: TooltipProps) {
           top: rect.top + rect.height / 2,
           left: rect.right + 8,
         })
+      } else if (side === 'top') {
+        setPosition({
+          top: rect.top - 8,
+          left: rect.left + rect.width / 2,
+        })
+      } else if (side === 'bottom') {
+        setPosition({
+          top: rect.bottom + 8,
+          left: rect.left + rect.width / 2,
+        })
+      } else if (side === 'left') {
+        setPosition({
+          top: rect.top + rect.height / 2,
+          left: rect.left - 8,
+        })
       }
     }
   }, [isVisible, side])
@@ -42,7 +57,12 @@ export function Tooltip({ children, content, side = 'right' }: TooltipProps) {
           style={{
             top: `${position.top}px`,
             left: `${position.left}px`,
-            transform: 'translateY(-50%)',
+            transform: 
+              side === 'top' ? 'translateX(-50%) translateY(-100%)' :
+              side === 'bottom' ? 'translateX(-50%)' :
+              side === 'right' ? 'translateY(-50%)' :
+              side === 'left' ? 'translateY(-50%) translateX(-100%)' :
+              'none',
           }}
         >
           {content}

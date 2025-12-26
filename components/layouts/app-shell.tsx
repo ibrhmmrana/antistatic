@@ -1,6 +1,6 @@
 'use client'
 
-import React, { ReactNode, useState, useEffect } from 'react'
+import React, { ReactNode, useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
@@ -20,6 +20,7 @@ import { NAV_ITEMS, isNavItemEnabled, type NavItemConfig } from '@/lib/navigatio
 import { getEnabledToolsForSidebar } from '@/lib/modules/enabled'
 import { type ModuleKey } from '@/lib/onboarding/module-registry'
 import { Tooltip } from '@/components/ui/tooltip'
+import { SendReviewRequestModal } from '@/components/reputation/SendReviewRequestModal'
 
 // Icon map for dynamic icon rendering
 const ICON_MAP: Record<string, React.ComponentType<{ sx?: { fontSize: number } }>> = {
@@ -53,6 +54,30 @@ interface NavItemProps {
 
 function NavItem({ item, active, enabled, onClick }: NavItemProps) {
   const isLocked = !enabled && !item.alwaysEnabled
+  const [isClicking, setIsClicking] = useState(false)
+
+  // All hooks must be called before any conditional returns
+  const handleLinkClick = useCallback(() => {
+    if (onClick) {
+      onClick()
+    }
+  }, [onClick])
+
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    if (isLocked) {
+      e.preventDefault()
+      e.stopPropagation()
+      return
+    }
+    
+    // Add clicking animation
+    setIsClicking(true)
+    setTimeout(() => setIsClicking(false), 150)
+    
+    if (onClick) {
+      onClick()
+    }
+  }, [isLocked, onClick])
 
   const content = (
     <div
@@ -61,17 +86,16 @@ function NavItem({ item, active, enabled, onClick }: NavItemProps) {
       } ${
         isLocked
           ? 'opacity-60 cursor-not-allowed'
-          : 'cursor-pointer hover:bg-slate-100'
+          : 'cursor-pointer hover:bg-slate-100 active:scale-[0.98] active:bg-slate-200'
+      } ${
+        isClicking ? 'scale-[0.98] bg-slate-200' : ''
       }`}
       style={{
         fontFamily: "'Product Sans', 'Google Sans', system-ui, sans-serif",
         color: active ? '#001d35' : '#202124',
         fontWeight: active ? 700 : 300,
       }}
-      onClick={isLocked ? (e) => {
-        e.preventDefault()
-        e.stopPropagation()
-      } : onClick}
+      onClick={handleClick}
     >
       {/* Left accent bar for active item */}
       <span
@@ -120,7 +144,11 @@ function NavItem({ item, active, enabled, onClick }: NavItemProps) {
   }
 
   return (
-    <Link href={item.href} onClick={onClick} className="block">
+    <Link 
+      href={item.href} 
+      onClick={handleLinkClick}
+      className="block"
+    >
       {content}
     </Link>
   )
@@ -139,8 +167,75 @@ export function AppShell({
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [sidebarHovered, setSidebarHovered] = useState(false)
   const [enabledTools, setEnabledTools] = useState<ModuleKey[]>([])
+  const [sendReviewOpen, setSendReviewOpen] = useState(false)
+  const [businessLocationId, setBusinessLocationId] = useState<string | null>(null)
+  const [isNavigating, setIsNavigating] = useState(false)
+  const faviconRef = useRef<HTMLLinkElement | null>(null)
+  const originalFaviconRef = useRef<string | null>(null)
+  const prevPathname = useRef(pathname)
 
-  // Fetch enabled tools on mount
+  // Set up favicon loading indicator
+  useEffect(() => {
+    // Find or create favicon link
+    const findFavicon = () => {
+      let favicon = document.querySelector('link[rel="icon"]') as HTMLLinkElement
+      if (!favicon) {
+        favicon = document.createElement('link')
+        favicon.rel = 'icon'
+        document.head.appendChild(favicon)
+      }
+      faviconRef.current = favicon
+      originalFaviconRef.current = favicon.href
+      return favicon
+    }
+    
+    findFavicon()
+  }, [])
+
+  // Update favicon when navigating
+  useEffect(() => {
+    if (!faviconRef.current) return
+
+    if (isNavigating) {
+      // Create an animated loading spinner favicon using SVG
+      const svg = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+          <circle cx="16" cy="16" r="14" fill="none" stroke="#1a73e8" stroke-width="3" stroke-linecap="round">
+            <animate attributeName="stroke-dasharray" values="0 88;44 44;0 88" dur="1s" repeatCount="indefinite"/>
+            <animate attributeName="stroke-dashoffset" values="0;-44;-88" dur="1s" repeatCount="indefinite"/>
+          </circle>
+        </svg>
+      `
+      const blob = new Blob([svg], { type: 'image/svg+xml' })
+      const url = URL.createObjectURL(blob)
+      faviconRef.current.href = url
+    } else {
+      // Restore original favicon
+      if (originalFaviconRef.current) {
+        faviconRef.current.href = originalFaviconRef.current
+      }
+    }
+  }, [isNavigating])
+
+  // Detect navigation start - for Next.js App Router, we detect pathname changes
+  useEffect(() => {
+    // Only set navigating if pathname actually changed (not on initial mount)
+    if (prevPathname.current && prevPathname.current !== pathname) {
+      setIsNavigating(true)
+      
+      // Reset after navigation completes
+      const timeout = setTimeout(() => {
+        setIsNavigating(false)
+      }, 500)
+
+      return () => {
+        clearTimeout(timeout)
+      }
+    }
+    prevPathname.current = pathname
+  }, [pathname])
+
+  // Fetch enabled tools and business location on mount
   useEffect(() => {
     getEnabledToolsForSidebar().then((tools) => {
       console.log('[AppShell] Enabled tools loaded:', tools)
@@ -150,12 +245,41 @@ export function AppShell({
       // Fallback to default
       setEnabledTools(['reputation_hub'])
     })
+
+    // Fetch primary business location ID
+    const fetchBusinessLocation = async () => {
+      try {
+        const response = await fetch('/api/business-location/primary')
+        if (response.ok) {
+          const data = await response.json()
+          setBusinessLocationId(data.id)
+        }
+      } catch (error) {
+        console.error('[AppShell] Failed to fetch business location:', error)
+      }
+    }
+    fetchBusinessLocation()
   }, [])
 
   // Handler functions for header actions
   const handleSendReviewRequest = () => {
-    // Route to reviews section or open modal
-    router?.push('/reviews/send')
+    if (businessLocationId) {
+      setSendReviewOpen(true)
+    } else {
+      // Fallback: try to fetch location first
+      fetch('/api/business-location/primary')
+        .then(res => res.json())
+        .then(data => {
+          if (data.id) {
+            setBusinessLocationId(data.id)
+            setSendReviewOpen(true)
+          }
+        })
+        .catch(() => {
+          // If fetch fails, still try to open modal (it will handle missing location)
+          setSendReviewOpen(true)
+        })
+    }
   }
 
   const handleHelp = () => {
@@ -241,6 +365,7 @@ export function AppShell({
                   item={item}
                   active={isActive}
                   enabled={enabled}
+                  onClick={() => setIsNavigating(true)}
                 />
               )
             })}
@@ -288,6 +413,15 @@ export function AppShell({
           {children}
         </main>
       </div>
+
+      {/* Send Review Request Modal */}
+      {businessLocationId && (
+        <SendReviewRequestModal
+          open={sendReviewOpen}
+          onOpenChange={setSendReviewOpen}
+          businessLocationId={businessLocationId}
+        />
+      )}
     </div>
   )
 }

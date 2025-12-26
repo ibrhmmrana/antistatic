@@ -4,7 +4,7 @@ import { ReactNode } from 'react'
 
 interface OnboardingLayoutProps {
   children: ReactNode
-  currentStep?: 'business' | 'connect' | 'analysis' | 'tools'
+  currentStep?: 'business' | 'connect' | 'analysis' | 'tools' | 'review'
 }
 
 export function OnboardingLayout({
@@ -26,13 +26,13 @@ export function OnboardingLayout({
             className={`px-3 py-2 rounded text-sm font-medium flex items-center gap-2 ${
               currentStep === 'business'
                 ? 'bg-[#EDF5FD] text-[#3277DD]'
-                : currentStep === 'connect' || currentStep === 'analysis' || currentStep === 'tools'
+                : currentStep === 'connect' || currentStep === 'analysis' || currentStep === 'tools' || currentStep === 'review'
                 ? 'text-[var(--google-grey-700)]'
                 : 'text-[var(--google-grey-700)]'
             }`}
             style={{ fontFamily: 'var(--font-roboto-stack)' }}
           >
-            {(currentStep === 'connect' || currentStep === 'analysis' || currentStep === 'tools') && (
+            {(currentStep === 'connect' || currentStep === 'analysis' || currentStep === 'tools' || currentStep === 'review') && (
               <span className="text-green-600 text-sm font-medium">✓</span>
             )}
             Business info
@@ -41,13 +41,13 @@ export function OnboardingLayout({
             className={`px-3 py-2 rounded text-sm font-medium flex items-center gap-2 ${
               currentStep === 'connect'
                 ? 'bg-[#EDF5FD] text-[#3277DD]'
-                : currentStep === 'analysis' || currentStep === 'tools'
+                : currentStep === 'analysis' || currentStep === 'tools' || currentStep === 'review'
                 ? 'text-[var(--google-grey-700)]'
                 : 'text-[var(--google-grey-700)]'
             }`}
             style={{ fontFamily: 'var(--font-roboto-stack)' }}
           >
-            {(currentStep === 'analysis' || currentStep === 'tools') && (
+            {(currentStep === 'analysis' || currentStep === 'tools' || currentStep === 'review') && (
               <span className="text-green-600 text-sm font-medium">✓</span>
             )}
             Connect channels
@@ -56,26 +56,41 @@ export function OnboardingLayout({
             className={`px-3 py-2 rounded text-sm font-medium flex items-center gap-2 ${
               currentStep === 'analysis'
                 ? 'bg-[#EDF5FD] text-[#3277DD]'
-                : currentStep === 'tools'
+                : currentStep === 'tools' || currentStep === 'review'
                 ? 'text-[var(--google-grey-700)]'
                 : 'text-[var(--google-grey-700)]'
             }`}
             style={{ fontFamily: 'var(--font-roboto-stack)' }}
           >
-            {currentStep === 'tools' && (
+            {(currentStep === 'tools' || currentStep === 'review') && (
               <span className="text-green-600 text-sm font-medium">✓</span>
             )}
             Channel Analysis
           </div>
           <div
-            className={`px-3 py-2 rounded text-sm font-medium ${
+            className={`px-3 py-2 rounded text-sm font-medium flex items-center gap-2 ${
               currentStep === 'tools'
+                ? 'bg-[#EDF5FD] text-[#3277DD]'
+                : currentStep === 'review'
+                ? 'text-[var(--google-grey-700)]'
+                : 'text-[var(--google-grey-700)]'
+            }`}
+            style={{ fontFamily: 'var(--font-roboto-stack)' }}
+          >
+            {currentStep === 'review' && (
+              <span className="text-green-600 text-sm font-medium">✓</span>
+            )}
+            Your setup
+          </div>
+          <div
+            className={`px-3 py-2 rounded text-sm font-medium ${
+              currentStep === 'review'
                 ? 'bg-[#EDF5FD] text-[#3277DD]'
                 : 'text-[var(--google-grey-700)]'
             }`}
             style={{ fontFamily: 'var(--font-roboto-stack)' }}
           >
-            Your setup
+            Try review request
           </div>
         </div>
       </div>

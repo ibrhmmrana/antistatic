@@ -1,6 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 
-export type OnboardingStep = 'business' | 'connect' | 'analysis' | 'tools' | 'completed'
+export type OnboardingStep = 'business' | 'connect' | 'analysis' | 'tools' | 'review' | 'completed'
 
 export async function getOnboardingStep(
   supabase: SupabaseClient<any>,
@@ -46,13 +46,27 @@ export async function getOnboardingStep(
   }
 
   // Check if user has selected tools
-  // If tools are selected, they've completed analysis step, so go to tools
+  // If tools are selected, check if they've completed review step
   if (locations.enabled_tools && (locations.enabled_tools as string[]).length > 0) {
-    return 'tools'
+    // Check if user has sent a review request (indicated by review_requests table)
+    const { data: reviewRequests } = await supabase
+      .from('review_requests')
+      .select('id')
+      .eq('business_location_id', locations.id)
+      .limit(1)
+      .maybeSingle()
+    
+    // If no review request sent yet, go to review step
+    if (!reviewRequests) {
+      return 'review'
+    }
+    
+    // Review step completed, onboarding is done (will be marked as completed when they continue)
+    return 'completed'
   }
 
   // GBP is connected but tools not selected - go to analysis page
-  // User can navigate from connect -> analysis -> tools
+  // User can navigate from connect -> analysis -> tools -> review
   return 'analysis'
 }
 
@@ -66,6 +80,8 @@ export function getOnboardingStepUrl(step: OnboardingStep): string {
       return '/onboarding/analysis'
     case 'tools':
       return '/onboarding/tools'
+    case 'review':
+      return '/onboarding/review'
     case 'completed':
       return '/dashboard'
     default:

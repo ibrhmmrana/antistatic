@@ -10,3 +10,4 @@ COMMENT ON COLUMN business_locations.google_location_name IS 'Google Business Pr
 
 
 
+

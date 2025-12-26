@@ -7,7 +7,7 @@ import type { OverviewMetrics } from '@/lib/dashboard/get-overview-metrics'
 interface TimePeriodMetricCardProps {
   title: string
   icon: React.ReactNode
-  metricType: 'listings' | 'impressions' | 'callsAndWebsite'
+  metricType: 'listings' | 'impressions' | 'callsAndWebsite' | 'reviews'
   businessLocationId: string
   initialData: {
     primary: string | number
@@ -24,6 +24,7 @@ interface TimePeriodMetricCardProps {
         label: string
       }
     }
+    rating?: number
     chart?: {
       type: 'sparkline' | 'bars' | 'line' | 'barsWithLabels' | 'ratingLine'
       data: Array<{ x: string; y: number }>
@@ -33,6 +34,7 @@ interface TimePeriodMetricCardProps {
   }
   locked?: boolean
   lockedReason?: string
+  titleTooltip?: string // Tooltip text to show on hover of the title
 }
 
 const TIME_PERIOD_OPTIONS = [
@@ -49,6 +51,7 @@ export function TimePeriodMetricCard({
   initialData,
   locked,
   lockedReason,
+  titleTooltip,
 }: TimePeriodMetricCardProps) {
   const [timePeriod, setTimePeriod] = useState('7')
   const [loading, setLoading] = useState(false)
@@ -78,10 +81,10 @@ export function TimePeriodMetricCard({
             setData({
               primary: listings.directions7d || 0,
               primaryLabel: `direction requests (${timePeriod} days)`,
-              delta: listings.deltaDirections !== undefined
+              delta: listings.directions7dPrev !== undefined
                 ? {
-                    value: listings.deltaDirections,
-                    label: 'requests vs previous period',
+                    value: listings.directions7dPrev,
+                    label: 'requests',
                   }
                 : undefined,
               chart: listings.series7d && listings.series7d.length > 0 ? {
@@ -96,12 +99,12 @@ export function TimePeriodMetricCard({
           const impressions = result.metrics?.impressions
           if (impressions) {
             setData({
-              primary: impressions.impressions7d > 0 ? impressions.impressions7d.toLocaleString() : '—',
+              primary: (impressions.impressions7d ?? 0).toLocaleString(),
               primaryLabel: `impressions (${timePeriod} days)`,
-              delta: impressions.deltaImpressions !== undefined
+              delta: impressions.impressions7dPrev !== undefined
                 ? {
-                    value: impressions.deltaImpressions,
-                    label: 'impressions vs previous period',
+                    value: impressions.impressions7dPrev,
+                    label: 'impressions',
                   }
                 : undefined,
               chart: impressions.series7d && impressions.series7d.length > 0 ? {
@@ -116,24 +119,45 @@ export function TimePeriodMetricCard({
           const callsAndWebsite = result.metrics?.callsAndWebsite
           if (callsAndWebsite) {
             setData({
-              primary: callsAndWebsite.calls7d > 0 ? callsAndWebsite.calls7d.toLocaleString() : '—',
+              primary: (callsAndWebsite.calls7d ?? 0).toLocaleString(),
               primaryLabel: `calls (${timePeriod} days)`,
-              delta: callsAndWebsite.deltaCalls !== undefined
+              delta: callsAndWebsite.calls7dPrev !== undefined
                 ? {
-                    value: callsAndWebsite.deltaCalls,
-                    label: 'calls vs previous period',
+                    value: callsAndWebsite.calls7dPrev,
+                    label: 'calls',
                   }
                 : undefined,
               secondaryMetric: {
-                value: callsAndWebsite.websiteClicks7d > 0 ? callsAndWebsite.websiteClicks7d.toLocaleString() : '—',
+                value: (callsAndWebsite.websiteClicks7d ?? 0).toLocaleString(),
                 label: `website visits (${timePeriod} days)`,
-                delta: callsAndWebsite.deltaWebsite !== undefined
+                delta: callsAndWebsite.websiteClicks7dPrev !== undefined
                   ? {
-                      value: callsAndWebsite.deltaWebsite,
-                      label: 'visits vs previous period',
+                      value: callsAndWebsite.websiteClicks7dPrev,
+                      label: 'visits',
                     }
                   : undefined,
               },
+            })
+          }
+        } else if (metricType === 'reviews') {
+          const reviews = result.metrics?.reviews
+          if (reviews) {
+            setData({
+              primary: (reviews.reviews7d ?? 0).toLocaleString(),
+              primaryLabel: `reviews (${timePeriod} days)`,
+              delta: reviews.reviews7dPrev !== undefined
+                ? {
+                    value: reviews.reviews7dPrev,
+                    label: 'reviews',
+                  }
+                : undefined,
+              rating: reviews.overallRating > 0 ? reviews.overallRating : undefined,
+              chart: reviews.series7d && reviews.series7d.length > 0 ? {
+                type: 'barsWithLabels' as const,
+                data: reviews.series7d,
+                color: '#fbbf24',
+                timePeriod: parseInt(timePeriod, 10),
+              } : undefined,
             })
           }
         }
@@ -151,10 +175,11 @@ export function TimePeriodMetricCard({
     <OverviewMetricCard
       title={title}
       icon={icon}
-      primary={loading ? '...' : data.primary}
+      primary={data.primary}
       primaryLabel={data.primaryLabel}
       delta={data.delta}
       secondaryMetric={data.secondaryMetric}
+      rating={data.rating}
       chart={data.chart ? {
         ...data.chart,
         timePeriod: parseInt(timePeriod, 10), // Pass time period to chart
@@ -163,6 +188,8 @@ export function TimePeriodMetricCard({
       onTimePeriodChange={setTimePeriod}
       locked={locked}
       lockedReason={lockedReason}
+      titleTooltip={titleTooltip}
+      loading={loading}
     />
   )
 }

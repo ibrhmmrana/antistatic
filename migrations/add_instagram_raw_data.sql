@@ -13,3 +13,4 @@ COMMENT ON COLUMN business_insights.instagram_metrics IS 'Computed Instagram met
 COMMENT ON COLUMN business_insights.instagram_data_fetched_at IS 'Timestamp when the Instagram raw data was last fetched from Apify.';
 
 
+

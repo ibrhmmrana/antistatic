@@ -18,6 +18,7 @@ export interface ModuleInfo {
   tagline: string
   bullets: string[]
   category: string
+  comingSoon?: boolean // If true, module is not yet available
 }
 
 export const MODULES: Record<ModuleKey, ModuleInfo> = {
@@ -59,6 +60,7 @@ export const MODULES: Record<ModuleKey, ModuleInfo> = {
     name: 'Insights Lab',
     tagline: 'Analytics & reports',
     category: 'Analytics & reports',
+    comingSoon: true,
     bullets: [
       'Cross-channel performance and sentiment view',
       'Simple reports you can share with your team or clients',
@@ -70,6 +72,7 @@ export const MODULES: Record<ModuleKey, ModuleInfo> = {
     name: 'Profile Manager',
     tagline: 'Business info',
     category: 'Business info',
+    comingSoon: true,
     bullets: [
       'Keep your Google Business Profile info accurate and complete',
       'Catch broken links, bad hours, or missing profiles',

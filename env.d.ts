@@ -21,6 +21,14 @@ declare namespace NodeJS {
 
     // Apify
     APIFY_API_TOKEN?: string
+
+    // WhatsApp Business API
+    WHATSAPP_PHONE_NUMBER_ID?: string
+    WHATSAPP_ACCESS_TOKEN?: string
+    WHATSAPP_GRAPH_VERSION?: string
+
+    // Supabase Storage
+    SUPABASE_SERVICE_ROLE_KEY?: string
   }
 }
 

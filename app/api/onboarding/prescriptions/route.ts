@@ -113,7 +113,12 @@ export async function GET(request: NextRequest) {
     }
 
     // Normalize and validate all prescribed modules to ModuleKey[]
-    const prescribedModules = normalizePrescribedModules(rawPrescribed)
+    let prescribedModules = normalizePrescribedModules(rawPrescribed)
+    
+    // Filter out coming soon modules (Insights Lab and Profile Manager)
+    prescribedModules = prescribedModules.filter(
+      (module) => module !== 'insights_lab' && module !== 'profile_manager'
+    )
 
     return NextResponse.json({
       success: true,

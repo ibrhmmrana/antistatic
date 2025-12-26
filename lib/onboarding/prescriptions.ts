@@ -26,7 +26,6 @@ export function normalizeModuleId(moduleId: string): string {
     'Social Studio': 'social_studio',
     'Insights Lab': 'insights_lab',
     'Profile Manager': 'profile_manager',
-    'Competitor Tracker': 'competitor_radar',
     'Competitor Radar': 'competitor_radar',
     'Influencer Hub': 'influencer_hub',
     // Uppercase constants
@@ -34,7 +33,6 @@ export function normalizeModuleId(moduleId: string): string {
     'SOCIAL_STUDIO': 'social_studio',
     'INSIGHTS_LAB': 'insights_lab',
     'PROFILE_MANAGER': 'profile_manager',
-    'COMPETITOR_TRACKER': 'competitor_radar',
     'COMPETITOR_RADAR': 'competitor_radar',
     'INFLUENCER_HUB': 'influencer_hub',
   }
@@ -145,7 +143,12 @@ export function normalizePrescribedModules(raw: unknown): ModuleKey[] {
     }
   }
   
-  return Array.from(normalized)
+  // Filter out coming soon modules
+  const filtered = Array.from(normalized).filter(
+    (key) => key !== 'insights_lab' && key !== 'profile_manager'
+  )
+  
+  return filtered
 }
 
 /**

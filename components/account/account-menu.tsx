@@ -184,7 +184,7 @@ export function AccountMenu({ userName, userEmail, businessName }: AccountMenuPr
             style={{ fontFamily: 'var(--font-google-sans) !important' }}
           >
             <AddIcon sx={{ fontSize: 16, color: '#0284c7' }} />
-            <span>Add or switch location</span>
+            <span>Add location</span>
           </button>
           <button
             type="button"
