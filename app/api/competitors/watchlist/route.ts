@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
         competitor_id: competitor.id,
         is_active: true,
         notes: notes || null,
-      }, {
+      } as any, {
         onConflict: 'business_location_id,competitor_id',
         ignoreDuplicates: false,
       })
