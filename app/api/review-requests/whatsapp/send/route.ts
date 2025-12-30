@@ -178,8 +178,8 @@ export async function POST(request: NextRequest) {
       console.error('[WhatsApp Send] Graph API error:', graphData)
       
       // Update review request record to failed
-      await supabase
-        .from('review_requests')
+      await (supabase
+        .from('review_requests') as any)
         .update({
           status: 'failed',
           error: graphData.error?.message || 'Unknown error',
@@ -193,13 +193,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Update review request record to sent
-    const { error: updateError } = await supabase
-      .from('review_requests')
+    const updateResult = await (supabase
+      .from('review_requests') as any)
       .update({
         status: 'sent',
         meta_message_id: graphData.messages?.[0]?.id || null,
       })
-      .eq('id', reviewRequest.id)
+      .eq('id', reviewRequest.id) as any
+    
+    const updateError = updateResult.error
 
     if (updateError) {
       console.error('[WhatsApp Send] Failed to update review request:', updateError)
