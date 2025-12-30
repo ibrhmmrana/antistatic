@@ -47,6 +47,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Business location not found' }, { status: 404 })
     }
 
+    const locationData: { id: string; name: string; phone_number: string; place_id: string } = location
+
     // Validate header image URL is from our Supabase storage
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     if (!headerImageUrl.includes(supabaseUrl || '') && !headerImageUrl.startsWith('https://')) {
@@ -60,11 +62,11 @@ export async function POST(request: NextRequest) {
     // This allows users to override the business name/phone with custom values
     const businessName = (customBusinessName && customBusinessName.trim()) 
       ? customBusinessName.trim() 
-      : (location.name || 'Business')
+      : (locationData.name || 'Business')
     const businessPhone = (customBusinessPhone && customBusinessPhone.trim())
       ? customBusinessPhone.trim()
-      : (location.phone_number || '')
-    const placeId = location.place_id || ''
+      : (locationData.phone_number || '')
+    const placeId = locationData.place_id || ''
 
     if (!placeId) {
       return NextResponse.json(
