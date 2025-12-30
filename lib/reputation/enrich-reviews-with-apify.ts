@@ -289,16 +289,25 @@ export async function enrichReviewsWithApifyImages(locationId: string): Promise<
     .eq('source', 'google')
     .maybeSingle()
 
+  const insightsData = insights as { apify_raw_payload: any } | null
+
   // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'enrich-reviews-with-apify.ts:289',message:'Apify payload fetch result',data:{hasInsights:!!insights,insightsError:insightsError?.message||null,hasApifyPayload:!!insights?.apify_raw_payload,payloadType:typeof insights?.apify_raw_payload,payloadIsArray:Array.isArray(insights?.apify_raw_payload)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+  const logData = {
+    hasInsights: !!insightsData,
+    insightsError: insightsError?.message || null,
+    hasApifyPayload: !!insightsData?.apify_raw_payload,
+    payloadType: typeof insightsData?.apify_raw_payload,
+    payloadIsArray: Array.isArray(insightsData?.apify_raw_payload),
+  }
+  fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'enrich-reviews-with-apify.ts:289',message:'Apify payload fetch result',data:logData,timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
   // #endregion
 
-  if (insightsError || !insights) {
+  if (insightsError || !insightsData) {
     console.log('[Enrich Reviews] No Apify data found for location:', locationId)
     return { enriched: 0, errors: 0 }
   }
 
-  const typedInsights = insights as BusinessInsightSelect
+  const typedInsights = insightsData as BusinessInsightSelect
   const apifyRawPayload = typedInsights.apify_raw_payload as any
   
   // #region agent log
@@ -315,7 +324,7 @@ export async function enrichReviewsWithApifyImages(locationId: string): Promise<
     console.log('[Enrich Reviews] WARNING: apify_raw_payload is null. This means Apify data was never stored or was cleared.')
     console.log('[Enrich Reviews] To fix this, you need to trigger a re-scrape by calling fetchGBPReviewsForLocation with forceRefresh=true')
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'enrich-reviews-with-apify.ts:313',message:'Apify payload is null - cannot enrich',data:{locationId,hasInsights:!!insights,needsRescrape:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'enrich-reviews-with-apify.ts:313',message:'Apify payload is null - cannot enrich',data:{locationId,hasInsights:!!insightsData,needsRescrape:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
     // #endregion
     return { enriched: 0, errors: 0 }
   }
