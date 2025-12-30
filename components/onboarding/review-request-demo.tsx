@@ -253,10 +253,12 @@ export function ReviewRequestDemo({ locationId }: ReviewRequestDemoProps) {
       }
       
       if (user) {
-        const { error: updateError } = await supabase
-          .from('profiles')
+        const updateResult = await (supabase
+          .from('profiles') as any)
           .update({ onboarding_completed: true })
-          .eq('id', user.id)
+          .eq('id', user.id) as any
+        
+        const updateError = updateResult.error
         
         if (updateError) {
           console.error('Error updating profile:', updateError)
