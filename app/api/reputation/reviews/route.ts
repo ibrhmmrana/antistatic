@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { Database } from '@/lib/supabase/database.types'
 import { enrichReviewsWithApifyImages } from '@/lib/reputation/enrich-reviews-with-apify'
+import { fetchGBPReviewsForLocation } from '@/lib/gbp/reviews'
 
 type BusinessReview = Database['public']['Tables']['business_reviews']['Row']
 type BusinessReviewSelect = Pick<BusinessReview, 'id' | 'rating' | 'author_name' | 'author_photo_url' | 'review_text' | 'published_at' | 'source' | 'raw_payload' | 'review_id'>
@@ -27,7 +28,28 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'locationId is required' }, { status: 400 })
     }
 
-    // Fetch reviews from database
+    // Fetch fresh reviews from GBP API on every visit/refresh
+    // This ensures we always have the latest reviews
+    try {
+      const requestUrl = new URL(request.url)
+      console.log('[Reviews API] Fetching fresh reviews from GBP API for location:', locationId)
+      await fetchGBPReviewsForLocation(
+        user.id,
+        locationId,
+        requestUrl.origin,
+        false // Don't force refresh Apify, just get fresh reviews
+      )
+      console.log('[Reviews API] Successfully fetched fresh reviews from GBP API')
+    } catch (gbpError: any) {
+      // Log error but don't fail - we'll still return reviews from database
+      console.error('[Reviews API] Failed to fetch fresh reviews from GBP API (non-fatal):', {
+        message: gbpError.message,
+        code: gbpError.message?.includes('GBP_AUTH_ERROR') ? 'AUTH_ERROR' : 'API_ERROR',
+      })
+      // Continue to fetch from database even if GBP fetch fails
+    }
+
+    // Fetch reviews from database (now updated with fresh data from GBP API)
     const reviewsResult = await supabase
       .from('business_reviews')
       .select('id, rating, author_name, author_photo_url, review_text, published_at, source, raw_payload, review_id')
