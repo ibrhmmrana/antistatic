@@ -121,6 +121,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    if (!reviewRequest) {
+      return NextResponse.json(
+        { error: 'Failed to create review request record' },
+        { status: 500 }
+      )
+    }
+
+    const reviewRequestData: { id: string; [key: string]: any } = reviewRequest
+
     // Construct WhatsApp Graph API payload
     const payload = {
       messaging_product: 'whatsapp',
@@ -184,7 +193,7 @@ export async function POST(request: NextRequest) {
           status: 'failed',
           error: graphData.error?.message || 'Unknown error',
         })
-        .eq('id', reviewRequest.id)
+        .eq('id', reviewRequestData.id)
 
       return NextResponse.json(
         { error: graphData.error?.message || 'Failed to send WhatsApp message' },
