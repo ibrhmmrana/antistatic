@@ -61,7 +61,9 @@ export async function POST(request: NextRequest) {
       }, { status: 404 })
     }
 
-    console.log('[Rankings Refresh] Found search term:', { id: searchTerm.id, term: searchTerm.term })
+    const searchTermData: { id: string; term: string; [key: string]: any } = searchTerm
+
+    console.log('[Rankings Refresh] Found search term:', { id: searchTermData.id, term: searchTermData.term })
 
     // Get business location to find place_id and coordinates
     const { data: location, error: locationError } = await supabase
@@ -97,7 +99,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Google Places API key not configured' }, { status: 500 })
     }
 
-    const searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(searchTerm.term)}&key=${apiKey}`
+    const searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(searchTermData.term)}&key=${apiKey}`
     
     const searchResponse = await fetch(searchUrl)
     const searchData = await searchResponse.json()
