@@ -98,7 +98,7 @@ export async function POST(
 
       const { error: insertError } = await supabase
         .from('competitor_social_handles')
-        .insert(handlesPayload)
+        .insert(handlesPayload as any)
 
       if (insertError) {
         console.error('[Handles API] Error inserting handles:', insertError)
