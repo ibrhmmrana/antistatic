@@ -59,10 +59,17 @@ export async function GET(request: NextRequest) {
         .eq('source', 'google')
         .maybeSingle()
       
-      const insightsCheckData: { apify_raw_payload: any } | null = insightsCheck
+      const insightsCheckData = insightsCheck as { apify_raw_payload: any } | null
       
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'reviews/route.ts:54',message:'Pre-enrichment check',data:{hasInsights:!!insightsCheckData,hasApifyPayload:!!insightsCheckData?.apify_raw_payload,payloadIsNull:insightsCheckData?.apify_raw_payload===null,payloadType:typeof insightsCheckData?.apify_raw_payload,payloadIsArray:Array.isArray(insightsCheckData?.apify_raw_payload)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      const logData = {
+        hasInsights: !!insightsCheckData,
+        hasApifyPayload: !!insightsCheckData?.apify_raw_payload,
+        payloadIsNull: insightsCheckData?.apify_raw_payload === null,
+        payloadType: typeof insightsCheckData?.apify_raw_payload,
+        payloadIsArray: Array.isArray(insightsCheckData?.apify_raw_payload),
+      }
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'reviews/route.ts:54',message:'Pre-enrichment check',data:logData,timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
       // #endregion
       
       // Note: If payload is null, enrichment will gracefully handle it and return { enriched: 0, errors: 0 }
