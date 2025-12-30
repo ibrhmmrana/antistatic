@@ -78,6 +78,8 @@ export async function POST(
       return NextResponse.json({ error: 'Competitor not found' }, { status: 404 })
     }
 
+    const competitorData: { business_location_id: string } = competitor
+
     // Delete existing handles
     await supabase
       .from('competitor_social_handles')
@@ -87,7 +89,7 @@ export async function POST(
     // Insert new handles
     if (handles.length > 0) {
       const handlesPayload = handles.map((handle: any) => ({
-        business_location_id: competitor.business_location_id,
+        business_location_id: competitorData.business_location_id,
         competitor_id: competitorId,
         platform: handle.platform,
         handle: handle.handle,
