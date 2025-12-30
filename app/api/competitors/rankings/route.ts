@@ -57,10 +57,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch rankings' }, { status: 500 })
     }
 
+    const snapshotData: { results?: any[]; yourRank?: number | null; yourPlaceId?: string; [key: string]: any } | null = snapshot
+
     // If snapshot exists, ensure yourRank is calculated correctly and enrich with images if missing
-    if (snapshot && snapshot.results && Array.isArray(snapshot.results) && yourPlaceId) {
+    if (snapshotData && snapshotData.results && Array.isArray(snapshotData.results) && yourPlaceId) {
       console.log('[Rankings API] Calculating rank for place_id:', yourPlaceId)
-      console.log('[Rankings API] Total results:', snapshot.results.length)
+      console.log('[Rankings API] Total results:', snapshotData.results.length)
       
       // Get Google Places API key for image fetching
       const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY
@@ -126,7 +128,7 @@ export async function GET(request: NextRequest) {
       // Enrich results with images and distance - ALWAYS re-fetch from Google Places API to ensure validity
       // This fixes the issue where stored image URLs might be expired or invalid for some keywords
       const enrichedResults = await Promise.all(
-        snapshot.results.map(async (result: any) => {
+        snapshotData.results.map(async (result: any) => {
           let enrichedResult = { ...result }
           
           // ALWAYS fetch fresh images from Google Places API to ensure they're valid
@@ -150,10 +152,10 @@ export async function GET(request: NextRequest) {
         })
       )
       
-      snapshot.results = enrichedResults
+      snapshotData.results = enrichedResults
       
       // Find the business in results by comparing place_id
-      const yourResult = snapshot.results.find((r: any) => {
+      const yourResult = snapshotData.results.find((r: any) => {
         const matches = r.placeId === yourPlaceId
         if (matches) {
           console.log('[Rankings API] Found match at rank:', r.rank)
@@ -163,21 +165,21 @@ export async function GET(request: NextRequest) {
       
       if (yourResult && yourResult.rank) {
         // Update the rank
-        snapshot.yourRank = yourResult.rank
-        console.log('[Rankings API] Set yourRank to:', snapshot.yourRank)
+        snapshotData.yourRank = yourResult.rank
+        console.log('[Rankings API] Set yourRank to:', snapshotData.yourRank)
       } else if (!yourResult) {
         // Business not found in results
-        snapshot.yourRank = null
+        snapshotData.yourRank = null
         console.log('[Rankings API] Business not found in results')
       }
       // Ensure yourPlaceId is set
-      snapshot.yourPlaceId = yourPlaceId
-    } else if (snapshot && !yourPlaceId) {
+      snapshotData.yourPlaceId = yourPlaceId
+    } else if (snapshotData && !yourPlaceId) {
       console.warn('[Rankings API] No place_id available for location:', locationId)
     }
 
     return NextResponse.json({ 
-      snapshot: snapshot || null,
+      snapshot: snapshotData || null,
       yourPlaceId: yourPlaceId || null,
     })
   } catch (error: any) {
