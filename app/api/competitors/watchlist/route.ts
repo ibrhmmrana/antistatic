@@ -136,12 +136,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to add competitor' }, { status: 500 })
     }
 
+    if (!competitor) {
+      return NextResponse.json({ error: 'Failed to create competitor' }, { status: 500 })
+    }
+
+    const competitorRecord: { id: string; [key: string]: any } = competitor
+
     // Add to watchlist
     const { data: watchlistItem, error: watchlistError } = await supabase
       .from('competitor_watchlist')
       .upsert({
         business_location_id: businessLocationId,
-        competitor_id: competitor.id,
+        competitor_id: competitorRecord.id,
         is_active: true,
         notes: notes || null,
       } as any, {
@@ -160,7 +166,7 @@ export async function POST(request: NextRequest) {
     if (socialHandles && Array.isArray(socialHandles) && socialHandles.length > 0) {
       const handlesPayload = socialHandles.map((handle: any) => ({
         business_location_id: businessLocationId,
-        competitor_id: competitor.id,
+        competitor_id: competitorRecord.id,
         platform: handle.platform,
         handle: handle.handle,
         profile_url: handle.profileUrl || null,
@@ -176,10 +182,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      competitor: {
-        id: competitor.id,
-        ...competitor,
-      },
+      competitor: competitorRecord,
     })
   } catch (error: any) {
     console.error('[Watchlist API] Error:', error)
@@ -237,12 +240,14 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Competitor not found' }, { status: 404 })
     }
 
+    const competitorDataDelete: { id: string } = competitor
+
     // Remove from watchlist by setting is_active to false
     const { error: watchlistError } = await supabase
       .from('competitor_watchlist')
       .update({ is_active: false })
       .eq('business_location_id', businessLocationId)
-      .eq('competitor_id', competitor.id)
+      .eq('competitor_id', competitorDataDelete.id)
 
     if (watchlistError) {
       console.error('[Watchlist API] Error removing from watchlist:', watchlistError)
