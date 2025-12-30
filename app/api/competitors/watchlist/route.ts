@@ -245,7 +245,7 @@ export async function DELETE(request: NextRequest) {
     // Remove from watchlist by setting is_active to false
     const { error: watchlistError } = await supabase
       .from('competitor_watchlist')
-      .update({ is_active: false })
+      .update({ is_active: false } as any)
       .eq('business_location_id', businessLocationId)
       .eq('competitor_id', competitorDataDelete.id)
 
