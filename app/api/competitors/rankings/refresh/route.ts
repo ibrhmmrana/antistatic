@@ -77,8 +77,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Location not found' }, { status: 404 })
     }
 
-    const yourLat = location.lat
-    const yourLng = location.lng
+    const locationData: { place_id: string; lat: number; lng: number } = location
+
+    const yourLat = locationData.lat
+    const yourLng = locationData.lng
 
     // Helper to calculate distance in kilometers using Haversine formula
     const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
@@ -111,7 +113,7 @@ export async function POST(request: NextRequest) {
 
     const places = searchData.results || []
 
-    if (!location.place_id) {
+    if (!locationData.place_id) {
       return NextResponse.json({ error: 'Business location missing place_id' }, { status: 400 })
     }
 
@@ -188,11 +190,11 @@ export async function POST(request: NextRequest) {
     )
 
     // Find the business in results by comparing place_id
-    const yourResultIndex = results.findIndex((r: any) => r.placeId === location.place_id)
+    const yourResultIndex = results.findIndex((r: any) => r.placeId === locationData.place_id)
     const yourRank = yourResultIndex >= 0 ? yourResultIndex + 1 : null
 
     console.log('[Rankings Refresh] Rank calculation:', {
-      yourPlaceId: location.place_id,
+      yourPlaceId: locationData.place_id,
       totalResults: results.length,
       yourRank,
       foundAtIndex: yourResultIndex,
@@ -206,7 +208,7 @@ export async function POST(request: NextRequest) {
         search_term_id: searchTermId,
         captured_at: new Date().toISOString(),
         results,
-        your_place_id: location.place_id,
+        your_place_id: locationData.place_id,
         your_rank: yourRank && yourRank > 0 ? yourRank : null,
       })
       .select()
