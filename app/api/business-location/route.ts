@@ -31,11 +31,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Business location not found' }, { status: 404 })
     }
 
+    const locationData: { id: string; name: string; phone_number: string; place_id: string } = location
+
     return NextResponse.json({
-      id: location.id,
-      name: location.name,
-      phone_number: location.phone_number,
-      place_id: location.place_id,
+      id: locationData.id,
+      name: locationData.name,
+      phone_number: locationData.phone_number,
+      place_id: locationData.place_id,
     })
   } catch (error: any) {
     console.error('[Business Location API] Error:', error)
