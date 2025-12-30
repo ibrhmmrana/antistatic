@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
         header_image_url: headerImageUrl,
         place_id: placeId,
         status: 'sending',
-      })
+      } as any)
       .select()
       .single()
 
