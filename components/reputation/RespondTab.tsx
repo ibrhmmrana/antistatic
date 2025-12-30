@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { ReviewFilters } from './ReviewFilters'
 import { ReviewList } from './ReviewList'
 import { ReviewDetail } from './ReviewDetail'
+import { BulkReplyModal } from './BulkReplyModal'
 import { useToast, ToastContainer } from '@/components/ui/toast'
 
 interface Review {
@@ -39,6 +40,11 @@ export function RespondTab({ businessLocationId, businessName }: RespondTabProps
   })
   const [loading, setLoading] = useState(true)
   const { toasts, showToast, removeToast } = useToast()
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedReviewIds, setSelectedReviewIds] = useState<Set<string>>(new Set())
+  const [bulkReplyModalOpen, setBulkReplyModalOpen] = useState(false)
+  const [generatedBulkReply, setGeneratedBulkReply] = useState<string>('')
+  const [generatingBulkReply, setGeneratingBulkReply] = useState(false)
 
   useEffect(() => {
     const fetchReviews = async () => {
@@ -168,9 +174,142 @@ export function RespondTab({ businessLocationId, businessName }: RespondTabProps
     }
   }
 
+  const handleToggleSelection = (reviewId: string) => {
+    setSelectedReviewIds((prev) => {
+      const newSet = new Set(prev)
+      if (newSet.has(reviewId)) {
+        newSet.delete(reviewId)
+      } else {
+        newSet.add(reviewId)
+      }
+      return newSet
+    })
+  }
+
+  const handleSelectAll = () => {
+    const needsReplyReviews = filteredReviews.filter((r) => !r.replied)
+    if (selectedReviewIds.size === needsReplyReviews.length) {
+      setSelectedReviewIds(new Set())
+    } else {
+      setSelectedReviewIds(new Set(needsReplyReviews.map((r) => r.id)))
+    }
+  }
+
+  const handleGenerateBulkReply = async () => {
+    if (selectedReviewIds.size === 0) {
+      showToast('Please select at least one review', 'error')
+      return
+    }
+
+    setGeneratingBulkReply(true)
+    try {
+      const selectedReviews = filteredReviews.filter((r) => selectedReviewIds.has(r.id))
+      const response = await fetch('/api/reputation/generate-bulk-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          locationId: businessLocationId,
+          reviews: selectedReviews.map((r) => ({
+            reviewId: r.id,
+            authorName: r.authorName,
+            rating: r.rating,
+            text: r.text,
+            createdAt: r.createTime,
+            platform: 'google' as const,
+          })),
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Failed to generate reply' }))
+        throw new Error(errorData.error || 'Failed to generate reply')
+      }
+
+      const data = await response.json()
+      if (data.success && data.reply) {
+        setGeneratedBulkReply(data.reply)
+        setBulkReplyModalOpen(true)
+      } else {
+        throw new Error(data.error || 'No reply generated')
+      }
+    } catch (error: any) {
+      console.error('[RespondTab] Failed to generate bulk reply:', error)
+      showToast(error.message || 'Failed to generate bulk reply', 'error')
+    } finally {
+      setGeneratingBulkReply(false)
+    }
+  }
+
+  const handlePostBulkReply = async (replyText: string) => {
+    if (selectedReviewIds.size === 0) {
+      showToast('No reviews selected', 'error')
+      return
+    }
+
+    try {
+      const selectedReviews = filteredReviews.filter((r) => selectedReviewIds.has(r.id))
+      const response = await fetch('/api/reputation/bulk-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          businessLocationId,
+          reviews: selectedReviews.map((r) => ({
+            reviewId: r.id,
+            reviewName: r.reviewName,
+            comment: replyText,
+          })),
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Failed to post replies' }))
+        throw new Error(errorData.error || 'Failed to post replies')
+      }
+
+      const data = await response.json()
+      const successCount = data.successCount || 0
+      const errorCount = data.errorCount || 0
+
+      // Refresh reviews
+      const refreshResponse = await fetch(`/api/reputation/reviews?locationId=${businessLocationId}`)
+      if (refreshResponse.ok) {
+        const refreshData = await refreshResponse.json()
+        setReviews(refreshData.reviews || [])
+      }
+
+      // Clear selection
+      setSelectedReviewIds(new Set())
+      setSelectionMode(false)
+      setBulkReplyModalOpen(false)
+      setGeneratedBulkReply('')
+
+      if (errorCount === 0) {
+        showToast(`Successfully posted ${successCount} reply${successCount > 1 ? 'ies' : ''}`, 'success')
+      } else {
+        showToast(`Posted ${successCount} reply${successCount > 1 ? 'ies' : ''}, ${errorCount} failed`, 'info')
+      }
+    } catch (error: any) {
+      console.error('[RespondTab] Failed to post bulk reply:', error)
+      showToast(error.message || 'Failed to post bulk reply', 'error')
+    }
+  }
+
   return (
     <>
       <ToastContainer toasts={toasts} onClose={removeToast} />
+      <BulkReplyModal
+        isOpen={bulkReplyModalOpen}
+        onClose={() => {
+          setBulkReplyModalOpen(false)
+          setGeneratedBulkReply('')
+        }}
+        generatedReply={generatedBulkReply}
+        reviewCount={selectedReviewIds.size}
+        onApprove={handlePostBulkReply}
+        onCancel={() => {
+          setGeneratedBulkReply('')
+        }}
+      />
       <div className="h-full min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* Filters - Left Column */}
         <div className="lg:col-span-2 min-h-0 overflow-auto">
@@ -180,13 +319,67 @@ export function RespondTab({ businessLocationId, businessName }: RespondTabProps
         </div>
 
         {/* List - Middle Column */}
-        <div className="lg:col-span-4 min-h-0 overflow-y-auto border-r border-slate-200 pr-4">
-          <ReviewList
-            reviews={filteredReviews}
-            selectedReview={selectedReview}
-            onSelectReview={setSelectedReview}
-            loading={loading}
-          />
+        <div className="lg:col-span-4 min-h-0 overflow-y-auto border-r border-slate-200 pr-4 flex flex-col">
+          {/* Bulk Reply Controls */}
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setSelectionMode(!selectionMode)
+                  if (selectionMode) {
+                    setSelectedReviewIds(new Set())
+                  }
+                }}
+                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                  selectionMode
+                    ? 'bg-[#1a73e8] text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+                style={{ fontFamily: 'var(--font-google-sans)' }}
+              >
+                {selectionMode ? 'Cancel Selection' : 'Select Reviews'}
+              </button>
+              {selectionMode && (
+                <>
+                  <button
+                    onClick={handleSelectAll}
+                    className="px-3 py-1.5 text-sm rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
+                    style={{ fontFamily: 'var(--font-google-sans)' }}
+                  >
+                    {selectedReviewIds.size === filteredReviews.filter((r) => !r.replied).length
+                      ? 'Deselect All'
+                      : 'Select All'}
+                  </button>
+                  {selectedReviewIds.size > 0 && (
+                    <span className="text-sm text-slate-600">
+                      {selectedReviewIds.size} selected
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+            {selectionMode && selectedReviewIds.size > 0 && (
+              <button
+                onClick={handleGenerateBulkReply}
+                disabled={generatingBulkReply}
+                className="px-4 py-1.5 text-sm rounded-md bg-[#1a73e8] text-white hover:bg-[#1557b0] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                style={{ fontFamily: 'var(--font-google-sans)' }}
+              >
+                {generatingBulkReply ? 'Generating...' : 'Generate Bulk Reply'}
+              </button>
+            )}
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <ReviewList
+              reviews={filteredReviews}
+              selectedReview={selectedReview}
+              onSelectReview={setSelectedReview}
+              loading={loading}
+              selectedReviewIds={selectedReviewIds}
+              onToggleSelection={handleToggleSelection}
+              selectionMode={selectionMode}
+            />
+          </div>
         </div>
 
         {/* Detail + Composer - Right Column */}

@@ -41,6 +41,9 @@ interface ReviewListProps {
   selectedReview: Review | null
   onSelectReview: (review: Review) => void
   loading: boolean
+  selectedReviewIds?: Set<string>
+  onToggleSelection?: (reviewId: string) => void
+  selectionMode?: boolean
 }
 
 const sentimentColors = {
@@ -49,7 +52,15 @@ const sentimentColors = {
   negative: 'bg-red-100 text-red-800',
 }
 
-export function ReviewList({ reviews, selectedReview, onSelectReview, loading }: ReviewListProps) {
+export function ReviewList({ 
+  reviews, 
+  selectedReview, 
+  onSelectReview, 
+  loading,
+  selectedReviewIds = new Set(),
+  onToggleSelection,
+  selectionMode = false
+}: ReviewListProps) {
   const [popupImageIndex, setPopupImageIndex] = useState<number | null>(null)
   const [popupImages, setPopupImages] = useState<string[]>([])
 
@@ -65,6 +76,21 @@ export function ReviewList({ reviews, selectedReview, onSelectReview, loading }:
 
   const handleNavigatePopup = (index: number) => {
     setPopupImageIndex(index)
+  }
+
+  const handleCheckboxClick = (e: React.MouseEvent, reviewId: string) => {
+    e.stopPropagation()
+    if (onToggleSelection) {
+      onToggleSelection(reviewId)
+    }
+  }
+
+  const handleItemClick = (review: Review) => {
+    if (selectionMode && onToggleSelection) {
+      onToggleSelection(review.id)
+    } else {
+      onSelectReview(review)
+    }
   }
 
   if (loading) {
@@ -90,18 +116,32 @@ export function ReviewList({ reviews, selectedReview, onSelectReview, loading }:
           const isSelected = selectedReview?.id === review.id
           const timeAgo = formatTimeAgo(new Date(review.createTime))
 
+          const isChecked = selectedReviewIds.has(review.id)
+          const showCheckbox = selectionMode && !review.replied
+
           return (
-            <button
+            <div
               key={review.id}
-              onClick={() => onSelectReview(review)}
-              className={`w-full text-left p-3 rounded-lg border transition-colors bg-white ${
+              onClick={() => handleItemClick(review)}
+              className={`w-full text-left p-3 rounded-lg border transition-colors bg-white cursor-pointer ${
                 isSelected
+                  ? 'border-[#1a73e8] bg-blue-50'
+                  : isChecked
                   ? 'border-[#1a73e8] bg-blue-50'
                   : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
               }`}
             >
               <div className="flex items-start justify-between gap-2 mb-2">
                 <div className="flex items-center gap-2">
+                  {showCheckbox && (
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => {}}
+                      onClick={(e) => handleCheckboxClick(e, review.id)}
+                      className="w-4 h-4 text-[#1a73e8] border-gray-300 rounded focus:ring-[#1a73e8] cursor-pointer"
+                    />
+                  )}
                   <ReviewAvatar authorName={review.authorName} authorPhotoUrl={review.authorPhotoUrl} size={36} />
                   <div className="flex flex-col">
                     <div className="flex items-center gap-1">
@@ -174,7 +214,7 @@ export function ReviewList({ reviews, selectedReview, onSelectReview, loading }:
                 ))}
                 <span className="text-xs text-slate-400">{timeAgo}</span>
               </div>
-            </button>
+            </div>
           )
         })}
       </div>
