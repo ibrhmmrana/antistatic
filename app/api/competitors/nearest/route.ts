@@ -42,11 +42,16 @@ export async function GET(request: NextRequest) {
       .eq('location_id', locationId)
       .maybeSingle()
 
-    if (!insights?.apify_competitors) {
+    if (!insights) {
       return NextResponse.json({ competitors: [] })
     }
 
     const insightsData: { apify_competitors: any } = insights
+
+    if (!insightsData.apify_competitors) {
+      return NextResponse.json({ competitors: [] })
+    }
+
     const apifyData = insightsData.apify_competitors as any
     const competitors = apifyData.places || []
 
