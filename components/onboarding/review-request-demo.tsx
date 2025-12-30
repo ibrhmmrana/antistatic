@@ -219,8 +219,8 @@ export function ReviewRequestDemo({ locationId }: ReviewRequestDemoProps) {
           // Mark onboarding as completed
           const { data: { user } } = await supabase.auth.getUser()
           if (user) {
-            await supabase
-              .from('profiles')
+            await (supabase
+              .from('profiles') as any)
               .update({ onboarding_completed: true })
               .eq('id', user.id)
           }
