@@ -57,10 +57,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch rankings' }, { status: 500 })
     }
 
-    const snapshotData: { results?: any[]; yourRank?: number | null; yourPlaceId?: string; [key: string]: any } | null = snapshot
+    if (!snapshot) {
+      return NextResponse.json({ 
+        snapshot: null,
+        yourPlaceId: yourPlaceId || null,
+      })
+    }
+
+    const snapshotData = snapshot as { results?: any[]; yourRank?: number | null; yourPlaceId?: string; [key: string]: any }
 
     // If snapshot exists, ensure yourRank is calculated correctly and enrich with images if missing
-    if (snapshotData && snapshotData.results && Array.isArray(snapshotData.results) && yourPlaceId) {
+    if (snapshotData.results && Array.isArray(snapshotData.results) && yourPlaceId) {
       console.log('[Rankings API] Calculating rank for place_id:', yourPlaceId)
       console.log('[Rankings API] Total results:', snapshotData.results.length)
       
