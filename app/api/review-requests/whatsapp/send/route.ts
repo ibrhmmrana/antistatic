@@ -208,7 +208,7 @@ export async function POST(request: NextRequest) {
         status: 'sent',
         meta_message_id: graphData.messages?.[0]?.id || null,
       })
-      .eq('id', reviewRequest.id) as any
+      .eq('id', reviewRequestData.id) as any
     
     const updateError = updateResult.error
 
