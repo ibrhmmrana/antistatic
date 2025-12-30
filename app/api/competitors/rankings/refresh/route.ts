@@ -52,10 +52,12 @@ export async function POST(request: NextRequest) {
       
       console.log('[Rankings Refresh] Available search terms for location:', allTerms)
       
+      const allTermsData: Array<{ id: string; term: string; business_location_id: string }> = allTerms || []
+      
       return NextResponse.json({ 
         error: 'Search term not found',
         searchTermId,
-        availableTerms: allTerms?.map(t => ({ id: t.id, term: t.term })) || [],
+        availableTerms: allTermsData.map(t => ({ id: t.id, term: t.term })),
       }, { status: 404 })
     }
 
