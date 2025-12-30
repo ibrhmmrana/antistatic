@@ -37,10 +37,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch search terms' }, { status: 500 })
     }
 
+    const termsData: Array<{ term: string; [key: string]: any }> = terms || []
+
     // Remove duplicates by term (case-insensitive)
-    if (terms && terms.length > 0) {
+    if (termsData.length > 0) {
       const seen = new Set<string>()
-      const uniqueTerms = terms.filter((term) => {
+      const uniqueTerms = termsData.filter((term) => {
         const normalized = term.term?.trim().toLowerCase()
         if (!normalized || seen.has(normalized)) {
           return false
@@ -52,7 +54,7 @@ export async function GET(request: NextRequest) {
     }
 
     // If no terms and autoSync is enabled, try to sync from GBP
-    if ((!terms || terms.length === 0) && autoSync) {
+    if (termsData.length === 0 && autoSync) {
       try {
         const syncResponse = await fetch(`${request.nextUrl.origin}/api/competitors/search-terms/sync`, {
           method: 'POST',
@@ -72,9 +74,10 @@ export async function GET(request: NextRequest) {
             .order('created_at', { ascending: false })
 
           // Remove duplicates by term (case-insensitive)
-          if (syncedTerms && syncedTerms.length > 0) {
+          const syncedTermsData: Array<{ term: string; [key: string]: any }> = syncedTerms || []
+          if (syncedTermsData.length > 0) {
             const seen = new Set<string>()
-            const uniqueTerms = syncedTerms.filter((term) => {
+            const uniqueTerms = syncedTermsData.filter((term) => {
               const normalized = term.term?.trim().toLowerCase()
               if (!normalized || seen.has(normalized)) {
                 return false
@@ -84,7 +87,7 @@ export async function GET(request: NextRequest) {
             })
             return NextResponse.json({ terms: uniqueTerms })
           }
-          return NextResponse.json({ terms: syncedTerms || [] })
+          return NextResponse.json({ terms: syncedTermsData })
         } else {
           console.warn('[Search Terms API] Auto-sync failed, returning empty array')
         }
@@ -94,7 +97,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ terms: terms || [] })
+    return NextResponse.json({ terms: termsData })
   } catch (error: any) {
     console.error('[Search Terms API] Error:', error)
     return NextResponse.json(
