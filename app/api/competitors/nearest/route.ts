@@ -35,6 +35,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Location not found or access denied' }, { status: 404 })
     }
 
+    const locationData: { id: string; user_id: string; place_id: string } = location
+
     // Get Apify competitors data from business_insights
     const { data: insights } = await supabase
       .from('business_insights')
@@ -169,7 +171,7 @@ export async function GET(request: NextRequest) {
     const competitorPlaceIds = competitors
       .map((place: any) => place.placeId || place.cid || place.kgmid)
       .filter((placeId: string | undefined): placeId is string => {
-        return !!placeId && placeId !== location.place_id
+        return !!placeId && placeId !== locationData.place_id
       })
 
     // Fetch all competitor details from Google Places API in parallel
