@@ -46,7 +46,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ competitors: [] })
     }
 
-    const apifyData = insights.apify_competitors as any
+    const insightsData: { apify_competitors: any } = insights
+    const apifyData = insightsData.apify_competitors as any
     const competitors = apifyData.places || []
 
     // Get Google Places API key
