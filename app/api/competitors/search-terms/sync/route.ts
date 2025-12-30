@@ -36,12 +36,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Location not found or access denied' }, { status: 404 })
     }
 
-    if (!location.google_location_name) {
+    const locationData: { id: string; google_location_name: string; user_id: string } = location
+
+    if (!locationData.google_location_name) {
       return NextResponse.json({ error: 'Google location name not found. Please connect your Google Business Profile.' }, { status: 400 })
     }
 
     // Extract location ID from google_location_name (format: accounts/123/locations/456)
-    const locationIdMatch = location.google_location_name.match(/locations\/(\d+)/)
+    const locationIdMatch = locationData.google_location_name.match(/locations\/(\d+)/)
     if (!locationIdMatch) {
       return NextResponse.json({ error: 'Invalid location name format' }, { status: 400 })
     }
