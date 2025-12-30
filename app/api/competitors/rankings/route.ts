@@ -36,9 +36,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Location not found' }, { status: 404 })
     }
 
-    const yourPlaceId = location.place_id
-    const yourLat = location.lat
-    const yourLng = location.lng
+    const locationData: { place_id: string; lat: number; lng: number } = location
+
+    const yourPlaceId = locationData.place_id
+    const yourLat = locationData.lat
+    const yourLng = locationData.lng
 
     // Get latest snapshot
     const { data: snapshot, error } = await supabase
