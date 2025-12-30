@@ -214,7 +214,7 @@ export async function POST(request: NextRequest) {
     // Insert new terms
     const { data: inserted, error: insertError } = await supabase
       .from('search_terms')
-      .insert(termsToInsert)
+      .insert(termsToInsert as any)
       .select()
 
     if (insertError) {
