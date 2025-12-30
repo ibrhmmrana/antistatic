@@ -174,7 +174,7 @@ export async function POST(request: NextRequest) {
 
       await supabase
         .from('competitor_social_handles')
-        .upsert(handlesPayload, {
+        .upsert(handlesPayload as any, {
           onConflict: 'competitor_id,platform,handle',
           ignoreDuplicates: false,
         })
