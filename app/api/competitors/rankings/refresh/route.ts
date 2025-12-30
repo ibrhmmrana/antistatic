@@ -210,7 +210,7 @@ export async function POST(request: NextRequest) {
         results,
         your_place_id: locationData.place_id,
         your_rank: yourRank && yourRank > 0 ? yourRank : null,
-      })
+      } as any)
       .select()
       .single()
 
