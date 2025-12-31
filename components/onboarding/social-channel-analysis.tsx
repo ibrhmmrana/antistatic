@@ -372,10 +372,9 @@ export function SocialChannelAnalysis({
       if (response.status === 404) {
         // No analysis yet - trigger generation and start polling
         console.log('[GBP Analysis] No analysis found (404), triggering generation...')
-        if (!forceRefresh) {
-          setAiLoading(true)
-        }
+        setAiLoading(true)
         setAiError(null)
+        // Don't set loading to false - keep it true so polling can check
         // Polling will handle checking for completion
         return
       }
@@ -387,14 +386,14 @@ export function SocialChannelAnalysis({
       if (result.success && result.analysis) {
         setAiAnalysis(result.analysis)
         setAiError(null) // Clear any previous errors
+        setAiLoading(false) // Analysis is ready, stop loading
         console.log('[GBP Analysis] Successfully loaded analysis', forceRefresh ? '(refreshed)' : '(cached)')
       } else if (result.status === 'in_progress' || result.error === 'ANALYSIS_IN_PROGRESS') {
         // Analysis is being generated, keep loading state and let polling handle it
         console.log('[GBP Analysis] Analysis in progress, will poll for completion')
-        if (!forceRefresh) {
-          setAiLoading(true)
-        }
+        setAiLoading(true)
         setAiError(null)
+        // Don't set loading to false - keep it true so polling can check
       } else {
         let errorMsg = result.error || 'Failed to generate analysis'
 
@@ -457,11 +456,21 @@ export function SocialChannelAnalysis({
     } catch (error: any) {
       console.error('[GBP AI] Fetch error:', error)
       setAiError(error.message || 'Failed to load analysis')
-    } finally {
+      // Only set loading to false on actual errors (not when analysis is in progress)
       if (forceRefresh) {
         setRefreshing(false)
       } else {
-        setAiLoading(false)
+        // Only stop loading if we got a real error, not if analysis is in progress
+        // The polling will handle setting loading to false when analysis is ready
+        if (!error.message?.includes('in progress') && !error.message?.includes('ANALYSIS_IN_PROGRESS')) {
+          setAiLoading(false)
+        }
+      }
+    } finally {
+      // Only update refreshing state in finally, not aiLoading
+      // aiLoading should stay true if analysis is in progress (handled by polling)
+      if (forceRefresh) {
+        setRefreshing(false)
       }
     }
   }
@@ -487,6 +496,13 @@ export function SocialChannelAnalysis({
       console.log('[GBP Analysis] Polling for analysis...')
       try {
         const response = await fetch(`/api/locations/${locationId}/analysis/gbp`)
+        
+        if (response.status === 404) {
+          // Analysis not started yet, keep polling
+          console.log('[GBP Analysis] Still waiting for analysis to start...')
+          return
+        }
+
         const result = await response.json()
 
         if (result.success && result.analysis) {
@@ -495,6 +511,10 @@ export function SocialChannelAnalysis({
           setAiError(null)
           setAiLoading(false)
           clearInterval(pollInterval)
+        } else if (result.status === 'in_progress' || result.error === 'ANALYSIS_IN_PROGRESS') {
+          // Analysis is still in progress, keep polling
+          console.log('[GBP Analysis] Analysis still in progress, continuing to poll...')
+          setAiError(null) // Clear any previous errors
         } else if (result.error && result.error !== 'NOT_ENOUGH_DATA' && result.error !== 'ANALYSIS_IN_PROGRESS') {
           // Only stop polling if there's a real error (not just "in progress" or "not enough data")
           console.log('[GBP Analysis] Error during polling:', result.error)
@@ -504,6 +524,7 @@ export function SocialChannelAnalysis({
         }
       } catch (error) {
         console.error('[GBP Analysis] Polling error:', error)
+        // Don't stop polling on network errors, just log them
       }
     }, 3000) // Poll every 3 seconds
 

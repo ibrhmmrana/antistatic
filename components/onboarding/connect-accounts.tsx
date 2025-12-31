@@ -193,9 +193,21 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
     const igStatus = searchParams.get('ig')
     const igConnected = searchParams.get('connected')
     const igError = searchParams.get('ig_error')
+    const igUsername = searchParams.get('ig_username')
+    const igUserId = searchParams.get('ig_user_id')
 
     if (igStatus === 'connected' && igConnected === '1') {
-      // Refresh Instagram status
+      // Set Instagram status immediately from URL params if available
+      if (igUsername || igUserId) {
+        setInstagramStatus({
+          connected: true,
+          username: igUsername || null,
+          instagram_user_id: igUserId || null,
+          scopes: [],
+        })
+      }
+
+      // Refresh Instagram status from API to get full details
       const fetchStatus = async () => {
         try {
           const response = await fetch(`/api/integrations/instagram/status?business_location_id=${locationId}`)
@@ -561,6 +573,13 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
         <div className="mb-4 p-3 rounded-lg bg-green-50 border border-green-200">
           <p className="text-sm text-green-700" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
             Google Business Profile connected successfully.
+          </p>
+        </div>
+      )}
+      {igStatus === 'connected' && igConnected === '1' && (
+        <div className="mb-4 p-3 rounded-lg bg-green-50 border border-green-200">
+          <p className="text-sm text-green-700" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+            Instagram account connected successfully{igUsername ? ` as @${igUsername}` : ''}.
           </p>
         </div>
       )}
