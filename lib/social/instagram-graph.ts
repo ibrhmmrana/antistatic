@@ -150,6 +150,10 @@ export async function fetchInstagramFromGraphAPI(
                 try {
                   const fbCommentsResponse = await fetch(fbCommentsUrl)
                   
+                  // #region agent log
+                  fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'instagram-graph.ts:151',message:'Facebook API response received',data:{postId:item.id,status:fbCommentsResponse.status,ok:fbCommentsResponse.ok,statusText:fbCommentsResponse.statusText},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+                  // #endregion
+                  
                   if (fbCommentsResponse.ok) {
                     const fbCommentsData = await fbCommentsResponse.json()
                     const fbPostComments = fbCommentsData.data || []
@@ -173,12 +177,21 @@ export async function fetchInstagramFromGraphAPI(
                     }
                   } else {
                     const errorData = await fbCommentsResponse.json().catch(() => ({}))
+                    
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'instagram-graph.ts:175',message:'Facebook API failed',data:{postId:item.id,status:fbCommentsResponse.status,statusText:fbCommentsResponse.statusText,errorCode:errorData.error?.code,errorMessage:errorData.error?.message,errorType:errorData.error?.type,fullError:JSON.stringify(errorData).substring(0,500)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+                    // #endregion
+                    
                     console.warn(`[Instagram Graph API] Facebook API also failed for comments on post ${item.id}:`, {
                       status: fbCommentsResponse.status,
                       error: errorData,
                     })
                   }
                 } catch (fbError: any) {
+                  // #region agent log
+                  fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'instagram-graph.ts:185',message:'Facebook API exception',data:{postId:item.id,errorMessage:fbError.message,errorName:fbError.name,errorStack:fbError.stack?.substring(0,300)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+                  // #endregion
+                  
                   console.warn(`[Instagram Graph API] Error trying Facebook API for comments:`, fbError.message)
                 }
               }
