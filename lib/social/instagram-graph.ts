@@ -33,25 +33,25 @@ export async function fetchInstagramFromGraphAPI(
 
   try {
     // Step 1: Get user's media (posts)
-    // Using Instagram Graph API - for Business accounts, use graph.facebook.com
-    // The instagram_user_id from OAuth token is the Instagram Business Account ID
-    // Use graph.facebook.com with v18.0 API version for Business accounts
-    let mediaUrl = `https://graph.facebook.com/v18.0/${instagramUserId}/media?fields=id,caption,like_count,comments_count,timestamp,media_type,media_url,permalink&limit=25&access_token=${accessToken}`
+    // For "Instagram API with Instagram Login" (Business Login), we use graph.instagram.com
+    // The token from api.instagram.com/oauth/access_token is an Instagram token, not Facebook token
+    // Use graph.instagram.com with the Instagram Business Account ID
+    let mediaUrl = `https://graph.instagram.com/${instagramUserId}/media?fields=id,caption,like_count,comments_count,timestamp,media_type,media_url,permalink&limit=25&access_token=${accessToken}`
     let hasNextPage = true
     let pageCount = 0
     const maxPages = Math.ceil(postsLimit / 25) // Instagram returns 25 per page
 
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'instagram-graph.ts:35',message:'Before media fetch',data:{mediaUrl:mediaUrl.substring(0,120),userId:instagramUserId?.substring(0,20),usingFacebookGraph:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'instagram-graph.ts:35',message:'Before media fetch',data:{mediaUrl:mediaUrl.substring(0,120),userId:instagramUserId?.substring(0,20),usingInstagramGraph:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
     // #endregion
 
     // Try to get username from user info endpoint
     let username: string | undefined
     try {
-      // Use graph.facebook.com for Business accounts
-      const userInfoUrl = `https://graph.facebook.com/v18.0/${instagramUserId}?fields=username&access_token=${accessToken}`
+      // Use graph.instagram.com for Instagram tokens
+      const userInfoUrl = `https://graph.instagram.com/${instagramUserId}?fields=username&access_token=${accessToken}`
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'instagram-graph.ts:42',message:'Fetching username',data:{userInfoUrl:userInfoUrl.substring(0,120),usingFacebookGraph:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'instagram-graph.ts:42',message:'Fetching username',data:{userInfoUrl:userInfoUrl.substring(0,120),usingInstagramGraph:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
       // #endregion
       
       const userInfoResponse = await fetch(userInfoUrl)
@@ -153,8 +153,8 @@ export async function fetchInstagramFromGraphAPI(
         // Step 2: Fetch comments for this post if we haven't reached the limit
         if (item.comments_count > 0 && comments.length < commentsLimit * postsLimit) {
           try {
-            // Use graph.facebook.com for Business accounts
-            const commentsUrl = `https://graph.facebook.com/v18.0/${item.id}/comments?fields=id,text,timestamp,username&limit=10&access_token=${accessToken}`
+            // Use graph.instagram.com for Instagram tokens
+            const commentsUrl = `https://graph.instagram.com/${item.id}/comments?fields=id,text,timestamp,username&limit=10&access_token=${accessToken}`
             const commentsResponse = await fetch(commentsUrl)
 
             if (commentsResponse.ok) {
