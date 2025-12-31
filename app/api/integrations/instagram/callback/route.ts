@@ -5,8 +5,9 @@ import { getInstagramOAuthConfig } from '@/lib/instagram/config'
 /**
  * Instagram OAuth Callback Endpoint
  * 
- * Handles the OAuth callback from Meta after user authorization.
+ * Handles the OAuth callback from Instagram after user authorization.
  * Exchanges authorization code for access token and stores connection.
+ * Uses Instagram API with Instagram Login (NOT Facebook Login).
  * 
  * Redirect URI must match:
  * ${NEXT_PUBLIC_APP_URL}/api/integrations/instagram/callback
@@ -19,7 +20,7 @@ export async function GET(request: NextRequest) {
   const state = requestUrl.searchParams.get('state')
   const supabase = await createClient()
 
-  // Handle OAuth errors from Meta
+  // Handle OAuth errors from Instagram
   if (error) {
     console.error('[Instagram Callback] OAuth error:', {
       error,
@@ -118,8 +119,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Exchange authorization code for access token
-    // Instagram API with Instagram Login uses Facebook Graph API token endpoint
-    const tokenResponse = await fetch('https://graph.facebook.com/v18.0/oauth/access_token', {
+    // Instagram API with Instagram Login uses Instagram's token endpoint
+    const tokenResponse = await fetch('https://api.instagram.com/oauth/access_token', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -127,6 +128,7 @@ export async function GET(request: NextRequest) {
       body: new URLSearchParams({
         client_id: config.appId,
         client_secret: config.appSecret,
+        grant_type: 'authorization_code',
         redirect_uri: config.redirectUri,
         code: code,
       }),
@@ -142,67 +144,29 @@ export async function GET(request: NextRequest) {
 
     const tokenData = await tokenResponse.json()
 
-    // Facebook Graph API returns access_token in the response
+    // Instagram API returns access_token and user_id in the response
     const accessToken = tokenData.access_token
+    const instagramUserId = tokenData.user_id
 
-    if (!accessToken) {
-      console.error('[Instagram Callback] Missing access_token in response:', tokenData)
+    if (!accessToken || !instagramUserId) {
+      console.error('[Instagram Callback] Missing access_token or user_id in response:', tokenData)
       return NextResponse.redirect(
         new URL('/settings/integrations/instagram?error=Invalid token response', requestUrl.origin)
       )
     }
 
-    // For Instagram Business API, we need to get the Instagram Business Account ID
-    // First, get the Facebook Page connected to the Instagram account
-    // Then get the Instagram Business Account from that page
-    let instagramUserId: string | null = null
+    // Fetch Instagram user info to get username
+    // Instagram Basic Display API endpoint for user info
     let instagramUsername: string | null = null
-    
     try {
-      // Get user's Facebook pages (which may have connected Instagram accounts)
-      const pagesResponse = await fetch(`https://graph.facebook.com/v18.0/me/accounts?access_token=${accessToken}`)
-      if (pagesResponse.ok) {
-        const pagesData = await pagesResponse.json()
-        const pages = pagesData.data || []
-        
-        // Find a page with an Instagram Business Account
-        for (const page of pages) {
-          const pageAccessToken = page.access_token
-          // Get Instagram Business Account connected to this page
-          const igAccountResponse = await fetch(
-            `https://graph.facebook.com/v18.0/${page.id}?fields=instagram_business_account&access_token=${pageAccessToken}`
-          )
-          if (igAccountResponse.ok) {
-            const igAccountData = await igAccountResponse.json()
-            if (igAccountData.instagram_business_account) {
-              instagramUserId = igAccountData.instagram_business_account.id
-              // Get username from Instagram Business Account
-              const igInfoResponse = await fetch(
-                `https://graph.facebook.com/v18.0/${instagramUserId}?fields=username&access_token=${pageAccessToken}`
-              )
-              if (igInfoResponse.ok) {
-                const igInfo = await igInfoResponse.json()
-                instagramUsername = igInfo.username || null
-              }
-              break
-            }
-          }
-        }
+      const userInfoResponse = await fetch(`https://graph.instagram.com/${instagramUserId}?fields=username&access_token=${accessToken}`)
+      if (userInfoResponse.ok) {
+        const userInfo = await userInfoResponse.json()
+        instagramUsername = userInfo.username || null
       }
     } catch (userInfoError) {
-      console.warn('[Instagram Callback] Failed to fetch Instagram Business Account:', userInfoError)
-      // Continue - we'll store the connection with just the access token
-    }
-
-    // If we couldn't get the Instagram Business Account ID, we still store the connection
-    // The user can reconnect later if needed
-    if (!instagramUserId) {
-      console.warn('[Instagram Callback] Could not determine Instagram Business Account ID')
-      // Use a placeholder or generate one - but actually, we should require it
-      // For now, let's require it and show an error
-      return NextResponse.redirect(
-        new URL('/settings/integrations/instagram?error=Could not find Instagram Business Account. Please ensure your Instagram account is connected to a Facebook Page.', requestUrl.origin)
-      )
+      console.warn('[Instagram Callback] Failed to fetch username:', userInfoError)
+      // Continue without username - not critical
     }
 
     // Calculate token expiry (Instagram tokens typically expire in 60 days, but check response)

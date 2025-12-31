@@ -6,7 +6,8 @@ import { randomBytes } from 'crypto'
 /**
  * Instagram OAuth Connect Endpoint
  * 
- * Initiates the Instagram OAuth flow by redirecting user to Meta authorization.
+ * Initiates the Instagram OAuth flow by redirecting user to Instagram authorization.
+ * Uses Instagram API with Instagram Login (NOT Facebook Login).
  * 
  * Redirect URI configured in Meta must match:
  * ${NEXT_PUBLIC_APP_URL}/api/integrations/instagram/callback
@@ -155,9 +156,9 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Build Meta OAuth URL for Instagram Business Login
-    // Instagram API with Instagram Login uses Facebook OAuth endpoint with Instagram scopes
-    const scopes = INSTAGRAM_REQUIRED_SCOPES.join(',')
+    // Build Instagram OAuth URL for Instagram API with Instagram Login
+    // Use Instagram's authorization endpoint (NOT Facebook's)
+    const scopes = INSTAGRAM_REQUIRED_SCOPES.join(',') // Comma-separated, no spaces
     
     const params = new URLSearchParams({
       client_id: config.appId,
@@ -165,16 +166,21 @@ export async function GET(request: NextRequest) {
       scope: scopes,
       response_type: 'code',
       state: state,
+      force_reauth: 'true',
     })
 
-    // Instagram Business Login uses Facebook OAuth endpoint
-    const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?${params.toString()}`
+    // Instagram API with Instagram Login uses Instagram's authorize endpoint
+    const authUrl = `https://www.instagram.com/oauth/authorize?${params.toString()}`
 
-    console.log('[Instagram Connect] Generated OAuth URL:', {
-      hasAppId: !!config.appId,
+    // Log the full auth URL (no secrets, just the URL)
+    console.log('[Instagram Connect] Generated OAuth URL:', authUrl)
+    console.log('[Instagram Connect] OAuth URL details:', {
+      baseUrl: 'https://www.instagram.com/oauth/authorize',
+      clientId: config.appId,
       redirectUri: config.redirectUri,
       scopes,
       stateLength: state.length,
+      hasState: !!state,
     })
 
     // Redirect to Meta authorization
