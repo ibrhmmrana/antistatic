@@ -242,8 +242,8 @@ export async function POST(request: NextRequest) {
                 },
               }
 
-              await supabase
-                .from('business_reviews')
+              await (supabase
+                .from('business_reviews') as any)
                 .update({ raw_payload: updatedPayload })
                 .eq('location_id', businessLocationId)
                 .eq('review_id', review.reviewId)
