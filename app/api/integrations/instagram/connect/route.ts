@@ -41,13 +41,15 @@ export async function GET(request: NextRequest) {
         .eq('user_id', user.id)
         .maybeSingle()
 
-      if (locationError || !location) {
+      const typedLocation = location as { id: string } | null
+
+      if (locationError || !typedLocation) {
         return NextResponse.json(
           { error: 'Business location not found or access denied' },
           { status: 404 }
         )
       }
-      businessLocationId = location.id
+      businessLocationId = typedLocation.id
     } else {
       // Get user's most recent business location
       const { data: location, error: locationError } = await supabase
@@ -58,13 +60,15 @@ export async function GET(request: NextRequest) {
         .limit(1)
         .single()
 
-      if (locationError || !location) {
+      const typedLocation = location as { id: string } | null
+
+      if (locationError || !typedLocation) {
         return NextResponse.json(
           { error: 'Business location not found. Please create a business location first.' },
           { status: 400 }
         )
       }
-      businessLocationId = location.id
+      businessLocationId = typedLocation.id
     }
 
     // Get Instagram OAuth configuration
