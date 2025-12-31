@@ -275,10 +275,6 @@ export async function POST(request: NextRequest) {
 
     console.log('[Instagram Analysis API] Fetching Instagram data for:', username)
     
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'route.ts:276',message:'POST entry - checking OAuth connection',data:{locationId,username,hasUsername:!!username},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
-    
     // Check if OAuth connection exists - if so, use Graph API instead of Apify
     const serverSupabase = await createClient()
     const { data: instagramConnection, error: connectionError } = await serverSupabase
@@ -286,10 +282,6 @@ export async function POST(request: NextRequest) {
       .select('access_token, instagram_user_id, instagram_username')
       .eq('business_location_id', locationId)
       .maybeSingle()
-
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'route.ts:283',message:'OAuth connection query result',data:{hasConnection:!!instagramConnection,hasError:!!connectionError,errorMessage:connectionError?.message,hasAccessToken:!!instagramConnection?.access_token,hasUserId:!!instagramConnection?.instagram_user_id,hasUsername:!!instagramConnection?.instagram_username,userId:instagramConnection?.instagram_user_id?.substring(0,20)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
 
     const typedConnection = instagramConnection as {
       access_token: string
@@ -304,20 +296,12 @@ export async function POST(request: NextRequest) {
       // Use Instagram Graph API with OAuth token
       console.log('[Instagram Analysis API] Using Instagram Graph API (OAuth)')
       
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'route.ts:295',message:'OAuth connection found - using Graph API',data:{hasAccessToken:!!typedConnection.access_token,hasUserId:!!typedConnection.instagram_user_id,userId:typedConnection.instagram_user_id?.substring(0,20),tokenLength:typedConnection.access_token?.length,username:typedConnection.instagram_username},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
-      
       // Use username from connection if available, otherwise use provided username
       if (typedConnection.instagram_username) {
         username = typedConnection.instagram_username
       }
       
       try {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'route.ts:304',message:'Calling fetchInstagramFromGraphAPI',data:{userId:typedConnection.instagram_user_id?.substring(0,20),tokenLength:typedConnection.access_token?.length,postsLimit:resultsLimitPosts,commentsLimit:resultsLimitComments},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
-        
         const result = await fetchInstagramFromGraphAPI(
           typedConnection.access_token,
           typedConnection.instagram_user_id,
@@ -326,10 +310,6 @@ export async function POST(request: NextRequest) {
         )
         const duration = ((Date.now() - startTime) / 1000).toFixed(1)
         console.log(`[Instagram Analysis API] Graph API fetch completed in ${duration}s`)
-        
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'route.ts:312',message:'Graph API fetch succeeded',data:{postsCount:result.posts.length,commentsCount:result.comments.length,duration},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         
         posts = result.posts
         comments = result.comments
@@ -345,10 +325,6 @@ export async function POST(request: NextRequest) {
           name: error.name,
         })
         
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'route.ts:321',message:'Graph API error caught',data:{errorMessage:error.message,errorName:error.name,errorStack:error.stack?.substring(0,200),hasUsername:!!username},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
-        
         // DO NOT fallback to Apify - user wants Graph API only
         return NextResponse.json(
           { success: false, error: `Failed to fetch Instagram data from Graph API: ${error.message}` },
@@ -356,10 +332,6 @@ export async function POST(request: NextRequest) {
         )
       }
     } else {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'route.ts:352',message:'No OAuth connection found',data:{hasConnection:!!typedConnection,hasAccessToken:!!typedConnection?.access_token,hasUserId:!!typedConnection?.instagram_user_id,connectionError:connectionError?.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
-      
       // No OAuth connection - return error (user wants Graph API only)
       return NextResponse.json(
         { success: false, error: 'Instagram OAuth connection not found. Please connect your Instagram account via OAuth first.' },
