@@ -166,6 +166,7 @@ export function SocialChannelAnalysis({
   // Instagram-specific state
   const [instagramAnalysis, setInstagramAnalysis] = useState<InstagramAiAnalysis | null>(null)
   const [instagramMetrics, setInstagramMetrics] = useState<InstagramMetrics | null>(null)
+  const [instagramComments, setInstagramComments] = useState<Array<{ text: string; username: string; timestamp: string; postUrl: string }>>([])
   const [instagramLoading, setInstagramLoading] = useState(false)
   const [instagramError, setInstagramError] = useState<string | null>(null)
   const [instagramRefreshing, setInstagramRefreshing] = useState(false)

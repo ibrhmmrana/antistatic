@@ -403,6 +403,13 @@ export async function POST(request: NextRequest) {
         periodStart: metrics.periodStart,
         periodEnd: metrics.periodEnd,
       },
+      // TEMPORARY: Include all comments for debugging
+      comments: comments.map(c => ({
+        text: c.text,
+        username: c.username,
+        timestamp: c.timestamp,
+        postUrl: c.postUrl,
+      })),
     }
 
     // Store the analysis and raw data in the database for caching
