@@ -167,6 +167,7 @@ export function SocialChannelAnalysis({
   const [instagramAnalysis, setInstagramAnalysis] = useState<InstagramAiAnalysis | null>(null)
   const [instagramMetrics, setInstagramMetrics] = useState<InstagramMetrics | null>(null)
   const [instagramComments, setInstagramComments] = useState<Array<{ text: string; username: string; timestamp: string; postUrl: string }>>([])
+  const [instagramCommentsDiagnostics, setInstagramCommentsDiagnostics] = useState<Array<{ id: string; url: string; commentsDiagnostic: { mediaId: string; mediaPermalink: string; commentsCountFromAPI: number; commentsReturned: number; pagingPresent: boolean } }>>([])
   const [instagramLoading, setInstagramLoading] = useState(false)
   const [instagramError, setInstagramError] = useState<string | null>(null)
   const [instagramRefreshing, setInstagramRefreshing] = useState(false)
@@ -583,13 +584,17 @@ export function SocialChannelAnalysis({
           const result = await response.json()
           if (result.analysis && result.metrics) {
             console.log('[Instagram Analysis] Analysis ready!')
-            setInstagramAnalysis(result.analysis)
-            setInstagramMetrics(result.metrics)
-            // TEMPORARY: Store all comments for debugging
-            if (result.comments && Array.isArray(result.comments)) {
-              setInstagramComments(result.comments)
-            }
-            setInstagramError(null)
+        setInstagramAnalysis(result.analysis)
+        setInstagramMetrics(result.metrics)
+        // TEMPORARY: Store all comments for debugging
+        if (result.comments && Array.isArray(result.comments)) {
+          setInstagramComments(result.comments)
+        }
+        // Store diagnostic info for posts with missing comments
+        if (result.commentsDiagnostics && Array.isArray(result.commentsDiagnostics)) {
+          setInstagramCommentsDiagnostics(result.commentsDiagnostics)
+        }
+        setInstagramError(null)
             setInstagramLoading(false)
             clearInterval(pollInterval)
           }

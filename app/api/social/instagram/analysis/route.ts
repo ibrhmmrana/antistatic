@@ -389,6 +389,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Collect diagnostic info for posts with missing comments
+    const postsWithDiagnostics = posts.map((post: any) => {
+      if (post.commentsDiagnostic) {
+        return {
+          id: post.id,
+          url: post.url,
+          commentsDiagnostic: post.commentsDiagnostic,
+        }
+      }
+      return null
+    }).filter(Boolean)
+
     const response = {
       success: true,
       analysis,
@@ -410,6 +422,8 @@ export async function POST(request: NextRequest) {
         timestamp: c.timestamp,
         postUrl: c.postUrl,
       })),
+      // Diagnostic info for posts with missing comments
+      commentsDiagnostics: postsWithDiagnostics,
     }
 
     // Store the analysis and raw data in the database for caching
