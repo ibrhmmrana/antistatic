@@ -75,6 +75,12 @@ export async function GET(request: NextRequest) {
       .eq('business_location_id', businessLocationId)
       .maybeSingle()
 
+    const typedConnection = connection as {
+      instagram_user_id: string
+      instagram_username: string | null
+      scopes: string[] | null
+    } | null
+
     if (connectionError) {
       console.error('[Instagram Status] Error fetching connection:', connectionError)
       return NextResponse.json(
@@ -83,7 +89,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    if (!connection) {
+    if (!typedConnection) {
       return NextResponse.json({
         connected: false,
       })
@@ -91,9 +97,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       connected: true,
-      username: connection.instagram_username || null,
-      instagram_user_id: connection.instagram_user_id,
-      scopes: connection.scopes || [],
+      username: typedConnection.instagram_username || null,
+      instagram_user_id: typedConnection.instagram_user_id,
+      scopes: typedConnection.scopes || [],
     })
   } catch (error: any) {
     console.error('[Instagram Status] Error:', error)
