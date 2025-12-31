@@ -209,7 +209,7 @@ export async function POST(request: NextRequest) {
 
     // Parse request body
     const body = await request.json()
-    const { username, locationId, resultsLimitPosts = 30, resultsLimitComments = 20, forceRefresh = false } = body
+    let { username, locationId, resultsLimitPosts = 30, resultsLimitComments = 20, forceRefresh = false } = body
 
     // #region agent log
     fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'route.ts:179',message:'POST entry',data:{username,usernameLength:username?.length,usernameTrimmed:username?.trim(),locationId,forceRefresh},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
