@@ -90,7 +90,30 @@ export async function GET(request: NextRequest) {
     const expiresAt = new Date()
     expiresAt.setMinutes(expiresAt.getMinutes() + 10)
 
-    const { error: stateError } = await supabase
+    // Check if table exists by attempting a simple query first
+    const { error: tableCheckError } = await supabase
+      .from('instagram_oauth_states')
+      .select('id')
+      .limit(1)
+
+    if (tableCheckError) {
+      console.error('[Instagram Connect] Table check failed:', {
+        error: tableCheckError,
+        message: tableCheckError.message,
+        code: tableCheckError.code,
+        hint: tableCheckError.hint,
+      })
+      return NextResponse.json(
+        { 
+          error: 'Database configuration error',
+          details: tableCheckError.message || 'The instagram_oauth_states table may not exist. Please run the migration: migrations/create_instagram_oauth_states.sql',
+          hint: tableCheckError.hint,
+        },
+        { status: 500 }
+      )
+    }
+
+    const { error: stateError, data: stateData } = await supabase
       .from('instagram_oauth_states')
       .insert({
         state,
@@ -98,11 +121,36 @@ export async function GET(request: NextRequest) {
         business_location_id: businessLocationId,
         expires_at: expiresAt.toISOString(),
       } as any)
+      .select()
 
     if (stateError) {
-      console.error('[Instagram Connect] Failed to store state:', stateError)
+      console.error('[Instagram Connect] Failed to store state:', {
+        error: stateError,
+        message: stateError.message,
+        details: stateError.details,
+        hint: stateError.hint,
+        code: stateError.code,
+        userId: user.id,
+        businessLocationId,
+      })
+      
+      // Provide more specific error messages based on error code
+      let errorMessage = 'Failed to initialize OAuth flow'
+      let errorDetails = stateError.message || 'Database error'
+      
+      if (stateError.code === '42501') {
+        errorDetails = 'Permission denied. Please check RLS policies for instagram_oauth_states table.'
+      } else if (stateError.code === '42P01') {
+        errorDetails = 'Table instagram_oauth_states does not exist. Please run the migration: migrations/create_instagram_oauth_states.sql'
+      } else if (stateError.hint) {
+        errorDetails = `${stateError.message}. ${stateError.hint}`
+      }
+      
       return NextResponse.json(
-        { error: 'Failed to initialize OAuth flow' },
+        { 
+          error: errorMessage,
+          details: errorDetails,
+        },
         { status: 500 }
       )
     }
