@@ -183,7 +183,7 @@ export async function GET(request: NextRequest) {
       hasState: !!state,
     })
 
-    // Redirect to Meta authorization
+    // Redirect to Instagram authorization
     return NextResponse.redirect(authUrl)
   } catch (error: any) {
     console.error('[Instagram Connect] Error:', error)
