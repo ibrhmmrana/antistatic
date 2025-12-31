@@ -117,11 +117,23 @@ export async function fetchInstagramFromGraphAPI(
             const commentsUrl = `https://graph.instagram.com/${item.id}/comments?fields=id,text,timestamp,username&limit=25&access_token=${accessToken}`
             console.log(`[Instagram Graph API] Fetching comments for post ${item.id} (comments_count: ${item.comments_count || 'unknown'})`)
             
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'instagram-graph.ts:116',message:'Before comments fetch',data:{postId:item.id,commentsCount:item.comments_count,commentsUrl:commentsUrl.substring(0,150)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+            
             const commentsResponse = await fetch(commentsUrl)
+            
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'instagram-graph.ts:120',message:'Comments response received',data:{postId:item.id,status:commentsResponse.status,ok:commentsResponse.ok,statusText:commentsResponse.statusText},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
 
             if (commentsResponse.ok) {
               const commentsData = await commentsResponse.json()
               const postComments = commentsData.data || []
+              
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'instagram-graph.ts:125',message:'Comments data parsed',data:{postId:item.id,commentsCount:postComments.length,hasData:!!commentsData.data,dataIsArray:Array.isArray(commentsData.data),hasError:!!commentsData.error,errorCode:commentsData.error?.code,errorMessage:commentsData.error?.message,errorType:commentsData.error?.type,fullResponse:JSON.stringify(commentsData).substring(0,500)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+              // #endregion
               
               console.log(`[Instagram Graph API] Received ${postComments.length} comments for post ${item.id}`)
 
@@ -137,6 +149,11 @@ export async function fetchInstagramFromGraphAPI(
               }
             } else {
               const errorData = await commentsResponse.json().catch(() => ({}))
+              
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'instagram-graph.ts:140',message:'Comments fetch failed',data:{postId:item.id,status:commentsResponse.status,statusText:commentsResponse.statusText,errorCode:errorData.error?.code,errorMessage:errorData.error?.message,errorType:errorData.error?.type,errorSubcode:errorData.error?.error_subcode,fullError:JSON.stringify(errorData).substring(0,500)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+              // #endregion
+              
               console.warn(`[Instagram Graph API] Failed to fetch comments for post ${item.id}:`, {
                 status: commentsResponse.status,
                 statusText: commentsResponse.statusText,
@@ -144,6 +161,10 @@ export async function fetchInstagramFromGraphAPI(
               })
             }
           } catch (commentError: any) {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'instagram-graph.ts:150',message:'Comments fetch exception',data:{postId:item.id,errorMessage:commentError.message,errorName:commentError.name,errorStack:commentError.stack?.substring(0,300)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+            // #endregion
+            
             console.warn(`[Instagram Graph API] Error fetching comments for post ${item.id}:`, {
               message: commentError.message,
               stack: commentError.stack,
