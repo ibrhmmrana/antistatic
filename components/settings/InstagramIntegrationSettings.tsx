@@ -45,19 +45,26 @@ export function InstagramIntegrationSettings({ businessLocationId, connection }:
 
   const refreshConnection = async () => {
     try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        return
+      }
+
       const { data: location } = await supabase
         .from('business_locations')
         .select('id')
-        .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
+        .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(1)
         .single()
 
-      if (location) {
+      const typedLocation = location as { id: string } | null
+
+      if (typedLocation) {
         const { data: conn } = await supabase
           .from('instagram_connections')
           .select('instagram_user_id, instagram_username, created_at')
-          .eq('business_location_id', location.id)
+          .eq('business_location_id', typedLocation.id)
           .maybeSingle()
 
         setConnectionState(conn)
