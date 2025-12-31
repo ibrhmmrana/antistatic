@@ -135,8 +135,55 @@ export async function fetchInstagramFromGraphAPI(
               fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'instagram-graph.ts:125',message:'Comments data parsed',data:{postId:item.id,commentsCount:postComments.length,hasData:!!commentsData.data,dataIsArray:Array.isArray(commentsData.data),hasError:!!commentsData.error,errorCode:commentsData.error?.code,errorMessage:commentsData.error?.message,errorType:commentsData.error?.type,fullResponse:JSON.stringify(commentsData).substring(0,500)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
               // #endregion
               
-              console.log(`[Instagram Graph API] Received ${postComments.length} comments for post ${item.id}`)
+              console.log(`[Instagram Graph API] Received ${postComments.length} comments for post ${item.id} from Instagram API`)
 
+              // If Instagram API returns empty but we know there are comments, try Facebook Graph API
+              if (postComments.length === 0 && item.comments_count > 0) {
+                console.log(`[Instagram Graph API] Instagram API returned empty, trying Facebook Graph API for comments...`)
+                // Try Facebook Graph API as fallback for Business accounts
+                const fbCommentsUrl = `https://graph.facebook.com/v18.0/${item.id}/comments?fields=id,message,created_time,from&limit=25&access_token=${accessToken}`
+                
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'instagram-graph.ts:140',message:'Trying Facebook Graph API for comments',data:{postId:item.id,commentsUrl:fbCommentsUrl.substring(0,150),usingFacebookAPI:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+                // #endregion
+                
+                try {
+                  const fbCommentsResponse = await fetch(fbCommentsUrl)
+                  
+                  if (fbCommentsResponse.ok) {
+                    const fbCommentsData = await fbCommentsResponse.json()
+                    const fbPostComments = fbCommentsData.data || []
+                    
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'instagram-graph.ts:148',message:'Facebook API comments response',data:{postId:item.id,commentsCount:fbPostComments.length,hasData:!!fbCommentsData.data,hasError:!!fbCommentsData.error,errorCode:fbCommentsData.error?.code,errorMessage:fbCommentsData.error?.message,fullResponse:JSON.stringify(fbCommentsData).substring(0,500)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+                    // #endregion
+                    
+                    console.log(`[Instagram Graph API] Received ${fbPostComments.length} comments for post ${item.id} from Facebook API`)
+                    
+                    // Convert Facebook API format to Instagram format
+                    for (const comment of fbPostComments) {
+                      if (comments.length >= commentsLimit * postsLimit) break
+
+                      comments.push({
+                        text: comment.message || comment.text || '',
+                        username: comment.from?.username || comment.from?.name || 'unknown',
+                        timestamp: comment.created_time || comment.timestamp || new Date().toISOString(),
+                        postUrl: post.url,
+                      })
+                    }
+                  } else {
+                    const errorData = await fbCommentsResponse.json().catch(() => ({}))
+                    console.warn(`[Instagram Graph API] Facebook API also failed for comments on post ${item.id}:`, {
+                      status: fbCommentsResponse.status,
+                      error: errorData,
+                    })
+                  }
+                } catch (fbError: any) {
+                  console.warn(`[Instagram Graph API] Error trying Facebook API for comments:`, fbError.message)
+                }
+              }
+
+              // Process comments from Instagram API (if any were returned)
               for (const comment of postComments) {
                 if (comments.length >= commentsLimit * postsLimit) break
 
