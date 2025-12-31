@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { createClient } from '@/lib/supabase/server'
 import { fetchInstagramRaw } from '@/lib/social/instagram-apify'
+import { fetchInstagramFromGraphAPI } from '@/lib/social/instagram-graph'
 import { calculateInstagramMetrics } from '@/lib/social/instagram-metrics'
 import { generateInstagramAnalysis } from '@/lib/social/instagram-ai'
 
@@ -272,33 +274,108 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('[Instagram Analysis API] Fetching Instagram data for:', username)
-    console.log('[Instagram Analysis API] This may take 2-3 minutes...')
+    
+    // Check if OAuth connection exists - if so, use Graph API instead of Apify
+    const serverSupabase = await createClient()
+    const { data: instagramConnection } = await serverSupabase
+      .from('instagram_connections')
+      .select('access_token, instagram_user_id, instagram_username')
+      .eq('business_location_id', locationId)
+      .maybeSingle()
 
-    // Fetch Instagram data from Apify
+    const typedConnection = instagramConnection as {
+      access_token: string
+      instagram_user_id: string
+      instagram_username: string | null
+    } | null
+
     let posts, comments
-    try {
-      const startTime = Date.now()
-      const result = await fetchInstagramRaw(username, resultsLimitPosts, resultsLimitComments)
-      const duration = ((Date.now() - startTime) / 1000).toFixed(1)
-      console.log(`[Instagram Analysis API] Apify fetch completed in ${duration}s`)
+    const startTime = Date.now()
+
+    if (typedConnection && typedConnection.access_token && typedConnection.instagram_user_id) {
+      // Use Instagram Graph API with OAuth token
+      console.log('[Instagram Analysis API] Using Instagram Graph API (OAuth)')
       
-      posts = result.posts
-      comments = result.comments
+      // Use username from connection if available, otherwise use provided username
+      if (typedConnection.instagram_username) {
+        username = typedConnection.instagram_username
+      }
       
-      console.log('[Instagram Analysis API] Data received:', {
-        postsCount: posts.length,
-        commentsCount: comments.length,
-      })
-    } catch (error: any) {
-      console.error('[Instagram Analysis API] Apify error:', {
-        message: error.message,
-        stack: error.stack,
-        name: error.name,
-      })
-      return NextResponse.json(
-        { success: false, error: `Failed to fetch Instagram data: ${error.message}` },
-        { status: 500 }
-      )
+      try {
+        const result = await fetchInstagramFromGraphAPI(
+          typedConnection.access_token,
+          typedConnection.instagram_user_id,
+          resultsLimitPosts,
+          resultsLimitComments
+        )
+        const duration = ((Date.now() - startTime) / 1000).toFixed(1)
+        console.log(`[Instagram Analysis API] Graph API fetch completed in ${duration}s`)
+        
+        posts = result.posts
+        comments = result.comments
+        
+        console.log('[Instagram Analysis API] Data received from Graph API:', {
+          postsCount: posts.length,
+          commentsCount: comments.length,
+        })
+      } catch (error: any) {
+        console.error('[Instagram Analysis API] Graph API error:', {
+          message: error.message,
+          stack: error.stack,
+          name: error.name,
+        })
+        // Fallback to Apify if Graph API fails (only if username is provided)
+        if (username) {
+          console.log('[Instagram Analysis API] Falling back to Apify...')
+          try {
+            const result = await fetchInstagramRaw(username, resultsLimitPosts, resultsLimitComments)
+            const duration = ((Date.now() - startTime) / 1000).toFixed(1)
+            console.log(`[Instagram Analysis API] Apify fetch completed in ${duration}s`)
+            
+            posts = result.posts
+            comments = result.comments
+          } catch (apifyError: any) {
+            console.error('[Instagram Analysis API] Apify fallback error:', apifyError)
+            return NextResponse.json(
+              { success: false, error: `Failed to fetch Instagram data: ${error.message}. Apify fallback also failed: ${apifyError.message}` },
+              { status: 500 }
+            )
+          }
+        } else {
+          // No username available for Apify fallback
+          return NextResponse.json(
+            { success: false, error: `Failed to fetch Instagram data: ${error.message}` },
+            { status: 500 }
+          )
+        }
+      }
+    } else {
+      // Use Apify (no OAuth connection)
+      console.log('[Instagram Analysis API] Using Apify (no OAuth connection)')
+      console.log('[Instagram Analysis API] This may take 2-3 minutes...')
+      try {
+        const result = await fetchInstagramRaw(username, resultsLimitPosts, resultsLimitComments)
+        const duration = ((Date.now() - startTime) / 1000).toFixed(1)
+        console.log(`[Instagram Analysis API] Apify fetch completed in ${duration}s`)
+        
+        posts = result.posts
+        comments = result.comments
+        
+        console.log('[Instagram Analysis API] Data received from Apify:', {
+          postsCount: posts.length,
+          commentsCount: comments.length,
+        })
+      } catch (error: any) {
+        console.error('[Instagram Analysis API] Apify error:', {
+          message: error.message,
+          stack: error.stack,
+          name: error.name,
+        })
+        return NextResponse.json(
+          { success: false, error: `Failed to fetch Instagram data: ${error.message}` },
+          { status: 500 }
+        )
+      }
     }
 
     // Check if we have enough data
