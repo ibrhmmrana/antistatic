@@ -345,7 +345,9 @@ export async function POST(request: NextRequest) {
       commentsLength: comments.length,
     })
     
-    if (posts.length < 5) {
+    // Lower threshold to allow analysis with at least 1 post
+    // This is reasonable for Instagram accounts that are just starting out
+    if (posts.length < 1) {
       console.log('[Instagram Analysis API] Not enough posts:', posts.length)
       return NextResponse.json(
         { success: false, error: 'NOT_ENOUGH_DATA', postsCount: posts.length, commentsCount: comments.length },
