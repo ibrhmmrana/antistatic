@@ -1742,6 +1742,41 @@ export function SocialChannelAnalysis({
                                           )
                                         })}
                                       </div>
+
+                                      {/* TEMPORARY: Display all comments for debugging */}
+                                      {instagramComments.length > 0 && (
+                                        <div className="mt-6 p-4 bg-yellow-50 border-2 border-yellow-300 rounded-lg">
+                                          <h3 className="text-sm font-bold text-yellow-900 mb-3" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                                            [TEMPORARY DEBUG] All Comments ({instagramComments.length})
+                                          </h3>
+                                          <div className="space-y-3 max-h-96 overflow-y-auto">
+                                            {instagramComments.map((comment, idx) => (
+                                              <div key={idx} className="p-3 bg-white rounded border border-yellow-200">
+                                                <div className="flex items-start justify-between gap-2 mb-1">
+                                                  <span className="text-xs font-semibold text-slate-700" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                                                    @{comment.username}
+                                                  </span>
+                                                  <span className="text-xs text-slate-500" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                                                    {new Date(comment.timestamp).toLocaleDateString()}
+                                                  </span>
+                                                </div>
+                                                <p className="text-sm text-slate-800 mb-1" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                                                  {comment.text}
+                                                </p>
+                                                <a 
+                                                  href={comment.postUrl} 
+                                                  target="_blank" 
+                                                  rel="noopener noreferrer"
+                                                  className="text-xs text-blue-600 hover:underline"
+                                                  style={{ fontFamily: 'var(--font-roboto-stack)' }}
+                                                >
+                                                  View Post →
+                                                </a>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
                                     </div>
                                   ) : (
                                     <div className="text-center py-8 space-y-4">
