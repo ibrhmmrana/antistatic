@@ -73,7 +73,9 @@ export async function GET(request: NextRequest) {
       .eq('state', state)
       .maybeSingle()
 
-    if (stateError || !stateRecord) {
+    const typedStateRecord = stateRecord as { user_id: string; business_location_id: string; expires_at: string } | null
+
+    if (stateError || !typedStateRecord) {
       console.error('[Instagram Callback] Invalid or expired state:', stateError)
       return NextResponse.redirect(
         new URL('/settings/integrations/instagram?error=Invalid or expired OAuth state', requestUrl.origin)
@@ -81,7 +83,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Verify state belongs to current user
-    if (stateRecord.user_id !== user.id) {
+    if (typedStateRecord.user_id !== user.id) {
       console.error('[Instagram Callback] State user mismatch')
       return NextResponse.redirect(
         new URL('/settings/integrations/instagram?error=Invalid session', requestUrl.origin)
@@ -89,7 +91,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Check if state has expired
-    const expiresAt = new Date(stateRecord.expires_at)
+    const expiresAt = new Date(typedStateRecord.expires_at)
     if (expiresAt < new Date()) {
       console.error('[Instagram Callback] State expired')
       // Clean up expired state
@@ -102,7 +104,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const businessLocationId = stateRecord.business_location_id
+    const businessLocationId = typedStateRecord.business_location_id
 
     // Get Instagram OAuth configuration
     let config
