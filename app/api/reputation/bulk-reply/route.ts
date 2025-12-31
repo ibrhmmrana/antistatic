@@ -5,6 +5,8 @@ import { Database } from '@/lib/supabase/database.types'
 
 type BusinessLocation = Database['public']['Tables']['business_locations']['Row']
 type BusinessLocationSelect = Pick<BusinessLocation, 'id' | 'user_id' | 'google_location_name'>
+type BusinessReview = Database['public']['Tables']['business_reviews']['Row']
+type BusinessReviewSelect = Pick<BusinessReview, 'raw_payload'>
 
 interface BulkReplyRequest {
   businessLocationId: string
@@ -112,8 +114,10 @@ export async function POST(request: NextRequest) {
               .eq('review_id', review.reviewId)
               .maybeSingle()
 
-            if (dbReview?.raw_payload && typeof dbReview.raw_payload === 'object') {
-              const payload = dbReview.raw_payload as any
+            const typedDbReview = dbReview as BusinessReviewSelect | null
+
+            if (typedDbReview?.raw_payload && typeof typedDbReview.raw_payload === 'object') {
+              const payload = typedDbReview.raw_payload as any
               if (payload.name && typeof payload.name === 'string') {
                 reviewName = payload.name
                 console.log('[Bulk Reply API] Found reviewName in database:', reviewName)
@@ -226,8 +230,10 @@ export async function POST(request: NextRequest) {
               .eq('review_id', review.reviewId)
               .maybeSingle()
 
-            if (dbReview) {
-              const currentPayload = (dbReview.raw_payload as any) || {}
+            const typedDbReview = dbReview as BusinessReviewSelect | null
+
+            if (typedDbReview) {
+              const currentPayload = (typedDbReview.raw_payload as any) || {}
               const updatedPayload = {
                 ...currentPayload,
                 reply: {
