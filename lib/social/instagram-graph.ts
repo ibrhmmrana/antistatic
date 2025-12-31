@@ -34,24 +34,24 @@ export async function fetchInstagramFromGraphAPI(
   try {
     // Step 1: Get user's media (posts)
     // For "Instagram API with Instagram Login" (Business Login), we use graph.instagram.com
-    // The token from api.instagram.com/oauth/access_token is an Instagram token, not Facebook token
-    // Use graph.instagram.com with the Instagram Business Account ID
-    let mediaUrl = `https://graph.instagram.com/${instagramUserId}/media?fields=id,caption,like_count,comments_count,timestamp,media_type,media_url,permalink&limit=25&access_token=${accessToken}`
+    // Try using /me endpoint first, then fallback to user ID if needed
+    // The token from api.instagram.com/oauth/access_token is an Instagram token
+    let mediaUrl = `https://graph.instagram.com/me/media?fields=id,caption,like_count,comments_count,timestamp,media_type,media_url,permalink&limit=25&access_token=${accessToken}`
     let hasNextPage = true
     let pageCount = 0
     const maxPages = Math.ceil(postsLimit / 25) // Instagram returns 25 per page
 
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'instagram-graph.ts:35',message:'Before media fetch',data:{mediaUrl:mediaUrl.substring(0,120),userId:instagramUserId?.substring(0,20),usingInstagramGraph:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'instagram-graph.ts:35',message:'Before media fetch - trying /me endpoint',data:{mediaUrl:mediaUrl.substring(0,120),userId:instagramUserId?.substring(0,20),usingMeEndpoint:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
     // #endregion
 
     // Try to get username from user info endpoint
     let username: string | undefined
     try {
-      // Use graph.instagram.com for Instagram tokens
-      const userInfoUrl = `https://graph.instagram.com/${instagramUserId}?fields=username&access_token=${accessToken}`
+      // Use /me endpoint for Instagram tokens
+      const userInfoUrl = `https://graph.instagram.com/me?fields=id,username&access_token=${accessToken}`
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'instagram-graph.ts:42',message:'Fetching username',data:{userInfoUrl:userInfoUrl.substring(0,120),usingInstagramGraph:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'instagram-graph.ts:42',message:'Fetching username using /me',data:{userInfoUrl:userInfoUrl.substring(0,120),usingMeEndpoint:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
       // #endregion
       
       const userInfoResponse = await fetch(userInfoUrl)
@@ -111,6 +111,9 @@ export async function fetchInstagramFromGraphAPI(
             throw new Error('Invalid or expired access token. Please reconnect your Instagram account.')
           } else if (errorData.error.code === 10) {
             throw new Error('Permission denied. Please ensure all required permissions are granted.')
+          } else if (errorData.error.code === 2 && errorData.error.is_transient) {
+            // Transient error - might be Instagram API issue, but also might be account/permissions issue
+            throw new Error('Instagram API returned a transient error. This may indicate your account needs to be linked to a Facebook Page, or there may be a temporary Instagram API issue. Please verify your Instagram account is a Business/Creator account connected to a Facebook Page.')
           }
         }
         
