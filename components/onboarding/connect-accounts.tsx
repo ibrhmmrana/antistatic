@@ -202,7 +202,7 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
         setInstagramStatus({
           connected: true,
           username: igUsername || null,
-          instagram_user_id: igUserId || null,
+          instagram_user_id: igUserId || undefined,
           scopes: [],
         })
       }
