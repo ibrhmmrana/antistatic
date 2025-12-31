@@ -129,15 +129,33 @@ export async function fetchInstagramFromGraphAPI(
 
             if (commentsResponse.ok) {
               const commentsData = await commentsResponse.json()
-              const postComments = commentsData.data || []
+              let postComments = commentsData.data || []
               
               // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'instagram-graph.ts:125',message:'Comments data parsed',data:{postId:item.id,commentsCount:postComments.length,hasData:!!commentsData.data,dataIsArray:Array.isArray(commentsData.data),hasError:!!commentsData.error,errorCode:commentsData.error?.code,errorMessage:commentsData.error?.message,errorType:commentsData.error?.type,fullResponse:JSON.stringify(commentsData).substring(0,500)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+              fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'instagram-graph.ts:125',message:'Comments data parsed',data:{postId:item.id,commentsCount:postComments.length,hasData:!!commentsData.data,dataIsArray:Array.isArray(commentsData.data),hasError:!!commentsData.error,errorCode:commentsData.error?.code,errorMessage:commentsData.error?.message,errorType:commentsData.error?.type,hasPaging:!!commentsData.paging,hasNext:!!commentsData.paging?.next,fullResponse:JSON.stringify(commentsData).substring(0,500)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
               // #endregion
               
               console.log(`[Instagram Graph API] Received ${postComments.length} comments for post ${item.id} from Instagram API`)
 
+              // Try pagination if we got empty results but pagination exists
+              // Sometimes comments are on the next page even if first page is empty
+              if (postComments.length === 0 && commentsData.paging && commentsData.paging.next) {
+                console.log(`[Instagram Graph API] Empty results but pagination exists, trying next page...`)
+                try {
+                  const nextPageResponse = await fetch(commentsData.paging.next)
+                  if (nextPageResponse.ok) {
+                    const nextPageData = await nextPageResponse.json()
+                    postComments = nextPageData.data || []
+                    console.log(`[Instagram Graph API] Next page returned ${postComments.length} comments`)
+                  }
+                } catch (paginationError: any) {
+                  console.warn(`[Instagram Graph API] Pagination fetch failed:`, paginationError.message)
+                }
+              }
+
               // If Instagram API returns empty but we know there are comments, try Facebook Graph API
+              // NOTE: This will fail because Instagram tokens don't work with Facebook API
+              // This is a known limitation - Instagram API with Instagram Login may not support comments
               if (postComments.length === 0 && item.comments_count > 0) {
                 console.log(`[Instagram Graph API] Instagram API returned empty, trying Facebook Graph API for comments...`)
                 // Try Facebook Graph API as fallback for Business accounts
