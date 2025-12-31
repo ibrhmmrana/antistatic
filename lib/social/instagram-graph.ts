@@ -108,16 +108,22 @@ export async function fetchInstagramFromGraphAPI(
 
         posts.push(post)
 
-        // Step 2: Fetch comments for this post if we haven't reached the limit
-        if (item.comments_count > 0 && comments.length < commentsLimit * postsLimit) {
+        // Step 2: Fetch comments for this post
+        // Always try to fetch comments, even if comments_count is 0 or missing
+        // The API might not return accurate comment counts, or comments might exist despite count being 0
+        if (comments.length < commentsLimit * postsLimit) {
           try {
             // Use graph.instagram.com for Instagram tokens
-            const commentsUrl = `https://graph.instagram.com/${item.id}/comments?fields=id,text,timestamp,username&limit=10&access_token=${accessToken}`
+            const commentsUrl = `https://graph.instagram.com/${item.id}/comments?fields=id,text,timestamp,username&limit=25&access_token=${accessToken}`
+            console.log(`[Instagram Graph API] Fetching comments for post ${item.id} (comments_count: ${item.comments_count || 'unknown'})`)
+            
             const commentsResponse = await fetch(commentsUrl)
 
             if (commentsResponse.ok) {
               const commentsData = await commentsResponse.json()
               const postComments = commentsData.data || []
+              
+              console.log(`[Instagram Graph API] Received ${postComments.length} comments for post ${item.id}`)
 
               for (const comment of postComments) {
                 if (comments.length >= commentsLimit * postsLimit) break
@@ -130,10 +136,18 @@ export async function fetchInstagramFromGraphAPI(
                 })
               }
             } else {
-              console.warn(`[Instagram Graph API] Failed to fetch comments for post ${item.id}:`, commentsResponse.status)
+              const errorData = await commentsResponse.json().catch(() => ({}))
+              console.warn(`[Instagram Graph API] Failed to fetch comments for post ${item.id}:`, {
+                status: commentsResponse.status,
+                statusText: commentsResponse.statusText,
+                error: errorData,
+              })
             }
           } catch (commentError: any) {
-            console.warn(`[Instagram Graph API] Error fetching comments for post ${item.id}:`, commentError.message)
+            console.warn(`[Instagram Graph API] Error fetching comments for post ${item.id}:`, {
+              message: commentError.message,
+              stack: commentError.stack,
+            })
             // Continue with other posts even if comments fail
           }
         }
