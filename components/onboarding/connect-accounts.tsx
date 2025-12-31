@@ -99,6 +99,13 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
   const [instagramLoading, setInstagramLoading] = useState(true)
   const router = useRouter()
   const searchParams = useSearchParams()
+  
+  // Extract Instagram OAuth callback params
+  const igStatus = searchParams.get('ig')
+  const igConnected = searchParams.get('connected')
+  const igError = searchParams.get('ig_error')
+  const igUsername = searchParams.get('ig_username')
+  const igUserId = searchParams.get('ig_user_id')
   const supabase = createClient()
 
   // Load existing social usernames from database on mount
@@ -190,12 +197,6 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
     const allowBack = searchParams.get('allowBack')
 
     // Check for Instagram OAuth callback
-    const igStatus = searchParams.get('ig')
-    const igConnected = searchParams.get('connected')
-    const igError = searchParams.get('ig_error')
-    const igUsername = searchParams.get('ig_username')
-    const igUserId = searchParams.get('ig_user_id')
-
     if (igStatus === 'connected' && igConnected === '1') {
       // Set Instagram status immediately from URL params if available
       if (igUsername || igUserId) {
