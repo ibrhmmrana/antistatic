@@ -171,6 +171,12 @@ export function SocialChannelAnalysis({
   const [instagramRefreshing, setInstagramRefreshing] = useState(false)
   const [visibleInstagramCards, setVisibleInstagramCards] = useState<Set<number>>(new Set())
   const instagramCardRefs = useRef<(HTMLDivElement | null)[]>([])
+  const [instagramOAuthUsername, setInstagramOAuthUsername] = useState<string | null>(null)
+
+  // Helper to get Instagram username (from OAuth or prop)
+  const getInstagramUsername = (): string | null => {
+    return instagramOAuthUsername || socialUsernames.instagram?.trim() || null
+  }
 
   // Facebook-specific state
   const [facebookAnalysis, setFacebookAnalysis] = useState<FacebookAiAnalysis | null>(null)
@@ -277,8 +283,27 @@ export function SocialChannelAnalysis({
           })
         }
 
-        // Instagram Analysis
-        if (socialUsernames.instagram?.trim()) {
+        // Instagram Analysis - check for OAuth connection OR username
+        let hasInstagram = false
+        
+        // Check for OAuth connection
+        try {
+          const { data: instagramConnection } = await supabase
+            .from('instagram_connections')
+            .select('instagram_username')
+            .eq('business_location_id', locationId)
+            .maybeSingle()
+
+          if (instagramConnection && instagramConnection.instagram_username) {
+            hasInstagram = true
+            setInstagramOAuthUsername(instagramConnection.instagram_username)
+          }
+        } catch (error) {
+          console.warn('[Channel Analysis] Error checking Instagram OAuth connection:', error)
+        }
+
+        // Add Instagram card if we have username (from OAuth or socialUsernames)
+        if (hasInstagram || socialUsernames.instagram?.trim()) {
           channels.push({
             id: 'instagram',
             name: 'Instagram',
@@ -657,7 +682,27 @@ export function SocialChannelAnalysis({
   // Fetch cached Instagram analysis (GET - read-only, no Apify/OpenAI cost)
   // Called on mount to load existing analysis from database
   const fetchInstagramAnalysis = async () => {
-    const instagramUsername = socialUsernames.instagram?.trim()
+    // Check for OAuth connection first
+    let instagramUsername = getInstagramUsername()
+    
+    // If no username yet, check OAuth connection
+    if (!instagramUsername) {
+      try {
+        const { data: instagramConnection } = await supabase
+          .from('instagram_connections')
+          .select('instagram_username')
+          .eq('business_location_id', locationId)
+          .maybeSingle()
+
+        if (instagramConnection && instagramConnection.instagram_username) {
+          instagramUsername = instagramConnection.instagram_username
+          setInstagramOAuthUsername(instagramConnection.instagram_username)
+        }
+      } catch (error) {
+        console.warn('[Instagram Analysis] Error checking OAuth connection:', error)
+      }
+    }
+    
     if (!instagramUsername || !locationId) {
       console.log('[Instagram Analysis] Skipping GET - no username or locationId')
       return
@@ -736,7 +781,27 @@ export function SocialChannelAnalysis({
   // Generate fresh Instagram analysis (POST - triggers Apify + OpenAI)
   // Called only when user explicitly clicks "Generate Analysis" or "Refresh Analysis"
   const runInstagramAnalysis = async () => {
-    const instagramUsername = socialUsernames.instagram?.trim()
+    // Check for OAuth connection first
+    let instagramUsername = getInstagramUsername()
+    
+    // If no username yet, check OAuth connection
+    if (!instagramUsername) {
+      try {
+        const { data: instagramConnection } = await supabase
+          .from('instagram_connections')
+          .select('instagram_username')
+          .eq('business_location_id', locationId)
+          .maybeSingle()
+
+        if (instagramConnection && instagramConnection.instagram_username) {
+          instagramUsername = instagramConnection.instagram_username
+          setInstagramOAuthUsername(instagramConnection.instagram_username)
+        }
+      } catch (error) {
+        console.warn('[Instagram Analysis] Error checking OAuth connection:', error)
+      }
+    }
+    
     if (!instagramUsername || !locationId) {
       console.log('[Instagram Analysis] Skipping POST - no username or locationId')
       return
@@ -811,8 +876,27 @@ export function SocialChannelAnalysis({
   // Fetch Instagram analysis on mount (GET - read-only, returns cached data if available)
   // Pattern matches GBP: GET on mount, POST only on explicit refresh
   useEffect(() => {
-    const instagramUsername = socialUsernames.instagram?.trim()
+    const instagramUsername = getInstagramUsername()
     if (!instagramUsername || !locationId) {
+      // Try to fetch OAuth username if not available
+      const checkOAuth = async () => {
+        try {
+          const { data: instagramConnection } = await supabase
+            .from('instagram_connections')
+            .select('instagram_username')
+            .eq('business_location_id', locationId)
+            .maybeSingle()
+
+          if (instagramConnection && instagramConnection.instagram_username) {
+            setInstagramOAuthUsername(instagramConnection.instagram_username)
+            // Trigger fetch after setting username
+            fetchInstagramAnalysis()
+          }
+        } catch (error) {
+          console.warn('[Instagram Analysis] Error checking OAuth connection:', error)
+        }
+      }
+      checkOAuth()
       return
     }
 
@@ -829,7 +913,7 @@ export function SocialChannelAnalysis({
     console.log('[Instagram Analysis] Mount: Calling GET to load cached analysis')
     fetchInstagramAnalysis()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locationId, socialUsernames.instagram])
+  }, [locationId, socialUsernames.instagram, instagramOAuthUsername])
 
   // Fetch cached Facebook analysis (GET - read-only, no Apify/OpenAI cost)
   const fetchFacebookAnalysis = async () => {
