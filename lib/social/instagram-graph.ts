@@ -202,11 +202,11 @@ export async function fetchInstagramFromGraphAPI(
               // Store diagnostic info for UI fallback message
               if (postComments.length === 0 && item.comments_count > 0) {
                 // This will be used by the UI to show diagnostic message
-                post.commentsDiagnostic = {
+                ;(post as any).commentsDiagnostic = {
                   mediaId: item.id,
                   mediaPermalink: post.url,
                   commentsCountFromAPI: item.comments_count,
-                  commentsReturned: 0,
+                  commentsReturned: postComments.length,
                   pagingPresent: pagingPresent,
                 }
               }
