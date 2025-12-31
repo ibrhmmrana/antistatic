@@ -27,6 +27,11 @@ declare namespace NodeJS {
     WHATSAPP_ACCESS_TOKEN?: string
     WHATSAPP_GRAPH_VERSION?: string
 
+    // Instagram OAuth (Business Login for Instagram)
+    INSTAGRAM_APP_ID?: string
+    INSTAGRAM_APP_SECRET?: string
+    NEXT_PUBLIC_APP_URL?: string
+
     // Supabase Storage
     SUPABASE_SERVICE_ROLE_KEY?: string
   }

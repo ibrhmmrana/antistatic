@@ -362,11 +362,19 @@ export function GenerateTab({ businessLocationId }: GenerateTabProps) {
                   </label>
                   <select
                     value={templateName}
-                    onChange={(e) => setTemplateName(e.target.value)}
+                    onChange={(e) => {
+                      setTemplateName(e.target.value)
+                      // Clear header image if switching to wa_temp_2 (no image template)
+                      if (e.target.value === 'wa_temp_2') {
+                        setHeaderImage(null)
+                        setHeaderImageUrl(null)
+                      }
+                    }}
                     className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#1a73e8] text-sm bg-white"
                     style={{ fontFamily: 'var(--font-roboto-stack)' }}
                   >
                     <option value="review_temp_1">General</option>
+                    <option value="wa_temp_2">General (No Image)</option>
                   </select>
                 </div>
 

@@ -293,7 +293,7 @@ export function ReviewDetail({ review, businessLocationId, businessName, onReply
 
           {/* Review Text */}
           <p className="text-slate-700 mb-4" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-            {review.text}
+            {review.text && review.text.trim() ? review.text : <span className="italic text-slate-400">No comment provided</span>}
           </p>
 
           {/* Review Images Carousel */}

@@ -10,7 +10,7 @@ const requestSchema = z.object({
       reviewId: z.string().optional(),
       authorName: z.string().optional(),
       rating: z.number().int().min(1).max(5).optional(),
-      text: z.string().min(1),
+      text: z.string().optional(), // Made optional to support rating-only reviews
       createdAt: z.string().optional(),
       platform: z.enum(['google']).optional(),
     })
@@ -88,20 +88,24 @@ ${businessContextStr}`
         ? review.authorName.trim().split(/\s+/)[0]
         : null
 
+      const hasText = review.text && review.text.trim().length > 0
+      const reviewTextDisplay = hasText ? review.text : '(No comment provided - rating only)'
+      
       const userMessage = `Review details:
 Rating: ${review.rating || 'Not specified'}/5
 Reviewer: ${review.authorName || 'Anonymous'}
 ${firstName ? `Reviewer's first name: ${firstName}` : 'Reviewer name not available'}
-Review text: ${review.text}
+Review text: ${reviewTextDisplay}
 ${review.createdAt ? `Posted: ${review.createdAt}` : ''}
 
 Write a personalized reply for this specific review:
 1. Address the reviewer by their FIRST NAME ONLY if provided${firstName ? ` (use "${firstName}")` : ' (reviewer name not available)'}
-2. Reference specific details from their review
+${hasText ? '2. Reference specific details from their review' : '2. Since there is no written comment, focus on acknowledging their rating and expressing appreciation (if positive) or concern (if negative)'}
 3. Match the tone to the rating (${review.rating || 'N/A'}/5)
 4. Is 3-5 sentences long
 5. Uses the business context above when relevant
-6. If rating <= 3, include contact information (phone/website) ONLY if available in the business context`
+6. If rating <= 3, include contact information (phone/website) ONLY if available in the business context
+${!hasText ? '7. Since this is a rating-only review, keep the reply warm and appreciative (for positive ratings) or empathetic and solution-focused (for negative ratings)' : ''}`
 
       try {
         const completion = await openai.chat.completions.create({

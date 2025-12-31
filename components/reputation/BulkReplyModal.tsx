@@ -194,7 +194,7 @@ export function BulkReplyModal({
                   </div>
                 </div>
                 <p className="text-sm text-slate-700" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-                  {currentReview.text}
+                  {currentReview.text && currentReview.text.trim() ? currentReview.text : <span className="italic text-slate-400">No comment provided</span>}
                 </p>
               </div>
 

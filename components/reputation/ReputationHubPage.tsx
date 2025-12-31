@@ -1,10 +1,27 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { ModuleGate } from '@/components/modules/ModuleGate'
 import { RespondTab } from './RespondTab'
 import { GenerateTab } from './GenerateTab'
 import { LearnTab } from './LearnTab'
+
+interface Review {
+  id: string
+  rating: number
+  authorName: string
+  authorPhotoUrl?: string | null
+  text: string
+  createTime: string
+  source: 'google'
+  replied: boolean
+  reply?: { comment: string; updateTime?: string } | null
+  sentiment: 'positive' | 'neutral' | 'negative'
+  categories: string[]
+  images?: string[]
+  reviewName?: string | null
+  reviewId?: string | null
+}
 
 interface ReputationHubPageProps {
   businessLocationId: string
@@ -13,6 +30,28 @@ interface ReputationHubPageProps {
 
 export function ReputationHubPage({ businessLocationId, businessName }: ReputationHubPageProps) {
   const [activeTab, setActiveTab] = useState<'respond' | 'generate' | 'learn'>('respond')
+  const [reviews, setReviews] = useState<Review[]>([])
+  const [reviewsLoading, setReviewsLoading] = useState(true)
+
+  // Fetch reviews once on mount - they persist in memory when switching tabs
+  useEffect(() => {
+    const fetchReviews = async () => {
+      try {
+        setReviewsLoading(true)
+        const response = await fetch(`/api/reputation/reviews?locationId=${businessLocationId}`)
+        if (response.ok) {
+          const data = await response.json()
+          setReviews(data.reviews || [])
+        }
+      } catch (error) {
+        console.error('[ReputationHubPage] Failed to fetch reviews:', error)
+      } finally {
+        setReviewsLoading(false)
+      }
+    }
+
+    fetchReviews()
+  }, [businessLocationId])
 
   return (
     <ModuleGate requiredModule="reputation_hub">
@@ -220,7 +259,15 @@ export function ReputationHubPage({ businessLocationId, businessName }: Reputati
         {/* Tab Content - Flex-1, fills remaining space, scrolls internally */}
         <div className="flex-1 min-h-0 overflow-hidden bg-white">
           <div className="h-full max-w-7xl mx-auto px-4 sm:px-6 py-6">
-            {activeTab === 'respond' && <RespondTab businessLocationId={businessLocationId} businessName={businessName} />}
+            {activeTab === 'respond' && (
+              <RespondTab 
+                businessLocationId={businessLocationId} 
+                businessName={businessName}
+                reviews={reviews}
+                reviewsLoading={reviewsLoading}
+                onReviewsUpdate={setReviews}
+              />
+            )}
             {activeTab === 'generate' && <GenerateTab businessLocationId={businessLocationId} />}
             {activeTab === 'learn' && <LearnTab businessLocationId={businessLocationId} />}
           </div>

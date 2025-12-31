@@ -168,7 +168,7 @@ export function ReviewList({
                 )}
               </div>
               <p className="text-sm text-slate-600 line-clamp-2 mb-2" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-                {review.text}
+                {review.text && review.text.trim() ? review.text : <span className="italic text-slate-400">No comment provided</span>}
               </p>
               
               {/* Reply Preview */}

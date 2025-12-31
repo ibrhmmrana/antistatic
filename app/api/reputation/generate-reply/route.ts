@@ -9,7 +9,7 @@ const requestSchema = z.object({
     reviewId: z.string().optional(),
     authorName: z.string().optional(),
     rating: z.number().int().min(1).max(5).optional(),
-    text: z.string().min(1),
+    text: z.string().optional(), // Made optional to support rating-only reviews
     createdAt: z.string().optional(),
     platform: z.enum(['google']).optional(),
   }),
@@ -73,7 +73,8 @@ Rules:
 * Don't ask for personal info publicly.
 * If negative: apologize, acknowledge the issue, briefly state intent to fix, invite them to contact the business offline (use phone/website if available), and keep it calm.
 * If positive: thank them, mirror a specific detail from the review, reinforce trust, invite them back.
-* If review is short/vague: keep reply short and warm.
+* If review is short/vague or rating-only: keep reply appropriate to the rating and acknowledge the rating itself.
+* CRITICAL: When generating multiple variations, each must be COMPLETELY DIFFERENT in style, structure, perspective, and wording. Do not reuse similar phrases or structures across variations.
 
 Tone handling:
 
@@ -93,16 +94,20 @@ Business context (use when relevant):
 ${businessContextStr}`
 
     // Build user message
+    const hasText = review.text && review.text.trim().length > 0
+    const reviewTextDisplay = hasText ? review.text : '(No comment provided - rating only)'
+    
     const userMessage = `Review details:
 Rating: ${review.rating || 'Not specified'}/5
 Reviewer: ${review.authorName || 'Anonymous'}
-Review text: ${review.text}
+Review text: ${reviewTextDisplay}
 ${review.createdAt ? `Posted: ${review.createdAt}` : ''}
 
 Selected tone: ${tone}
 Selected length: ${length}
 
-Write a reply that matches the tone and length. Use the business context above. If the review is negative (rating <= 3), include contact information (phone/website) ONLY if available in the business context.`
+Write a reply that matches the tone and length. Use the business context above. If the review is negative (rating <= 3), include contact information (phone/website) ONLY if available in the business context.
+${!hasText ? 'Since this is a rating-only review with no written comment, focus on acknowledging their rating and expressing appreciation (if positive) or concern and willingness to help (if negative).' : ''}`
 
     console.log('[Generate Reply] Calling OpenAI', {
       locationId,
@@ -116,29 +121,57 @@ Write a reply that matches the tone and length. Use the business context above. 
     })
 
     // Generate 3 distinctly different variations
-    // Each variation has a different approach/style
+    // Each variation has a completely different approach, structure, and style
     const variationInstructions = [
       {
-        approach: 'Focus on empathy and personal connection. Use "I" statements and be warm and understanding.',
-        temperature: 0.8,
-      },
-      {
-        approach: 'Focus on professionalism and action. Be direct about what you\'ll do to resolve the issue. Use "we" statements.',
-        temperature: 0.7,
-      },
-      {
-        approach: 'Focus on appreciation and future improvement. Emphasize learning from feedback and commitment to better service.',
+        approach: `VARIATION 1 - PERSONAL & CONVERSATIONAL:
+- Write in FIRST PERSON ("I", "my", "me") as if the business owner is personally responding
+- Use a warm, friendly, conversational tone - like talking to a friend
+- Start with a personal acknowledgment (e.g., "Thank you so much, [Name]!" or "Hi [Name], I really appreciate...")
+- Include personal touches and genuine emotion
+- Keep it natural and human, avoid corporate language
+- End with a personal invitation or connection`,
         temperature: 0.9,
+        style: 'personal',
+      },
+      {
+        approach: `VARIATION 2 - PROFESSIONAL & STRUCTURED:
+- Write in THIRD PERSON or use "we" representing the business as an entity
+- Use formal, professional language with clear structure
+- Start with a formal acknowledgment (e.g., "Thank you for your feedback, [Name]." or "We appreciate you taking the time...")
+- Include specific business commitments or actions
+- Use structured sentences and professional terminology
+- End with a professional closing and contact information if negative`,
+        temperature: 0.6,
+        style: 'professional',
+      },
+      {
+        approach: `VARIATION 3 - BRIEF & DIRECT:
+- Write in SECOND PERSON addressing the reviewer directly ("You", "Your")
+- Keep it SHORT - maximum 2-3 sentences, be concise and to the point
+- Start directly with the main message (e.g., "Thanks, [Name]!" or "[Name], we're sorry to hear...")
+- Focus on the essential message only - no extra fluff
+- Use simple, direct language
+- End quickly with a brief call to action or thank you`,
+        temperature: 0.7,
+        style: 'brief',
       },
     ]
 
     const generateVariation = async (variationIndex: number, instruction: typeof variationInstructions[0]): Promise<string> => {
       const variationUserMessage = `${userMessage}
 
-IMPORTANT: Generate a reply with this specific approach:
+CRITICAL: Generate a reply that follows EXACTLY this style and approach:
 ${instruction.approach}
 
-Make this variation distinctly different from the others. Use different phrasing, structure, and emphasis.`
+This must be COMPLETELY DIFFERENT from the other variations:
+- Use different sentence structure and length
+- Use different opening phrases
+- Use different vocabulary and tone
+- Use different perspective (first person vs third person vs second person)
+- Use different closing style
+
+Do NOT use similar phrases, words, or structure as the other variations. Be creative and make this unique.`
 
       const completion = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
@@ -153,7 +186,7 @@ Make this variation distinctly different from the others. Use different phrasing
           },
         ],
         temperature: instruction.temperature,
-        max_tokens: 500,
+        max_tokens: instruction.style === 'brief' ? 200 : 500, // Shorter for brief variation
       })
 
       if (!completion.choices || completion.choices.length === 0) {
@@ -178,18 +211,18 @@ Make this variation distinctly different from the others. Use different phrasing
       variationInstructions.map((instruction, index) => generateVariation(index, instruction))
     )
 
-    // Remove near-duplicates (keep first occurrence)
+    // Remove near-duplicates (keep first occurrence) - stricter similarity check
     const uniqueVariations: string[] = []
     for (const variation of variations) {
       const normalized = variation.trim().toLowerCase().replace(/\s+/g, ' ')
       const isDuplicate = uniqueVariations.some((existing) => {
         const existingNormalized = existing.trim().toLowerCase().replace(/\s+/g, ' ')
-        // Check if they're too similar (more than 80% word overlap)
-        const words1 = normalized.split(' ')
-        const words2 = existingNormalized.split(' ')
+        // Stricter similarity check - more than 60% word overlap is considered duplicate
+        const words1 = normalized.split(' ').filter(w => w.length > 2) // Ignore short words
+        const words2 = existingNormalized.split(' ').filter(w => w.length > 2)
         const commonWords = words1.filter((w) => words2.includes(w)).length
         const similarity = commonWords / Math.max(words1.length, words2.length)
-        return similarity > 0.8
+        return similarity > 0.6 // Stricter threshold
       })
 
       if (!isDuplicate) {
@@ -197,24 +230,47 @@ Make this variation distinctly different from the others. Use different phrasing
       }
     }
 
-    // If we have fewer than 3 unique variations, generate more with different approaches
+    // If we have fewer than 3 unique variations, generate more with completely different approaches
     let retryCount = 0
-    while (uniqueVariations.length < 3 && retryCount < 3) {
+    while (uniqueVariations.length < 3 && retryCount < 5) {
       try {
         const retryIndex = uniqueVariations.length
-        const retryInstruction = {
-          approach: `Use a completely different style. ${retryIndex === 1 ? 'Be more concise and solution-focused.' : 'Be more detailed and explanatory.'}`,
-          temperature: 0.85,
-        }
+        const retryStyles = [
+          {
+            approach: `VARIATION - ENTHUSIASTIC & ENERGETIC:
+- Use exclamation marks and enthusiastic language
+- Be very upbeat and positive
+- Use action words and dynamic phrasing
+- Keep it energetic and engaging`,
+            temperature: 1.0,
+          },
+          {
+            approach: `VARIATION - EMPATHETIC & DETAILED:
+- Show deep understanding and empathy
+- Include more details and explanations
+- Use longer, more descriptive sentences
+- Focus on emotional connection`,
+            temperature: 0.85,
+          },
+          {
+            approach: `VARIATION - CASUAL & FRIENDLY:
+- Use casual, everyday language
+- Be relaxed and informal
+- Use contractions and friendly expressions
+- Keep it light and approachable`,
+            temperature: 0.95,
+          },
+        ]
+        const retryInstruction = retryStyles[retryIndex % retryStyles.length]
         const additionalVariation = await generateVariation(retryIndex, retryInstruction)
         const normalized = additionalVariation.trim().toLowerCase().replace(/\s+/g, ' ')
         const isDuplicate = uniqueVariations.some((existing) => {
           const existingNormalized = existing.trim().toLowerCase().replace(/\s+/g, ' ')
-          const words1 = normalized.split(' ')
-          const words2 = existingNormalized.split(' ')
+          const words1 = normalized.split(' ').filter(w => w.length > 2)
+          const words2 = existingNormalized.split(' ').filter(w => w.length > 2)
           const commonWords = words1.filter((w) => words2.includes(w)).length
           const similarity = commonWords / Math.max(words1.length, words2.length)
-          return similarity > 0.8
+          return similarity > 0.6
         })
 
         if (!isDuplicate) {

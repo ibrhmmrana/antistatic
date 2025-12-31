@@ -27,10 +27,12 @@ interface Review {
 interface RespondTabProps {
   businessLocationId: string
   businessName: string
+  reviews: Review[]
+  reviewsLoading: boolean
+  onReviewsUpdate: (reviews: Review[]) => void
 }
 
-export function RespondTab({ businessLocationId, businessName }: RespondTabProps) {
-  const [reviews, setReviews] = useState<Review[]>([])
+export function RespondTab({ businessLocationId, businessName, reviews, reviewsLoading, onReviewsUpdate }: RespondTabProps) {
   const [selectedReview, setSelectedReview] = useState<Review | null>(null)
   const [filters, setFilters] = useState({
     status: 'all' as 'all' | 'needs_reply' | 'replied',
@@ -38,7 +40,7 @@ export function RespondTab({ businessLocationId, businessName }: RespondTabProps
     sentiment: null as 'positive' | 'neutral' | 'negative' | null,
     categories: [] as string[],
   })
-  const [loading, setLoading] = useState(true)
+  const loading = reviewsLoading
   const { toasts, showToast, removeToast } = useToast()
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedReviewIds, setSelectedReviewIds] = useState<Set<string>>(new Set())
@@ -46,23 +48,8 @@ export function RespondTab({ businessLocationId, businessName }: RespondTabProps
   const [generatedBulkReplies, setGeneratedBulkReplies] = useState<Array<{ reviewId: string; reply: string }>>([])
   const [generatingBulkReply, setGeneratingBulkReply] = useState(false)
 
-  useEffect(() => {
-    const fetchReviews = async () => {
-      try {
-        const response = await fetch(`/api/reputation/reviews?locationId=${businessLocationId}`)
-        if (response.ok) {
-          const data = await response.json()
-          setReviews(data.reviews || [])
-        }
-      } catch (error) {
-        console.error('[RespondTab] Failed to fetch reviews:', error)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchReviews()
-  }, [businessLocationId])
+  // Use onReviewsUpdate instead of setReviews
+  const setReviews = onReviewsUpdate
 
   const filteredReviews = reviews.filter((review) => {
     if (filters.status === 'needs_reply' && review.replied) return false
@@ -84,26 +71,23 @@ export function RespondTab({ businessLocationId, businessName }: RespondTabProps
         const data = await response.json()
         const updatedReview = data.reviews?.find((r: Review) => r.id === reviewId)
         if (updatedReview) {
-          setReviews((prev) =>
-            prev.map((r) => (r.id === reviewId ? updatedReview : r))
-          )
+          const updatedReviews = reviews.map((r) => (r.id === reviewId ? updatedReview : r))
+          setReviews(updatedReviews)
           if (selectedReview?.id === reviewId) {
             setSelectedReview(updatedReview)
           }
         } else {
           // Fallback: just mark as replied
-          setReviews((prev) =>
-            prev.map((r) => (r.id === reviewId ? { ...r, replied: true } : r))
-          )
+          const updatedReviews = reviews.map((r) => (r.id === reviewId ? { ...r, replied: true } : r))
+          setReviews(updatedReviews)
           if (selectedReview?.id === reviewId) {
             setSelectedReview({ ...selectedReview, replied: true })
           }
         }
       } else {
         // Fallback: just mark as replied
-        setReviews((prev) =>
-          prev.map((r) => (r.id === reviewId ? { ...r, replied: true } : r))
-        )
+        const updatedReviews = reviews.map((r) => (r.id === reviewId ? { ...r, replied: true } : r))
+        setReviews(updatedReviews)
         if (selectedReview?.id === reviewId) {
           setSelectedReview({ ...selectedReview, replied: true })
         }
@@ -122,9 +106,8 @@ export function RespondTab({ businessLocationId, businessName }: RespondTabProps
         const data = await response.json()
         const updatedReview = data.reviews?.find((r: Review) => r.id === reviewId)
         if (updatedReview) {
-          setReviews((prev) =>
-            prev.map((r) => (r.id === reviewId ? updatedReview : r))
-          )
+          const updatedReviews = reviews.map((r) => (r.id === reviewId ? updatedReview : r))
+          setReviews(updatedReviews)
           if (selectedReview?.id === reviewId) {
             setSelectedReview(updatedReview)
           }
@@ -144,26 +127,23 @@ export function RespondTab({ businessLocationId, businessName }: RespondTabProps
         const data = await response.json()
         const updatedReview = data.reviews?.find((r: Review) => r.id === reviewId)
         if (updatedReview) {
-          setReviews((prev) =>
-            prev.map((r) => (r.id === reviewId ? updatedReview : r))
-          )
+          const updatedReviews = reviews.map((r) => (r.id === reviewId ? updatedReview : r))
+          setReviews(updatedReviews)
           if (selectedReview?.id === reviewId) {
             setSelectedReview(updatedReview)
           }
         } else {
           // Fallback: mark as not replied
-          setReviews((prev) =>
-            prev.map((r) => (r.id === reviewId ? { ...r, replied: false, reply: null } : r))
-          )
+          const updatedReviews = reviews.map((r) => (r.id === reviewId ? { ...r, replied: false, reply: null } : r))
+          setReviews(updatedReviews)
           if (selectedReview?.id === reviewId) {
             setSelectedReview({ ...selectedReview, replied: false, reply: null })
           }
         }
       } else {
         // Fallback: mark as not replied
-        setReviews((prev) =>
-          prev.map((r) => (r.id === reviewId ? { ...r, replied: false, reply: null } : r))
-        )
+        const updatedReviews = reviews.map((r) => (r.id === reviewId ? { ...r, replied: false, reply: null } : r))
+        setReviews(updatedReviews)
         if (selectedReview?.id === reviewId) {
           setSelectedReview({ ...selectedReview, replied: false, reply: null })
         }
@@ -213,7 +193,7 @@ export function RespondTab({ businessLocationId, businessName }: RespondTabProps
             reviewId: r.id,
             authorName: r.authorName,
             rating: r.rating,
-            text: r.text,
+            text: r.text || undefined, // Send undefined if text is empty/null
             createdAt: r.createTime,
             platform: 'google' as const,
           })),

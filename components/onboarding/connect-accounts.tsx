@@ -287,35 +287,50 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
   }, [isGoogleConnected, locationId])
 
   const handleChannelClick = async (channel: Channel) => {
-    // Only handle Google Business Profile OAuth
-    if (channel.id !== 'google_gbp') {
+    // Handle Google Business Profile OAuth
+    if (channel.id === 'google_gbp') {
+      setLoading(channel.id)
+      setError(null)
+
+      try {
+        // Get Google OAuth URL from our API
+        // This will work for both initial connection and reconnection
+        const response = await fetch('/api/google/gbp/auth')
+        const data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to generate OAuth URL')
+        }
+
+        if (!data.url && !data.authUrl) {
+          throw new Error('No OAuth URL returned')
+        }
+
+        // Redirect to Google OAuth (support both response formats)
+        // This will replace the existing connection with a new one
+        window.location.href = data.url || data.authUrl
+      } catch (err: any) {
+        console.error('OAuth error:', err)
+        setError(err.message || 'Failed to connect account')
+        setLoading(null)
+      }
       return
     }
 
-    setLoading(channel.id)
-    setError(null)
+    // Handle Instagram OAuth
+    if (channel.id === 'instagram') {
+      setLoading(channel.id)
+      setError(null)
 
-    try {
-      // Get Google OAuth URL from our API
-      // This will work for both initial connection and reconnection
-      const response = await fetch('/api/google/gbp/auth')
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to generate OAuth URL')
+      try {
+        // Redirect to Instagram OAuth connect endpoint
+        window.location.href = `/api/integrations/instagram/connect?business_location_id=${locationId}`
+      } catch (err: any) {
+        console.error('Instagram OAuth error:', err)
+        setError(err.message || 'Failed to connect Instagram account')
+        setLoading(null)
       }
-
-      if (!data.url && !data.authUrl) {
-        throw new Error('No OAuth URL returned')
-      }
-
-      // Redirect to Google OAuth (support both response formats)
-      // This will replace the existing connection with a new one
-      window.location.href = data.url || data.authUrl
-    } catch (err: any) {
-      console.error('OAuth error:', err)
-      setError(err.message || 'Failed to connect account')
-      setLoading(null)
+      return
     }
   }
 
@@ -552,23 +567,55 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
                 }
               }
 
+              // Check if Instagram is connected via OAuth
+              const isInstagramOAuthConnected = channel.id === 'instagram' && 
+                accounts.some(acc => acc.provider === 'instagram_oauth' && acc.status === 'connected')
+
               return (
                 <div key={channel.id} className="w-full">
-                  <Input
-                    placeholder={`${channel.name} username`}
-                    value={socialUsernames[usernameKey] || ''}
-                    onChange={(e) => setSocialUsernames({
-                      ...socialUsernames,
-                      [usernameKey]: e.target.value
-                    })}
-                    icon={
-                      <img 
-                        src={getLogoPath()} 
-                        alt={channel.name} 
-                        className="w-6 h-6 object-contain flex-shrink-0"
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <Input
+                        placeholder={`${channel.name} username`}
+                        value={socialUsernames[usernameKey] || ''}
+                        onChange={(e) => setSocialUsernames({
+                          ...socialUsernames,
+                          [usernameKey]: e.target.value
+                        })}
+                        icon={
+                          <img 
+                            src={getLogoPath()} 
+                            alt={channel.name} 
+                            className="w-6 h-6 object-contain flex-shrink-0"
+                          />
+                        }
+                        disabled={channel.id === 'instagram' && isInstagramOAuthConnected}
                       />
-                    }
-                  />
+                    </div>
+                    {channel.id === 'instagram' && (
+                      <button
+                        onClick={() => handleChannelClick(channel)}
+                        disabled={loading !== null && loading !== channel.id}
+                        className={`
+                          px-4 py-2 text-sm font-medium rounded-md border transition-colors
+                          ${isInstagramOAuthConnected
+                            ? 'bg-green-50 border-green-200 text-green-700'
+                            : 'bg-white border-[var(--google-grey-300)] text-[var(--google-grey-700)] hover:border-[#1565B4] hover:text-[#1565B4]'
+                          }
+                          ${loading === channel.id ? 'opacity-50 cursor-wait' : ''}
+                          ${loading !== null && loading !== channel.id ? 'opacity-50 cursor-not-allowed' : ''}
+                        `}
+                        style={{ fontFamily: 'var(--font-roboto-stack)' }}
+                      >
+                        {loading === channel.id ? 'Connecting...' : isInstagramOAuthConnected ? 'Connected' : 'Connect via OAuth'}
+                      </button>
+                    )}
+                  </div>
+                  {channel.id === 'instagram' && isInstagramOAuthConnected && (
+                    <p className="text-xs text-green-600 mt-1" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                      Instagram connected via OAuth. Username field is for Apify analysis only.
+                    </p>
+                  )}
                 </div>
               )
             })}

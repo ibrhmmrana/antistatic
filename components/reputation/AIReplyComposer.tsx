@@ -73,7 +73,7 @@ export function AIReplyComposer({ review, businessLocationId, businessName, onRe
             reviewId: review.id,
             authorName: review.authorName,
             rating: review.rating,
-            text: review.text,
+            text: review.text || undefined, // Send undefined if text is empty/null
             createdAt: review.createTime,
             platform: 'google' as const,
           },

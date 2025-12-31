@@ -27,6 +27,11 @@ WHATSAPP_PHONE_NUMBER_ID=your_whatsapp_phone_number_id
 WHATSAPP_ACCESS_TOKEN=your_whatsapp_access_token
 WHATSAPP_GRAPH_VERSION=v23.0
 
+# Instagram OAuth (Business Login for Instagram)
+INSTAGRAM_APP_ID=your_instagram_app_id
+INSTAGRAM_APP_SECRET=your_instagram_app_secret
+NEXT_PUBLIC_APP_URL=http://localhost:3000  # For development, or https://yourdomain.com for production
+
 # Supabase Storage (optional, for image uploads)
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 ```
@@ -59,6 +64,26 @@ SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 7. **Important**: Make sure your WhatsApp template `review_temp_1` is approved in Meta Business Manager before sending messages
 
 **Note**: For production, use a System User access token instead of a temporary token. Temporary tokens expire after 24 hours.
+
+### Getting Instagram OAuth Credentials (Business Login for Instagram)
+
+1. Go to [Meta for Developers](https://developers.facebook.com/)
+2. Create a Meta App or use an existing one
+3. Add the "Instagram" product to your app
+4. Go to Instagram > Basic Display (or Instagram > Instagram Login)
+5. Set up "Instagram API with Instagram Login" (Business Login for Instagram)
+6. Copy your **App ID** (this is your `INSTAGRAM_APP_ID`)
+7. Copy your **App Secret** (this is your `INSTAGRAM_APP_SECRET`)
+8. **Important**: In the "Set up Instagram business login" popup, add the following Redirect URL:
+   - Development: `http://localhost:3000/api/integrations/instagram/callback`
+   - Production: `https://yourdomain.com/api/integrations/instagram/callback`
+   - Or use the exact redirect URI shown in Settings → Integrations → Instagram
+9. Request the following permissions:
+   - `instagram_business_basic`
+   - `instagram_manage_comments`
+   - `instagram_business_manage_messages`
+
+**Note**: Your Instagram account must be a Business or Creator account and must be connected to a Facebook Page.
 
 ## Step 3: Set Up Supabase Database
 
