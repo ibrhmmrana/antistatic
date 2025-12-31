@@ -1558,7 +1558,7 @@ export function SocialChannelAnalysis({
                                         <div className="flex-1 space-y-3">
                                           <div className="flex items-center justify-between gap-4">
                                             <p className="text-base md:text-lg font-semibold text-slate-900 gbp-theme-heading">
-                                              @{socialUsernames.instagram}
+                                              @{getInstagramUsername() || socialUsernames.instagram || 'instagram'}
                                             </p>
                                             {instagramAnalysis && (
                                               <button
