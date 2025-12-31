@@ -48,6 +48,7 @@ export function ReviewRequestDemo({ locationId }: ReviewRequestDemoProps) {
   const [sending, setSending] = useState(false)
   const [businessName, setBusinessName] = useState<string>('')
   const [businessPhone, setBusinessPhone] = useState<string>('')
+  const [placeId, setPlaceId] = useState<string>('')
   const [customBusinessName, setCustomBusinessName] = useState<string>('')
   const [customBusinessPhone, setCustomBusinessPhone] = useState<string>('')
   const [templateName, setTemplateName] = useState('review_temp_1')
@@ -101,6 +102,7 @@ export function ReviewRequestDemo({ locationId }: ReviewRequestDemoProps) {
         const data = await response.json()
         setBusinessName(data.name || '')
         setBusinessPhone(data.phone_number || '')
+        setPlaceId(data.place_id || '')
       }
     } catch (error) {
       console.error('Failed to fetch business details:', error)
@@ -168,14 +170,15 @@ export function ReviewRequestDemo({ locationId }: ReviewRequestDemoProps) {
       return
     }
 
-    if (activeChannel === 'whatsapp') {
+      if (activeChannel === 'whatsapp') {
       if (!whatsappNumber.trim()) {
         showToast('WhatsApp number is required', 'error')
         return
       }
 
-      if (!headerImageUrl) {
-        showToast('Header image is required', 'error')
+      // Header image is only required for review_temp_1 template
+      if (templateName === 'review_temp_1' && !headerImageUrl) {
+        showToast('Header image is required for this template', 'error')
         return
       }
 
@@ -196,10 +199,11 @@ export function ReviewRequestDemo({ locationId }: ReviewRequestDemoProps) {
           body: JSON.stringify({
             to: normalizedPhone,
             customerName: customerName.trim(),
-            headerImageUrl,
+            headerImageUrl: headerImageUrl || undefined,
             businessLocationId: locationId,
             businessName: customBusinessName.trim() || businessName,
             businessPhone: customBusinessPhone.trim() || businessPhone,
+            templateName,
           }),
         })
 
@@ -243,38 +247,8 @@ export function ReviewRequestDemo({ locationId }: ReviewRequestDemoProps) {
   }
 
   const handleContinue = async () => {
-    try {
-      // Mark onboarding as completed
-      const { data: { user }, error: userError } = await supabase.auth.getUser()
-      if (userError) {
-        console.error('Error getting user:', userError)
-        showToast('Error: Please try again', 'error')
-        return
-      }
-      
-      if (user) {
-        const updateResult = await (supabase
-          .from('profiles') as any)
-          .update({ onboarding_completed: true })
-          .eq('id', user.id) as any
-        
-        const updateError = updateResult.error
-        
-        if (updateError) {
-          console.error('Error updating profile:', updateError)
-          showToast('Error updating profile. Redirecting anyway...', 'error')
-        }
-      }
-      
-      router.push('/dashboard')
-    } catch (error) {
-      console.error('Error in handleContinue:', error)
-      showToast('An error occurred. Redirecting...', 'error')
-      // Still try to navigate even if there's an error
-      setTimeout(() => {
-        router.push('/dashboard')
-      }, 1000)
-    }
+    // Navigate to the review request section
+    router.push('/onboarding/review')
   }
 
   return (
@@ -438,20 +412,29 @@ export function ReviewRequestDemo({ locationId }: ReviewRequestDemoProps) {
                   </label>
                   <select
                     value={templateName}
-                    onChange={(e) => setTemplateName(e.target.value)}
+                    onChange={(e) => {
+                      setTemplateName(e.target.value)
+                      // Clear header image if switching to wa_temp_2 (no image template)
+                      if (e.target.value === 'wa_temp_2') {
+                        setHeaderImage(null)
+                        setHeaderImageUrl(null)
+                      }
+                    }}
                     className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#1a73e8] text-sm bg-white"
                     style={{ fontFamily: 'var(--font-roboto-stack)' }}
                   >
                     <option value="review_temp_1">General</option>
+                    <option value="wa_temp_2">General (No Image)</option>
                   </select>
                 </div>
 
-                {/* Image Upload */}
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-                    Header image <span className="text-red-500">*</span>
-                  </label>
-                  {headerImageUrl ? (
+                {/* Image Upload - only show for review_temp_1 */}
+                {templateName === 'review_temp_1' && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                      Header image <span className="text-red-500">*</span>
+                    </label>
+                    {headerImageUrl ? (
                     <div className="space-y-2">
                       <div className="relative w-full h-32 border border-slate-300 rounded-md overflow-hidden bg-slate-50">
                         <Image
@@ -506,7 +489,8 @@ export function ReviewRequestDemo({ locationId }: ReviewRequestDemoProps) {
                       />
                     </div>
                   )}
-                </div>
+                  </div>
+                )}
               </div>
 
               {/* Right Column: Preview */}
@@ -516,47 +500,71 @@ export function ReviewRequestDemo({ locationId }: ReviewRequestDemoProps) {
                   <div className="bg-white rounded-lg shadow-lg p-4 max-w-sm mx-auto">
                     {/* WhatsApp Message Bubble */}
                     <div className="bg-white rounded-lg shadow-sm p-0 overflow-hidden">
-                      {/* Header Image */}
-                      {headerImageUrl ? (
-                        <div className="relative w-full h-32 bg-slate-200">
-                          <Image
-                            src={headerImageUrl}
-                            alt="Template header"
-                            fill
-                            className="object-cover"
-                            unoptimized
-                          />
-                        </div>
-                      ) : (
-                        <div className="w-full h-32 bg-slate-200 flex items-center justify-center">
-                          <span className="text-xs text-slate-400" style={{ fontFamily: 'var(--font-roboto-stack)' }}>Header image preview</span>
-                        </div>
+                      {/* Header Image - only show for review_temp_1 */}
+                      {templateName === 'review_temp_1' && (
+                        headerImageUrl ? (
+                          <div className="relative w-full h-32 bg-slate-200">
+                            <Image
+                              src={headerImageUrl}
+                              alt="Template header"
+                              fill
+                              className="object-cover"
+                              unoptimized
+                            />
+                          </div>
+                        ) : (
+                          <div className="w-full h-32 bg-slate-200 flex items-center justify-center">
+                            <span className="text-xs text-slate-400" style={{ fontFamily: 'var(--font-roboto-stack)' }}>Header image preview</span>
+                          </div>
+                        )
                       )}
                       
                       {/* Message Content */}
                       <div className="p-3 space-y-2">
-                        <p className="text-sm text-slate-900" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-                          Hi {customerName || 'Customer'} 👋
-                        </p>
-                        <p className="text-sm text-slate-900" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-                          Thanks again for choosing {customBusinessName || businessName || 'Business'}. Hope you're happy with everything!
-                        </p>
-                        <p className="text-sm text-slate-900" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-                          If you have a minute, we'd really appreciate a quick Google review. It helps us a lot 🙏
-                        </p>
-                        <p className="text-sm text-slate-900" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-                          If anything wasn't great, just call us on {customBusinessPhone || businessPhone || 'XXX XXX XXXX'} and we'll sort it out right away.
-                        </p>
-                        
-                        {/* Review Button */}
-                        <div className="mt-3 pt-3 border-t border-slate-200">
-                          <button className="w-full px-3 py-2 text-sm text-[#1a73e8] border border-[#1a73e8] rounded-md flex items-center gap-2">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                            </svg>
-                            Leave a Review
-                          </button>
-                        </div>
+                        {templateName === 'review_temp_1' ? (
+                          <>
+                            <p className="text-sm text-slate-900" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                              Hi {customerName || 'Customer'} 👋
+                            </p>
+                            <p className="text-sm text-slate-900" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                              Thanks again for choosing {customBusinessName || businessName || 'Business'}. Hope you're happy with everything!
+                            </p>
+                            <p className="text-sm text-slate-900" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                              If you have a minute, we'd really appreciate a quick Google review. It helps us a lot 🙏
+                            </p>
+                            <p className="text-sm text-slate-900" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                              If anything wasn't great, just call us on {customBusinessPhone || businessPhone || 'XXX XXX XXXX'} and we'll sort it out right away.
+                            </p>
+                            
+                            {/* Review Button */}
+                            <div className="mt-3 pt-3 border-t border-slate-200">
+                              <button className="w-full px-3 py-2 text-sm text-[#1a73e8] border border-[#1a73e8] rounded-md flex items-center gap-2">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                </svg>
+                                Leave a Review
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-sm text-slate-900" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                              Hi {customerName || 'Customer'} 👋
+                            </p>
+                            <p className="text-sm text-slate-900" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                              Thanks again for choosing <strong>{customBusinessName || businessName || 'Business'}</strong>!
+                            </p>
+                            <p className="text-sm text-slate-900" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                              If you have a minute, we'd really appreciate a quick Google review. It helps us a lot 🙏
+                            </p>
+                            <p className="text-sm text-slate-900 break-words" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                              https://search.google.com/local/writereview?placeid={placeId || 'PLACE_ID'}
+                            </p>
+                            <p className="text-sm text-slate-900" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                              If anything wasn't great, just call us on <strong>{customBusinessPhone || businessPhone || 'XXX XXX XXXX'}</strong> and we'll sort it out right away.
+                            </p>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -574,7 +582,7 @@ export function ReviewRequestDemo({ locationId }: ReviewRequestDemoProps) {
             <div className="mt-6 pt-6 border-t border-slate-200 flex items-center justify-end gap-3">
               <button
                 onClick={handleSend}
-                disabled={sending || !customerName.trim() || !whatsappNumber.trim() || !headerImageUrl}
+                disabled={sending || !customerName.trim() || !whatsappNumber.trim() || (templateName === 'review_temp_1' && !headerImageUrl)}
                 className="px-6 py-3 text-sm font-medium text-white bg-[#1a73e8] rounded-md hover:bg-[#1557b0] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 style={{ fontFamily: 'var(--font-roboto-stack)' }}
               >
@@ -604,7 +612,7 @@ export function ReviewRequestDemo({ locationId }: ReviewRequestDemoProps) {
             className="px-6 py-3 rounded-lg bg-[#1565B4] text-white text-sm font-medium hover:bg-[#0d47a1] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ fontFamily: 'var(--font-roboto-stack)' }}
           >
-            Continue to dashboard
+            Continue
           </button>
         </div>
       </div>

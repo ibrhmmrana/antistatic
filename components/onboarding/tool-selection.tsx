@@ -401,7 +401,7 @@ export function ToolSelection({ userName = 'there', savedTools, locationId }: To
             onClick={handleContinue}
             disabled={(buildOwnSolution ? optionalSelected.length === 0 : (prescribedModules.length === 0 && optionalSelected.length === 0)) || loading}
           >
-            {loading ? 'Loading...' : 'Continue to dashboard'}
+            {loading ? 'Loading...' : 'Continue'}
           </Button>
           {hasPrescriptions && !buildOwnSolution && (
             <button

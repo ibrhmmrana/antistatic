@@ -90,7 +90,7 @@ export function OnboardingLayout({
             }`}
             style={{ fontFamily: 'var(--font-roboto-stack)' }}
           >
-            Try review request
+            Review Request
           </div>
         </div>
       </div>

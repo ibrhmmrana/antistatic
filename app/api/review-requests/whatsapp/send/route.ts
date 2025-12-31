@@ -5,10 +5,16 @@ import { z } from 'zod'
 const sendRequestSchema = z.object({
   to: z.string().regex(/^\+27\d{9,10}$/, 'Invalid South African phone number format (must be +27XXXXXXXXX or +27XXXXXXXXXX)'),
   customerName: z.string().min(1, 'Customer name is required'),
-  headerImageUrl: z.string().url('Invalid header image URL'),
+  headerImageUrl: z.union([
+    z.string().url('Invalid header image URL'),
+    z.string().length(0),
+    z.null(),
+    z.undefined()
+  ]).optional().transform(val => (val && val.length > 0) ? val : undefined),
   businessLocationId: z.string().uuid('Invalid business location ID'),
   businessName: z.string().optional(),
   businessPhone: z.string().optional(),
+  templateName: z.enum(['review_temp_1', 'wa_temp_2']).optional().default('review_temp_1'),
 })
 
 export async function POST(request: NextRequest) {
@@ -33,7 +39,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { to, customerName, headerImageUrl, businessLocationId, businessName: customBusinessName, businessPhone: customBusinessPhone } = validationResult.data
+    const { to, customerName, headerImageUrl, businessLocationId, businessName: customBusinessName, businessPhone: customBusinessPhone, templateName = 'review_temp_1' } = validationResult.data
 
     // Verify user owns the business location
     const { data: location, error: locationError } = await supabase
@@ -49,13 +55,21 @@ export async function POST(request: NextRequest) {
 
     const locationData: { id: string; name: string; phone_number: string; place_id: string } = location
 
-    // Validate header image URL is from our Supabase storage
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    if (!headerImageUrl.includes(supabaseUrl || '') && !headerImageUrl.startsWith('https://')) {
-      return NextResponse.json(
-        { error: 'Header image URL must be from Supabase Storage' },
-        { status: 400 }
-      )
+    // Validate header image URL if provided and required for template
+    if (templateName === 'review_temp_1') {
+      if (!headerImageUrl) {
+        return NextResponse.json(
+          { error: 'Header image is required for this template' },
+          { status: 400 }
+        )
+      }
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+      if (!headerImageUrl.includes(supabaseUrl || '') && !headerImageUrl.startsWith('https://')) {
+        return NextResponse.json(
+          { error: 'Header image URL must be from Supabase Storage' },
+          { status: 400 }
+        )
+      }
     }
 
     // Use custom values if provided and non-empty, otherwise fallback to database values
@@ -105,8 +119,8 @@ export async function POST(request: NextRequest) {
         channel: 'whatsapp',
         to_recipient: to,
         customer_name: customerName,
-        template_name: 'review_temp_1',
-        header_image_url: headerImageUrl,
+        template_name: templateName,
+        header_image_url: headerImageUrl || null,
         place_id: placeId,
         status: 'sending',
       } as any)
@@ -130,44 +144,76 @@ export async function POST(request: NextRequest) {
 
     const reviewRequestData: { id: string; [key: string]: any } = reviewRequest
 
-    // Construct WhatsApp Graph API payload
-    const payload = {
-      messaging_product: 'whatsapp',
-      to: to,
-      type: 'template',
-      template: {
-        name: 'review_temp_1',
-        language: { code: 'en' },
-        components: [
-          {
-            type: 'header',
-            parameters: [
-              {
-                type: 'image',
-                image: {
-                  link: headerImageUrl,
+    // Construct WhatsApp Graph API payload based on template
+    let payload: any
+
+    if (templateName === 'review_temp_1') {
+      // Template: review_temp_1 (General) - has header image, 3 body params, button
+      payload = {
+        messaging_product: 'whatsapp',
+        to: to,
+        type: 'template',
+        template: {
+          name: 'review_temp_1',
+          language: { code: 'en' },
+          components: [
+            {
+              type: 'header',
+              parameters: [
+                {
+                  type: 'image',
+                  image: {
+                    link: headerImageUrl!,
+                  },
                 },
-              },
-            ],
-          },
-          {
-            type: 'body',
-            parameters: [
-              { type: 'text', text: customerName },
-              { type: 'text', text: businessName },
-              { type: 'text', text: businessPhone },
-            ],
-          },
-          {
-            type: 'button',
-            sub_type: 'url',
-            index: '0',
-            parameters: [
-              { type: 'text', text: placeId },
-            ],
-          },
-        ],
-      },
+              ],
+            },
+            {
+              type: 'body',
+              parameters: [
+                { type: 'text', text: customerName },      // {{1}}
+                { type: 'text', text: businessName },      // {{2}}
+                { type: 'text', text: businessPhone },     // {{3}}
+              ],
+            },
+            {
+              type: 'button',
+              sub_type: 'url',
+              index: '0',
+              parameters: [
+                { type: 'text', text: placeId },
+              ],
+            },
+          ],
+        },
+      }
+    } else if (templateName === 'wa_temp_2') {
+      // Template: wa_temp_2 (General No Image) - no header, 4 body params, no button
+      payload = {
+        messaging_product: 'whatsapp',
+        to: to,
+        type: 'template',
+        template: {
+          name: 'wa_temp_2',
+          language: { code: 'en' },
+          components: [
+            {
+              type: 'body',
+              parameters: [
+                { type: 'text', text: customerName },      // {{1}}
+                { type: 'text', text: businessName },      // {{2}}
+                { type: 'text', text: placeId },          // {{3}}
+                { type: 'text', text: businessPhone },     // {{4}}
+              ],
+            },
+          ],
+        },
+      }
+    } else {
+      return NextResponse.json(
+        { error: `Unsupported template: ${templateName}` },
+        { status: 400 }
+      )
     }
 
     // Send to Meta Graph API

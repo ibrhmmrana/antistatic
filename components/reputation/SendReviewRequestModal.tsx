@@ -167,14 +167,15 @@ export function SendReviewRequestModal({ open, onOpenChange, businessLocationId 
       return
     }
 
-    if (activeChannel === 'whatsapp') {
+      if (activeChannel === 'whatsapp') {
       if (!whatsappNumber.trim()) {
         showToast('WhatsApp number is required', 'error')
         return
       }
 
-      if (!headerImageUrl) {
-        showToast('Header image is required', 'error')
+      // Header image is only required for review_temp_1 template
+      if (templateName === 'review_temp_1' && !headerImageUrl) {
+        showToast('Header image is required for this template', 'error')
         return
       }
 
@@ -195,10 +196,11 @@ export function SendReviewRequestModal({ open, onOpenChange, businessLocationId 
           body: JSON.stringify({
             to: normalizedPhone,
             customerName: customerName.trim(),
-            headerImageUrl,
+            headerImageUrl: headerImageUrl || undefined,
             businessLocationId,
             businessName: customBusinessName.trim() || businessName,
             businessPhone: customBusinessPhone.trim() || businessPhone,
+            templateName,
           }),
         })
 
@@ -380,19 +382,28 @@ export function SendReviewRequestModal({ open, onOpenChange, businessLocationId 
                   </label>
                   <select
                     value={templateName}
-                    onChange={(e) => setTemplateName(e.target.value)}
+                    onChange={(e) => {
+                      setTemplateName(e.target.value)
+                      // Clear header image if switching to wa_temp_2 (no image template)
+                      if (e.target.value === 'wa_temp_2') {
+                        setHeaderImage(null)
+                        setHeaderImageUrl(null)
+                      }
+                    }}
                     className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#1a73e8] text-sm bg-white"
                   >
                     <option value="review_temp_1">General</option>
+                    <option value="wa_temp_2">General (No Image)</option>
                   </select>
                 </div>
 
-                {/* Image Upload */}
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                    Header image <span className="text-red-500">*</span>
-                  </label>
-                  {headerImageUrl ? (
+                {/* Image Upload - only show for review_temp_1 */}
+                {templateName === 'review_temp_1' && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      Header image <span className="text-red-500">*</span>
+                    </label>
+                    {headerImageUrl ? (
                     <div className="space-y-2">
                       <div className="relative w-full h-32 border border-slate-300 rounded-md overflow-hidden bg-slate-50">
                         <Image
@@ -446,7 +457,8 @@ export function SendReviewRequestModal({ open, onOpenChange, businessLocationId 
                       />
                     </div>
                   )}
-                </div>
+                  </div>
+                )}
               </div>
 
               {/* Right Column: Preview */}
@@ -456,47 +468,71 @@ export function SendReviewRequestModal({ open, onOpenChange, businessLocationId 
                   <div className="bg-white rounded-lg shadow-lg p-4 max-w-sm mx-auto">
                     {/* WhatsApp Message Bubble */}
                     <div className="bg-white rounded-lg shadow-sm p-0 overflow-hidden">
-                      {/* Header Image */}
-                      {headerImageUrl ? (
-                        <div className="relative w-full h-32 bg-slate-200">
-                          <Image
-                            src={headerImageUrl}
-                            alt="Template header"
-                            fill
-                            className="object-cover"
-                            unoptimized
-                          />
-                        </div>
-                      ) : (
-                        <div className="w-full h-32 bg-slate-200 flex items-center justify-center">
-                          <span className="text-xs text-slate-400">Header image preview</span>
-                        </div>
+                      {/* Header Image - only show for review_temp_1 */}
+                      {templateName === 'review_temp_1' && (
+                        headerImageUrl ? (
+                          <div className="relative w-full h-32 bg-slate-200">
+                            <Image
+                              src={headerImageUrl}
+                              alt="Template header"
+                              fill
+                              className="object-cover"
+                              unoptimized
+                            />
+                          </div>
+                        ) : (
+                          <div className="w-full h-32 bg-slate-200 flex items-center justify-center">
+                            <span className="text-xs text-slate-400">Header image preview</span>
+                          </div>
+                        )
                       )}
                       
                       {/* Message Content */}
                       <div className="p-3 space-y-2">
-                        <p className="text-sm text-slate-900">
-                          Hi {customerName || 'Customer'} 👋
-                        </p>
-                        <p className="text-sm text-slate-900">
-                          Thanks again for choosing {customBusinessName || businessName || 'Business'}. Hope you're happy with everything!
-                        </p>
-                        <p className="text-sm text-slate-900">
-                          If you have a minute, we'd really appreciate a quick Google review. It helps us a lot 🙏
-                        </p>
-                        <p className="text-sm text-slate-900">
-                          If anything wasn't great, just call us on {customBusinessPhone || businessPhone || 'XXX XXX XXXX'} and we'll sort it out right away.
-                        </p>
-                        
-                        {/* Review Button */}
-                        <div className="mt-3 pt-3 border-t border-slate-200">
-                          <button className="w-full px-3 py-2 text-sm text-[#1a73e8] border border-[#1a73e8] rounded-md flex items-center gap-2">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                            </svg>
-                            Leave a Review
-                          </button>
-                        </div>
+                        {templateName === 'review_temp_1' ? (
+                          <>
+                            <p className="text-sm text-slate-900">
+                              Hi {customerName || 'Customer'} 👋
+                            </p>
+                            <p className="text-sm text-slate-900">
+                              Thanks again for choosing {customBusinessName || businessName || 'Business'}. Hope you're happy with everything!
+                            </p>
+                            <p className="text-sm text-slate-900">
+                              If you have a minute, we'd really appreciate a quick Google review. It helps us a lot 🙏
+                            </p>
+                            <p className="text-sm text-slate-900">
+                              If anything wasn't great, just call us on {customBusinessPhone || businessPhone || 'XXX XXX XXXX'} and we'll sort it out right away.
+                            </p>
+                            
+                            {/* Review Button */}
+                            <div className="mt-3 pt-3 border-t border-slate-200">
+                              <button className="w-full px-3 py-2 text-sm text-[#1a73e8] border border-[#1a73e8] rounded-md flex items-center gap-2">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                </svg>
+                                Leave a Review
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-sm text-slate-900">
+                              Hi {customerName || 'Customer'} 👋
+                            </p>
+                            <p className="text-sm text-slate-900">
+                              Thanks again for choosing <strong>{customBusinessName || businessName || 'Business'}</strong>!
+                            </p>
+                            <p className="text-sm text-slate-900">
+                              If you have a minute, we'd really appreciate a quick Google review. It helps us a lot 🙏
+                            </p>
+                            <p className="text-sm text-slate-900 break-words">
+                              https://search.google.com/local/writereview?placeid={placeId || 'PLACE_ID'}
+                            </p>
+                            <p className="text-sm text-slate-900">
+                              If anything wasn't great, just call us on <strong>{customBusinessPhone || businessPhone || 'XXX XXX XXXX'}</strong> and we'll sort it out right away.
+                            </p>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -521,7 +557,7 @@ export function SendReviewRequestModal({ open, onOpenChange, businessLocationId 
             </button>
             <button
               onClick={handleSend}
-              disabled={sending || !customerName.trim() || !whatsappNumber.trim() || !headerImageUrl}
+              disabled={sending || !customerName.trim() || !whatsappNumber.trim() || (templateName === 'review_temp_1' && !headerImageUrl)}
               className="px-4 py-2 text-sm font-medium text-white bg-[#1a73e8] rounded-md hover:bg-[#1557b0] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {sending ? (
