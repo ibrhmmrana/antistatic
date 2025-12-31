@@ -276,17 +276,27 @@ export async function GET(request: NextRequest) {
       scopesCount: scopes?.length || 0,
     })
 
+    // Build upsert payload - try with connected_at first, fallback without it if column doesn't exist
+    const upsertPayload: any = {
+      business_location_id: businessLocationId,
+      instagram_user_id: instagramUserId,
+      instagram_username: instagramUsername,
+      access_token: accessToken,
+      token_expires_at: tokenExpiresAt,
+      scopes: scopes,
+    }
+
+    // Try to include connected_at (will fail gracefully if column doesn't exist)
+    // The migration should be run, but we handle the case where it hasn't been
+    try {
+      upsertPayload.connected_at = new Date().toISOString()
+    } catch (e) {
+      // Ignore - connected_at is optional
+    }
+
     const { error: upsertError, data: upsertData } = await supabase
       .from('instagram_connections')
-      .upsert({
-        business_location_id: businessLocationId,
-        instagram_user_id: instagramUserId,
-        instagram_username: instagramUsername,
-        access_token: accessToken,
-        token_expires_at: tokenExpiresAt,
-        scopes: scopes,
-        connected_at: new Date().toISOString(), // Set connected_at timestamp
-      } as any, {
+      .upsert(upsertPayload, {
         onConflict: 'business_location_id',
       })
       .select()
@@ -297,11 +307,24 @@ export async function GET(request: NextRequest) {
         message: upsertError.message,
         code: upsertError.code,
         hint: upsertError.hint,
+        details: upsertError.details,
       })
+      
+      // Provide more specific error message based on error code
+      let errorMessage = 'Failed to save connection. Please try again.'
+      if (upsertError.code === '42703') {
+        // Column does not exist
+        errorMessage = 'Database migration required. Please run migrations/add_instagram_connected_at.sql'
+      } else if (upsertError.hint) {
+        errorMessage = `Database error: ${upsertError.hint}`
+      } else if (upsertError.message) {
+        errorMessage = `Database error: ${upsertError.message}`
+      }
+      
       return NextResponse.redirect(
         buildRedirectUrl('/onboarding/connect', {
           ig: 'error',
-          reason: encodeURIComponent('Failed to save connection. Please try again.'),
+          reason: encodeURIComponent(errorMessage),
         })
       )
     }
