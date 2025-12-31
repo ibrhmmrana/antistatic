@@ -104,9 +104,19 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
   const igStatus = searchParams.get('ig')
   const igConnected = searchParams.get('connected')
   const igError = searchParams.get('ig_error')
+  const igErrorReason = searchParams.get('reason') // New error reason param
   const igUsername = searchParams.get('ig_username')
   const igUserId = searchParams.get('ig_user_id')
   const supabase = createClient()
+
+  // Remove #_ hash fragment on mount (Meta sometimes appends it)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.hash === '#_') {
+      const url = new URL(window.location.href)
+      url.hash = ''
+      router.replace(url.pathname + url.search)
+    }
+  }, [router])
 
   // Load existing social usernames from database on mount
   useEffect(() => {
@@ -228,26 +238,40 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
       } else {
         router.replace('/onboarding/connect')
       }
-    } else if (igError) {
-      // Handle Instagram errors
-      const errorMessages: Record<string, string> = {
-        access_denied: 'Instagram connection was cancelled. Please try again when ready.',
-        invalid_request: 'Invalid Instagram OAuth request. Please check configuration.',
-        redirect_uri_mismatch: 'Redirect URI mismatch. Please contact support.',
-        no_code: 'No authorization code received from Instagram.',
-        invalid_state: 'Invalid or expired OAuth state. Please try again.',
-        invalid_session: 'Invalid session. Please try again.',
-        expired_state: 'OAuth session expired. Please try again.',
-        config_error: 'Instagram OAuth not configured properly.',
-        token_exchange_failed: 'Failed to exchange authorization code. Please try again.',
-        invalid_token_response: 'Invalid response from Instagram. Please try again.',
-        db_save_failed: 'Failed to save connection. Please try again.',
-        not_authenticated: 'User not authenticated. Please log in and try again.',
-        internal_error: 'An internal error occurred. Please try again.',
+    } else if (igStatus === 'error') {
+      // Handle Instagram errors - use reason param if available, otherwise fallback to error code
+      let errorMessage = 'Failed to connect Instagram account. Please try again.'
+      
+      if (igErrorReason) {
+        // Decode the URL-encoded reason
+        try {
+          errorMessage = decodeURIComponent(igErrorReason)
+        } catch (e) {
+          errorMessage = igErrorReason // Use as-is if decode fails
+        }
+      } else if (igError) {
+        // Fallback to error code mapping (for backward compatibility)
+        const errorMessages: Record<string, string> = {
+          access_denied: 'Instagram connection was cancelled. Please try again when ready.',
+          invalid_request: 'Invalid Instagram OAuth request. Please check configuration.',
+          redirect_uri_mismatch: 'Redirect URI mismatch. Please contact support.',
+          no_code: 'No authorization code received from Instagram.',
+          invalid_state: 'Invalid or expired OAuth state. Please try again.',
+          invalid_session: 'Invalid session. Please try again.',
+          expired_state: 'OAuth session expired. Please try again.',
+          config_error: 'Instagram OAuth not configured properly.',
+          token_exchange_failed: 'Failed to exchange authorization code. Please try again.',
+          invalid_token_response: 'Invalid response from Instagram. Please try again.',
+          db_save_failed: 'Failed to save connection. Please try again.',
+          not_authenticated: 'User not authenticated. Please log in and try again.',
+          internal_error: 'An internal error occurred. Please try again.',
+        }
+        errorMessage = errorMessages[igError] || errorMessage
       }
-      setError(errorMessages[igError] || 'Failed to connect Instagram account. Please try again.')
+      
+      setError(errorMessage)
 
-      // Preserve allowBack param
+      // Remove query params after showing error
       if (allowBack) {
         router.replace('/onboarding/connect?allowBack=true')
       } else {
@@ -721,13 +745,22 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
                                 if (!confirm('Are you sure you want to disconnect your Instagram account?')) return
                                 try {
                                   setLoading('instagram_disconnect')
+                                  setError(null)
                                   const response = await fetch(`/api/integrations/instagram/disconnect?business_location_id=${locationId}`, {
                                     method: 'POST',
                                   })
                                   if (response.ok) {
+                                    // Immediately update UI
                                     setInstagramStatus({ connected: false })
+                                    // Refresh status from API to ensure consistency
+                                    const statusResponse = await fetch(`/api/integrations/instagram/status?business_location_id=${locationId}`)
+                                    if (statusResponse.ok) {
+                                      const statusData = await statusResponse.json()
+                                      setInstagramStatus(statusData)
+                                    }
                                   } else {
-                                    setError('Failed to disconnect Instagram account')
+                                    const errorData = await response.json().catch(() => ({}))
+                                    setError(errorData.error || 'Failed to disconnect Instagram account')
                                   }
                                 } catch (err: any) {
                                   setError(err.message || 'Failed to disconnect Instagram account')

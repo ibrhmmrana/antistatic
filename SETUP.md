@@ -74,14 +74,28 @@ SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 5. Set up "Instagram API with Instagram Login" (Business Login for Instagram)
 6. Copy your **App ID** (this is your `INSTAGRAM_APP_ID`)
 7. Copy your **App Secret** (this is your `INSTAGRAM_APP_SECRET`)
-8. **Important**: In the "Set up Instagram business login" popup, add the following Redirect URL:
-   - Development: `http://localhost:3000/api/integrations/instagram/callback`
-   - Production: `https://yourdomain.com/api/integrations/instagram/callback`
-   - Or use the exact redirect URI shown in Settings → Integrations → Instagram
-9. Request the following permissions:
-   - `instagram_business_basic`
-   - `instagram_manage_comments`
-   - `instagram_business_manage_messages`
+
+#### Meta App Checklist
+
+**App Domains:**
+- Must include: `antistatic.ai`
+- Must include: `app.antistatic.ai`
+
+**Redirect URL:**
+- Must include exactly: `https://app.antistatic.ai/api/integrations/instagram/callback`
+- For development: `http://localhost:3000/api/integrations/instagram/callback`
+- Or use the exact redirect URI shown in Settings → Integrations → Instagram
+
+**Instagram Use Case:**
+- Ensure the Instagram use case is set to "API setup with Instagram login" (Business Login for Instagram)
+- NOT "Facebook Login" or "Basic Display"
+
+**Required Permissions (Scopes):**
+- `instagram_business_basic` - Basic profile and media access
+- `instagram_business_manage_comments` - Manage comments on posts
+- `instagram_business_manage_messages` - Manage direct messages
+- `instagram_business_content_publish` - Publish content to Instagram
+- `instagram_business_manage_insights` - Access analytics and insights
 
 **Note**: Your Instagram account must be a Business or Creator account and must be connected to a Facebook Page.
 

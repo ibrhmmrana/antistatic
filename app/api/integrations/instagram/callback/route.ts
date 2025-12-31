@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getInstagramOAuthConfig } from '@/lib/instagram/config'
+import { getInstagramProfile } from '@/lib/instagram/profile'
 
 /**
  * Instagram OAuth Callback Endpoint
@@ -28,7 +29,17 @@ export async function GET(request: NextRequest) {
   const error = requestUrl.searchParams.get('error')
   const errorDescription = requestUrl.searchParams.get('error_description')
   const state = requestUrl.searchParams.get('state')
+  const allowBack = requestUrl.searchParams.get('allowBack') // Preserve allowBack param
   const supabase = await createClient()
+  
+  // Helper to build redirect URL with allowBack preservation
+  const buildRedirectUrl = (path: string, params: Record<string, string> = {}) => {
+    const redirectParams = new URLSearchParams(params)
+    if (allowBack === 'true') {
+      redirectParams.set('allowBack', 'true')
+    }
+    return new URL(`${path}?${redirectParams.toString()}`, requestUrl.origin)
+  }
 
   console.log('[Instagram Callback] Received callback:', {
     hasCode: !!code,
@@ -38,44 +49,55 @@ export async function GET(request: NextRequest) {
     errorDescription,
   })
 
-  // Handle OAuth errors from Instagram
-  if (error) {
-    console.error('[Instagram Callback] OAuth error:', {
-      error,
-      errorDescription,
-    })
-    
-    let errorCode = 'unknown_error'
-    let errorMessage = 'Failed to connect Instagram account.'
-    if (error === 'access_denied') {
-      errorCode = 'access_denied'
-      errorMessage = 'Connection cancelled. Please try again when ready.'
-    } else if (error === 'invalid_request') {
-      errorCode = 'invalid_request'
-      errorMessage = 'Invalid OAuth request. Please check redirect URI configuration.'
-    } else if (error === 'redirect_uri_mismatch') {
-      errorCode = 'redirect_uri_mismatch'
-      errorMessage = 'Redirect URI mismatch. Please contact support.'
+    // Handle OAuth errors from Instagram
+    if (error) {
+      console.error('[Instagram Callback] OAuth error:', {
+        error,
+        errorDescription,
+      })
+      
+      let errorCode = 'unknown_error'
+      let errorMessage = 'Failed to connect Instagram account.'
+      if (error === 'access_denied') {
+        errorCode = 'access_denied'
+        errorMessage = 'Connection cancelled. Please try again when ready.'
+      } else if (error === 'invalid_request') {
+        errorCode = 'invalid_request'
+        errorMessage = 'Invalid OAuth request. Please check redirect URI configuration.'
+      } else if (error === 'redirect_uri_mismatch') {
+        errorCode = 'redirect_uri_mismatch'
+        errorMessage = 'Redirect URI mismatch. Please contact support.'
+      }
+
+      // URL encode the error message for safe transmission
+      const safeReason = encodeURIComponent(errorMessage)
+      return NextResponse.redirect(
+        buildRedirectUrl('/onboarding/connect', {
+          ig: 'error',
+          reason: safeReason,
+        })
+      )
     }
 
-    return NextResponse.redirect(
-      new URL(`/onboarding/connect?ig_error=${errorCode}`, requestUrl.origin)
-    )
-  }
+    if (!code) {
+      console.error('[Instagram Callback] No authorization code received')
+      return NextResponse.redirect(
+        buildRedirectUrl('/onboarding/connect', {
+          ig: 'error',
+          reason: encodeURIComponent('No authorization code received from Instagram.'),
+        })
+      )
+    }
 
-  if (!code) {
-    console.error('[Instagram Callback] No authorization code received')
-    return NextResponse.redirect(
-      new URL('/onboarding/connect?ig_error=no_code', requestUrl.origin)
-    )
-  }
-
-  if (!state) {
-    console.error('[Instagram Callback] No state parameter received')
-    return NextResponse.redirect(
-      new URL('/onboarding/connect?ig_error=invalid_state', requestUrl.origin)
-    )
-  }
+    if (!state) {
+      console.error('[Instagram Callback] No state parameter received')
+      return NextResponse.redirect(
+        buildRedirectUrl('/onboarding/connect', {
+          ig: 'error',
+          reason: encodeURIComponent('Invalid or expired OAuth state. Please try again.'),
+        })
+      )
+    }
 
   try {
     // Verify user is authenticated
@@ -85,7 +107,10 @@ export async function GET(request: NextRequest) {
 
     if (!user) {
       return NextResponse.redirect(
-        new URL('/onboarding/connect?ig_error=not_authenticated', requestUrl.origin)
+        buildRedirectUrl('/onboarding/connect', {
+          ig: 'error',
+          reason: encodeURIComponent('User not authenticated. Please log in and try again.'),
+        })
       )
     }
 
@@ -101,7 +126,10 @@ export async function GET(request: NextRequest) {
     if (stateError || !typedStateRecord) {
       console.error('[Instagram Callback] Invalid or expired state:', stateError)
       return NextResponse.redirect(
-        new URL('/onboarding/connect?ig_error=invalid_state', requestUrl.origin)
+        buildRedirectUrl('/onboarding/connect', {
+          ig: 'error',
+          reason: encodeURIComponent('Invalid or expired OAuth state. Please try again.'),
+        })
       )
     }
 
@@ -109,7 +137,10 @@ export async function GET(request: NextRequest) {
     if (typedStateRecord.user_id !== user.id) {
       console.error('[Instagram Callback] State user mismatch')
       return NextResponse.redirect(
-        new URL('/onboarding/connect?ig_error=invalid_session', requestUrl.origin)
+        buildRedirectUrl('/onboarding/connect', {
+          ig: 'error',
+          reason: encodeURIComponent('Invalid session. Please try again.'),
+        })
       )
     }
 
@@ -123,7 +154,10 @@ export async function GET(request: NextRequest) {
         .delete()
         .eq('state', state)
       return NextResponse.redirect(
-        new URL('/onboarding/connect?ig_error=expired_state', requestUrl.origin)
+        buildRedirectUrl('/onboarding/connect', {
+          ig: 'error',
+          reason: encodeURIComponent('OAuth session expired. Please try again.'),
+        })
       )
     }
 
@@ -136,7 +170,10 @@ export async function GET(request: NextRequest) {
     } catch (configError: any) {
       console.error('[Instagram Callback] Configuration error:', configError.message)
       return NextResponse.redirect(
-        new URL('/onboarding/connect?ig_error=config_error', requestUrl.origin)
+        buildRedirectUrl('/onboarding/connect', {
+          ig: 'error',
+          reason: encodeURIComponent('Instagram OAuth not configured properly.'),
+        })
       )
     }
 
@@ -170,7 +207,10 @@ export async function GET(request: NextRequest) {
         error: errorData,
       })
       return NextResponse.redirect(
-        new URL('/onboarding/connect?ig_error=token_exchange_failed', requestUrl.origin)
+        buildRedirectUrl('/onboarding/connect', {
+          ig: 'error',
+          reason: encodeURIComponent('Failed to exchange authorization code. Please try again.'),
+        })
       )
     }
 
@@ -195,22 +235,27 @@ export async function GET(request: NextRequest) {
         responseKeys: Object.keys(tokenData),
       })
       return NextResponse.redirect(
-        new URL('/onboarding/connect?ig_error=invalid_token_response', requestUrl.origin)
+        buildRedirectUrl('/onboarding/connect', {
+          ig: 'error',
+          reason: encodeURIComponent('Invalid response from Instagram. Please try again.'),
+        })
       )
     }
 
-    // Fetch Instagram user info to get username
-    // Instagram Basic Display API endpoint for user info
+    // Fetch Instagram user profile to get username using helper
     let instagramUsername: string | null = null
-    try {
-      const userInfoResponse = await fetch(`https://graph.instagram.com/${instagramUserId}?fields=username&access_token=${accessToken}`)
-      if (userInfoResponse.ok) {
-        const userInfo = await userInfoResponse.json()
-        instagramUsername = userInfo.username || null
+    const profile = await getInstagramProfile(accessToken)
+    if (profile) {
+      instagramUsername = profile.username
+      // Verify the user ID matches
+      if (profile.id !== instagramUserId) {
+        console.warn('[Instagram Callback] User ID mismatch between token and profile:', {
+          tokenUserId: instagramUserId,
+          profileUserId: profile.id,
+        })
       }
-    } catch (userInfoError) {
-      console.warn('[Instagram Callback] Failed to fetch username:', userInfoError)
-      // Continue without username - not critical
+    } else {
+      console.warn('[Instagram Callback] Failed to fetch username from profile API, continuing without it')
     }
 
     // Calculate token expiry (Instagram tokens typically expire in 60 days, but check response)
@@ -240,6 +285,7 @@ export async function GET(request: NextRequest) {
         access_token: accessToken,
         token_expires_at: tokenExpiresAt,
         scopes: scopes,
+        connected_at: new Date().toISOString(), // Set connected_at timestamp
       } as any, {
         onConflict: 'business_location_id',
       })
@@ -253,7 +299,10 @@ export async function GET(request: NextRequest) {
         hint: upsertError.hint,
       })
       return NextResponse.redirect(
-        new URL('/onboarding/connect?ig_error=db_save_failed', requestUrl.origin)
+        buildRedirectUrl('/onboarding/connect', {
+          ig: 'error',
+          reason: encodeURIComponent('Failed to save connection. Please try again.'),
+        })
       )
     }
 
@@ -277,28 +326,28 @@ export async function GET(request: NextRequest) {
     })
 
     // Build redirect URL with success params
-    const redirectParams = new URLSearchParams({
+    const successParams: Record<string, string> = {
       ig: 'connected',
-      connected: '1',
-    })
+    }
     if (instagramUserId) {
-      redirectParams.set('ig_user_id', instagramUserId)
+      successParams.ig_user_id = instagramUserId
     }
     if (instagramUsername) {
-      redirectParams.set('ig_username', instagramUsername)
+      successParams.ig_username = instagramUsername
     }
 
     // Redirect to onboarding connect page with success
-    return NextResponse.redirect(
-      new URL(`/onboarding/connect?${redirectParams.toString()}`, requestUrl.origin)
-    )
+    return NextResponse.redirect(buildRedirectUrl('/onboarding/connect', successParams))
   } catch (error: any) {
     console.error('[Instagram Callback] Unexpected error:', {
       error: error.message,
       stack: error.stack,
     })
     return NextResponse.redirect(
-      new URL(`/onboarding/connect?ig_error=internal_error`, requestUrl.origin)
+      buildRedirectUrl('/onboarding/connect', {
+        ig: 'error',
+        reason: encodeURIComponent('An internal error occurred. Please try again.'),
+      })
     )
   }
 }
