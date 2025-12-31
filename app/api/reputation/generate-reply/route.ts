@@ -243,6 +243,7 @@ Do NOT use similar phrases, words, or structure as the other variations. Be crea
 - Use action words and dynamic phrasing
 - Keep it energetic and engaging`,
             temperature: 1.0,
+            style: 'enthusiastic',
           },
           {
             approach: `VARIATION - EMPATHETIC & DETAILED:
@@ -251,6 +252,7 @@ Do NOT use similar phrases, words, or structure as the other variations. Be crea
 - Use longer, more descriptive sentences
 - Focus on emotional connection`,
             temperature: 0.85,
+            style: 'empathetic',
           },
           {
             approach: `VARIATION - CASUAL & FRIENDLY:
@@ -259,6 +261,7 @@ Do NOT use similar phrases, words, or structure as the other variations. Be crea
 - Use contractions and friendly expressions
 - Keep it light and approachable`,
             temperature: 0.95,
+            style: 'casual',
           },
         ]
         const retryInstruction = retryStyles[retryIndex % retryStyles.length]
