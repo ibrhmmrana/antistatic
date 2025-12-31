@@ -585,6 +585,10 @@ export function SocialChannelAnalysis({
             console.log('[Instagram Analysis] Analysis ready!')
             setInstagramAnalysis(result.analysis)
             setInstagramMetrics(result.metrics)
+            // TEMPORARY: Store all comments for debugging
+            if (result.comments && Array.isArray(result.comments)) {
+              setInstagramComments(result.comments)
+            }
             setInstagramError(null)
             setInstagramLoading(false)
             clearInterval(pollInterval)
