@@ -158,30 +158,42 @@ export async function GET(request: NextRequest) {
 
     // Build Instagram OAuth URL for Instagram API with Instagram Login
     // Use Instagram's authorization endpoint (NOT Facebook's)
+    // Format must match Meta's embed URL format:
+    // https://www.instagram.com/oauth/authorize?force_reauth=true&client_id=...&redirect_uri=...&response_type=code&scope=...
     const scopes = INSTAGRAM_REQUIRED_SCOPES.join(',') // Comma-separated, no spaces
     
+    // Build params in the exact order specified by Meta embed URL format
     const params = new URLSearchParams({
-      client_id: config.appId,
-      redirect_uri: config.redirectUri,
-      scope: scopes,
-      response_type: 'code',
-      state: state,
       force_reauth: 'true',
+      client_id: config.appId,
+      redirect_uri: config.redirectUri, // URLSearchParams automatically URL-encodes this
+      response_type: 'code',
+      scope: scopes, // URLSearchParams automatically URL-encodes this
+      state: state,
     })
 
     // Instagram API with Instagram Login uses Instagram's authorize endpoint
     const authUrl = `https://www.instagram.com/oauth/authorize?${params.toString()}`
 
-    // Log the full auth URL (no secrets, just the URL)
-    console.log('[Instagram Connect] Generated OAuth URL:', authUrl)
-    console.log('[Instagram Connect] OAuth URL details:', {
-      baseUrl: 'https://www.instagram.com/oauth/authorize',
-      clientId: config.appId,
-      redirectUri: config.redirectUri,
-      scopes,
-      stateLength: state.length,
-      hasState: !!state,
-    })
+    // Log the full auth URL (no secrets, just the URL - safe to log)
+    console.log('Instagram OAuth URL:', authUrl)
+
+    // Check if debug mode is requested (dev mode only)
+    const isDebug = requestUrl.searchParams.get('debug') === '1' && process.env.NODE_ENV !== 'production'
+    
+    if (isDebug) {
+      return NextResponse.json({
+        authUrl,
+        details: {
+          baseUrl: 'https://www.instagram.com/oauth/authorize',
+          clientId: config.appId,
+          redirectUri: config.redirectUri,
+          scopes,
+          stateLength: state.length,
+          hasState: !!state,
+        },
+      })
+    }
 
     // Redirect to Instagram authorization
     return NextResponse.redirect(authUrl)

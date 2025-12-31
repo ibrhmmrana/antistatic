@@ -55,10 +55,11 @@ export function getInstagramOAuthConfig(): InstagramOAuthConfig {
  * Required OAuth scopes for Instagram Business API
  * Minimum scopes needed for MVP
  * Note: For Instagram API with Instagram Login (Business Login for Instagram)
+ * These are Instagram Business scopes, NOT Facebook Login scopes
  */
 export const INSTAGRAM_REQUIRED_SCOPES = [
   'instagram_business_basic',
-  'instagram_manage_comments',
+  'instagram_business_manage_comments',
   'instagram_business_manage_messages',
 ] as const
 
