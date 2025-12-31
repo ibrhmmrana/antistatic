@@ -19,6 +19,7 @@ import type { FacebookAiAnalysis } from '@/lib/social/facebook-types'
 import type { GBPWeaknessAnalysisResult } from '@/lib/ai/types'
 import { FacebookAnalysisUI } from './facebook-analysis-ui'
 import { AnalysisLoadingSkeleton } from './analysis-loading-skeleton'
+import { CircularProgress } from '@mui/material'
 
 interface SocialChannelAnalysisProps {
   locationId: string
@@ -180,6 +181,71 @@ export function SocialChannelAnalysis({
   const [facebookError, setFacebookError] = useState<string | null>(null)
   const [facebookRefreshing, setFacebookRefreshing] = useState(false)
 
+  // Loading message rotation state
+  const [gbpLoadingMessageIndex, setGbpLoadingMessageIndex] = useState(0)
+  const [instagramLoadingMessageIndex, setInstagramLoadingMessageIndex] = useState(0)
+  const [facebookLoadingMessageIndex, setFacebookLoadingMessageIndex] = useState(0)
+
+  // GBP loading messages
+  const gbpLoadingMessages = [
+    'Analyzing your Google Business Profile...',
+    'Analyzing your reviews...',
+    'Processing review themes...',
+    'Comparing with competitors...',
+    'Generating insights...',
+  ]
+
+  // Instagram loading messages
+  const instagramLoadingMessages = [
+    'Analyzing your Instagram profile...',
+    'Reviewing your posts...',
+    'Analyzing engagement patterns...',
+    'Identifying opportunities...',
+    'Generating insights...',
+  ]
+
+  // Facebook loading messages
+  const facebookLoadingMessages = [
+    'Analyzing your Facebook page...',
+    'Reviewing your posts...',
+    'Analyzing engagement patterns...',
+    'Identifying opportunities...',
+    'Generating insights...',
+  ]
+
+  // Rotate GBP loading messages
+  useEffect(() => {
+    if (!aiLoading && !refreshing) return
+
+    const interval = setInterval(() => {
+      setGbpLoadingMessageIndex((prev) => (prev + 1) % gbpLoadingMessages.length)
+    }, 3000) // Change message every 3 seconds
+
+    return () => clearInterval(interval)
+  }, [aiLoading, refreshing, gbpLoadingMessages.length])
+
+  // Rotate Instagram loading messages
+  useEffect(() => {
+    if (!instagramLoading && !instagramRefreshing) return
+
+    const interval = setInterval(() => {
+      setInstagramLoadingMessageIndex((prev) => (prev + 1) % instagramLoadingMessages.length)
+    }, 3000)
+
+    return () => clearInterval(interval)
+  }, [instagramLoading, instagramRefreshing, instagramLoadingMessages.length])
+
+  // Rotate Facebook loading messages
+  useEffect(() => {
+    if (!facebookLoading && !facebookRefreshing) return
+
+    const interval = setInterval(() => {
+      setFacebookLoadingMessageIndex((prev) => (prev + 1) % facebookLoadingMessages.length)
+    }, 3000)
+
+    return () => clearInterval(interval)
+  }, [facebookLoading, facebookRefreshing, facebookLoadingMessages.length])
+
   const supabase = createClient()
 
   // Fetch channel analyses
@@ -302,6 +368,18 @@ export function SocialChannelAnalysis({
     try {
       const url = `/api/locations/${locationId}/analysis/gbp${forceRefresh ? '?forceRefresh=true' : ''}`
       const response = await fetch(url)
+      
+      if (response.status === 404) {
+        // No analysis yet - trigger generation and start polling
+        console.log('[GBP Analysis] No analysis found (404), triggering generation...')
+        if (!forceRefresh) {
+          setAiLoading(true)
+        }
+        setAiError(null)
+        // Polling will handle checking for completion
+        return
+      }
+
       const result = await response.json()
 
       console.log('[GBP AI] Analysis response:', result)
@@ -310,6 +388,13 @@ export function SocialChannelAnalysis({
         setAiAnalysis(result.analysis)
         setAiError(null) // Clear any previous errors
         console.log('[GBP Analysis] Successfully loaded analysis', forceRefresh ? '(refreshed)' : '(cached)')
+      } else if (result.status === 'in_progress' || result.error === 'ANALYSIS_IN_PROGRESS') {
+        // Analysis is being generated, keep loading state and let polling handle it
+        console.log('[GBP Analysis] Analysis in progress, will poll for completion')
+        if (!forceRefresh) {
+          setAiLoading(true)
+        }
+        setAiError(null)
       } else {
         let errorMsg = result.error || 'Failed to generate analysis'
 
@@ -391,6 +476,133 @@ export function SocialChannelAnalysis({
     fetchAIAnalysis(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locationId, isGoogleConnected, analyses.length, loading])
+
+  // Automatic polling for GBP analysis when loading
+  useEffect(() => {
+    if (!isGoogleConnected || !locationId || aiAnalysis || !aiLoading) {
+      return
+    }
+
+    const pollInterval = setInterval(async () => {
+      console.log('[GBP Analysis] Polling for analysis...')
+      try {
+        const response = await fetch(`/api/locations/${locationId}/analysis/gbp`)
+        const result = await response.json()
+
+        if (result.success && result.analysis) {
+          console.log('[GBP Analysis] Analysis ready!')
+          setAiAnalysis(result.analysis)
+          setAiError(null)
+          setAiLoading(false)
+          clearInterval(pollInterval)
+        } else if (result.error && result.error !== 'NOT_ENOUGH_DATA' && result.error !== 'ANALYSIS_IN_PROGRESS') {
+          // Only stop polling if there's a real error (not just "in progress" or "not enough data")
+          console.log('[GBP Analysis] Error during polling:', result.error)
+          setAiError(result.error || 'Failed to generate analysis')
+          setAiLoading(false)
+          clearInterval(pollInterval)
+        }
+      } catch (error) {
+        console.error('[GBP Analysis] Polling error:', error)
+      }
+    }, 3000) // Poll every 3 seconds
+
+    // Stop polling after 60 seconds
+    const timeout = setTimeout(() => {
+      clearInterval(pollInterval)
+      if (aiLoading) {
+        setAiLoading(false)
+        setAiError('Analysis is taking longer than expected. Please try refreshing.')
+      }
+    }, 60000)
+
+    return () => {
+      clearInterval(pollInterval)
+      clearTimeout(timeout)
+    }
+  }, [locationId, isGoogleConnected, aiLoading, aiAnalysis])
+
+  // Automatic polling for Instagram analysis when loading
+  useEffect(() => {
+    if (!locationId || instagramAnalysis || !instagramLoading) {
+      return
+    }
+
+    const pollInterval = setInterval(async () => {
+      console.log('[Instagram Analysis] Polling for analysis...')
+      try {
+        const response = await fetch(`/api/locations/${locationId}/analysis/instagram`)
+        if (response.ok) {
+          const result = await response.json()
+          if (result.analysis && result.metrics) {
+            console.log('[Instagram Analysis] Analysis ready!')
+            setInstagramAnalysis(result.analysis)
+            setInstagramMetrics(result.metrics)
+            setInstagramError(null)
+            setInstagramLoading(false)
+            clearInterval(pollInterval)
+          }
+        }
+      } catch (error) {
+        console.error('[Instagram Analysis] Polling error:', error)
+      }
+    }, 3000) // Poll every 3 seconds
+
+    const timeout = setTimeout(() => {
+      clearInterval(pollInterval)
+      if (instagramLoading) {
+        setInstagramLoading(false)
+        setInstagramError('Analysis is taking longer than expected. Please try refreshing.')
+      }
+    }, 60000)
+
+    return () => {
+      clearInterval(pollInterval)
+      clearTimeout(timeout)
+    }
+  }, [locationId, instagramLoading, instagramAnalysis])
+
+  // Automatic polling for Facebook analysis when loading
+  useEffect(() => {
+    if (!locationId || facebookAnalysis || !facebookLoading) {
+      return
+    }
+
+    const pollInterval = setInterval(async () => {
+      console.log('[Facebook Analysis] Polling for analysis...')
+      try {
+        const response = await fetch(`/api/locations/${locationId}/analysis/facebook`)
+        if (response.ok) {
+          const result = await response.json()
+          if (result.analysis && result.metrics) {
+            console.log('[Facebook Analysis] Analysis ready!')
+            setFacebookAnalysis(result.analysis)
+            setFacebookMetrics(result.metrics)
+            setFacebookPosts(result.posts || [])
+            setFacebookPageName(result.pageName || null)
+            setFacebookError(null)
+            setFacebookLoading(false)
+            clearInterval(pollInterval)
+          }
+        }
+      } catch (error) {
+        console.error('[Facebook Analysis] Polling error:', error)
+      }
+    }, 3000) // Poll every 3 seconds
+
+    const timeout = setTimeout(() => {
+      clearInterval(pollInterval)
+      if (facebookLoading) {
+        setFacebookLoading(false)
+        setFacebookError('Analysis is taking longer than expected. Please try refreshing.')
+      }
+    }, 60000)
+
+    return () => {
+      clearInterval(pollInterval)
+      clearTimeout(timeout)
+    }
+  }, [locationId, facebookLoading, facebookAnalysis])
 
   // Notify parent component when card index changes (for dynamic Continue button positioning)
   useEffect(() => {
@@ -1022,14 +1234,24 @@ export function SocialChannelAnalysis({
                           )}
 
                           {/* Content */}
-                          {(analysis.hasData && analysis.data) || (analysis.id === 'instagram' && instagramAnalysis) || (analysis.id === 'facebook' && facebookAnalysis) || (analysis.id === 'google_gbp' && (aiAnalysis || aiLoading || aiError)) ? (
+                          {(analysis.hasData && analysis.data) || (analysis.id === 'instagram' && (instagramAnalysis || instagramLoading)) || (analysis.id === 'facebook' && (facebookAnalysis || facebookLoading)) || (analysis.id === 'google_gbp' && (aiAnalysis || aiLoading || aiError || refreshing)) ? (
                             <div className="space-y-4">
                               {/* GBP AI Analysis */}
                               {analysis.id === 'google_gbp' && (
                                 <div className="space-y-4">
                                   <div className="space-y-6">
                                     {aiLoading || refreshing ? (
-                                      <AnalysisLoadingSkeleton />
+                                      <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                                        <CircularProgress size={40} className="text-[#1a73e8]" />
+                                        <div className="text-center space-y-2">
+                                          <p className="text-base font-medium text-slate-900" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                                            {gbpLoadingMessages[gbpLoadingMessageIndex]}
+                                          </p>
+                                          <p className="text-sm text-slate-500" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                                            This could take up to 30 seconds
+                                          </p>
+                                        </div>
+                                      </div>
                                     ) : aiError ? (
                                       <div className="p-4 bg-red-50 rounded-lg border border-red-200">
                                         <p className="text-sm text-red-700 mb-3" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
@@ -1199,7 +1421,17 @@ export function SocialChannelAnalysis({
                                 <div className="space-y-4">
                                   <div className="space-y-6">
                                     {instagramLoading ? (
-                                      <AnalysisLoadingSkeleton />
+                                      <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                                        <CircularProgress size={40} className="text-[#1a73e8]" />
+                                        <div className="text-center space-y-2">
+                                          <p className="text-base font-medium text-slate-900" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                                            {instagramLoadingMessages[instagramLoadingMessageIndex]}
+                                          </p>
+                                          <p className="text-sm text-slate-500" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                                            This could take up to 30 seconds
+                                          </p>
+                                        </div>
+                                      </div>
                                     ) : instagramError ? (
                                       <div className="p-4 bg-red-50 rounded-lg border border-red-200">
                                         <p className="text-sm text-red-700 mb-3" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
@@ -1329,7 +1561,8 @@ export function SocialChannelAnalysis({
                                           const moduleMap: Record<string, AntistaticModuleId> = {
                                             'Reputation Hub': 'reputationHub',
                                             'Social Studio': 'socialStudio',
-                                            'Influencer Hub': 'influencerHub',
+                                            'Influencer Hub': 'influencerHub', // Keep for backward compatibility
+                                            'Creator Hub': 'influencerHub',
                                           }
                                           const moduleIds = risk.prescribedModules
                                             .map((name) => moduleMap[name])
@@ -1433,7 +1666,17 @@ export function SocialChannelAnalysis({
                                 <div className="space-y-4">
                                   <div className="space-y-6">
                                     {facebookLoading || facebookRefreshing ? (
-                                      <AnalysisLoadingSkeleton />
+                                      <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                                        <CircularProgress size={40} className="text-[#1a73e8]" />
+                                        <div className="text-center space-y-2">
+                                          <p className="text-base font-medium text-slate-900" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                                            {facebookLoadingMessages[facebookLoadingMessageIndex]}
+                                          </p>
+                                          <p className="text-sm text-slate-500" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                                            This could take up to 30 seconds
+                                          </p>
+                                        </div>
+                                      </div>
                                     ) : facebookError ? (
                                       <div className="p-4 bg-red-50 rounded-lg border border-red-200">
                                         <p className="text-sm text-red-700 mb-3" style={{ fontFamily: 'var(--font-roboto-stack)' }}>

@@ -15,6 +15,7 @@ import PinDropOutlinedIcon from '@mui/icons-material/PinDropOutlined'
 import BoltOutlinedIcon from '@mui/icons-material/BoltOutlined'
 import AnalyticsOutlinedIcon from '@mui/icons-material/AnalyticsOutlined'
 import PeopleOutlinedIcon from '@mui/icons-material/PeopleOutlined'
+import StoreOutlinedIcon from '@mui/icons-material/StoreOutlined'
 import { AccountMenu } from '@/components/account/account-menu'
 import { NAV_ITEMS, isNavItemEnabled, type NavItemConfig } from '@/lib/navigation/module-nav'
 import { getEnabledToolsForSidebar } from '@/lib/modules/enabled'
@@ -33,6 +34,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ sx?: { fontSize: number } }
   SettingsOutlined: SettingsOutlinedIcon,
   AnalyticsOutlined: AnalyticsOutlinedIcon,
   PeopleOutlined: PeopleOutlinedIcon,
+  StoreOutlined: StoreOutlinedIcon,
 }
 
 interface AppShellProps {

@@ -60,12 +60,12 @@ export const NAV_ITEMS: NavItemConfig[] = [
     unlockHint: 'Go to Settings → Tools to enable it.',
   },
   {
-    key: 'inbox',
-    label: 'Inbox',
-    href: '/messaging',
-    iconName: 'ForumOutlined',
-    moduleKey: 'reputation_hub', // Same module as Reputation Hub
-    description: getModuleDescription('reputation_hub'),
+    key: 'competitor_radar',
+    label: 'Competitor Radar',
+    href: '/competitors',
+    iconName: 'BoltOutlined',
+    moduleKey: 'competitor_radar',
+    description: getModuleDescription('competitor_radar'),
     unlockHint: 'Go to Settings → Tools to enable it.',
   },
   {
@@ -77,43 +77,22 @@ export const NAV_ITEMS: NavItemConfig[] = [
     description: getModuleDescription('social_studio'),
     unlockHint: 'Go to Settings → Tools to enable it.',
   },
-  // Profile Manager - Coming Soon (disabled)
-  // {
-  //   key: 'profile_manager',
-  //   label: 'Profile Manager',
-  //   href: '/listings',
-  //   iconName: 'PinDropOutlined',
-  //   moduleKey: 'profile_manager',
-  //   description: getModuleDescription('profile_manager'),
-  //   unlockHint: 'Go to Settings → Tools to enable it.',
-  // },
-  {
-    key: 'competitor_radar',
-    label: 'Competitor Radar',
-    href: '/competitors',
-    iconName: 'BoltOutlined',
-    moduleKey: 'competitor_radar',
-    description: getModuleDescription('competitor_radar'),
-    unlockHint: 'Go to Settings → Tools to enable it.',
-  },
-  // Insights Lab - Coming Soon (disabled)
-  // {
-  //   key: 'insights_lab',
-  //   label: 'Insights Lab',
-  //   href: '/insights', // Route may not exist yet
-  //   iconName: 'AnalyticsOutlined',
-  //   moduleKey: 'insights_lab',
-  //   description: getModuleDescription('insights_lab'),
-  //   unlockHint: 'Go to Settings → Tools to enable it.',
-  // },
   {
     key: 'influencer_hub',
-    label: 'Influencer Hub',
-    href: '/influencers', // Route may not exist yet
+    label: 'Creator Hub',
+    href: '/creators', // Route may not exist yet
     iconName: 'PeopleOutlined',
     moduleKey: 'influencer_hub',
     description: getModuleDescription('influencer_hub'),
     unlockHint: 'Go to Settings → Tools to enable it.',
+  },
+  {
+    key: 'marketplace',
+    label: 'Marketplace',
+    href: '/marketplace',
+    iconName: 'StoreOutlined',
+    alwaysEnabled: true,
+    unlockHint: '', // Not applicable
   },
 ]
 

@@ -124,10 +124,10 @@ export function ReviewList({
               key={review.id}
               onClick={() => handleItemClick(review)}
               className={`w-full text-left p-3 rounded-lg border transition-colors bg-white cursor-pointer ${
-                isSelected
+                isSelected && !selectionMode
                   ? 'border-[#1a73e8] bg-blue-50'
                   : isChecked
-                  ? 'border-[#1a73e8] bg-blue-50'
+                  ? 'border-[#1a73e8] bg-blue-50 ring-2 ring-[#1a73e8] ring-opacity-20'
                   : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
               }`}
             >

@@ -43,7 +43,7 @@ export function RespondTab({ businessLocationId, businessName }: RespondTabProps
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedReviewIds, setSelectedReviewIds] = useState<Set<string>>(new Set())
   const [bulkReplyModalOpen, setBulkReplyModalOpen] = useState(false)
-  const [generatedBulkReply, setGeneratedBulkReply] = useState<string>('')
+  const [generatedBulkReplies, setGeneratedBulkReplies] = useState<Array<{ reviewId: string; reply: string }>>([])
   const [generatingBulkReply, setGeneratingBulkReply] = useState(false)
 
   useEffect(() => {
@@ -226,11 +226,11 @@ export function RespondTab({ businessLocationId, businessName }: RespondTabProps
       }
 
       const data = await response.json()
-      if (data.success && data.reply) {
-        setGeneratedBulkReply(data.reply)
+      if (data.success && data.replies && Array.isArray(data.replies)) {
+        setGeneratedBulkReplies(data.replies)
         setBulkReplyModalOpen(true)
       } else {
-        throw new Error(data.error || 'No reply generated')
+        throw new Error(data.error || 'No replies generated')
       }
     } catch (error: any) {
       console.error('[RespondTab] Failed to generate bulk reply:', error)
@@ -240,7 +240,64 @@ export function RespondTab({ businessLocationId, businessName }: RespondTabProps
     }
   }
 
-  const handlePostBulkReply = async (replyText: string) => {
+  const handlePostSingleReply = async (reviewId: string, replyText: string) => {
+    try {
+      const review = filteredReviews.find((r) => r.id === reviewId)
+      if (!review) {
+        throw new Error('Review not found')
+      }
+
+      const response = await fetch('/api/reputation/bulk-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          businessLocationId,
+          reviews: [
+            {
+              reviewId: review.id,
+              reviewName: review.reviewName,
+              comment: replyText,
+            },
+          ],
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Failed to post reply' }))
+        throw new Error(errorData.error || 'Failed to post reply')
+      }
+
+      const data = await response.json()
+      const successCount = data.successCount || 0
+
+      // Refresh reviews
+      const refreshResponse = await fetch(`/api/reputation/reviews?locationId=${businessLocationId}`)
+      if (refreshResponse.ok) {
+        const refreshData = await refreshResponse.json()
+        setReviews(refreshData.reviews || [])
+      }
+
+      // Remove from selected reviews if it was selected
+      setSelectedReviewIds((prev) => {
+        const next = new Set(prev)
+        next.delete(reviewId)
+        return next
+      })
+
+      // Remove from generated replies
+      setGeneratedBulkReplies((prev) => prev.filter((r) => r.reviewId !== reviewId))
+
+      if (successCount > 0) {
+        showToast('Reply posted successfully', 'success')
+      }
+    } catch (error: any) {
+      console.error('[RespondTab] Failed to post single reply:', error)
+      showToast(error.message || 'Failed to post reply', 'error')
+      throw error // Re-throw so modal can handle it
+    }
+  }
+
+  const handlePostBulkReply = async (replies: Array<{ reviewId: string; reply: string }>) => {
     if (selectedReviewIds.size === 0) {
       showToast('No reviews selected', 'error')
       return
@@ -248,16 +305,27 @@ export function RespondTab({ businessLocationId, businessName }: RespondTabProps
 
     try {
       const selectedReviews = filteredReviews.filter((r) => selectedReviewIds.has(r.id))
+      // Map replies to reviews
+      const reviewReplies = selectedReviews.map((r) => {
+        const replyData = replies.find((rep) => rep.reviewId === r.id)
+        return {
+          reviewId: r.id,
+          reviewName: r.reviewName,
+          comment: replyData?.reply || '',
+        }
+      }).filter((r) => r.comment.trim().length > 0) // Only include reviews with replies
+
+      if (reviewReplies.length === 0) {
+        showToast('No valid replies to post', 'error')
+        return
+      }
+
       const response = await fetch('/api/reputation/bulk-reply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           businessLocationId,
-          reviews: selectedReviews.map((r) => ({
-            reviewId: r.id,
-            reviewName: r.reviewName,
-            comment: replyText,
-          })),
+          reviews: reviewReplies,
         }),
       })
 
@@ -281,7 +349,7 @@ export function RespondTab({ businessLocationId, businessName }: RespondTabProps
       setSelectedReviewIds(new Set())
       setSelectionMode(false)
       setBulkReplyModalOpen(false)
-      setGeneratedBulkReply('')
+      setGeneratedBulkReplies([])
 
       if (errorCount === 0) {
         showToast(`Successfully posted ${successCount} reply${successCount > 1 ? 'ies' : ''}`, 'success')
@@ -301,13 +369,14 @@ export function RespondTab({ businessLocationId, businessName }: RespondTabProps
         isOpen={bulkReplyModalOpen}
         onClose={() => {
           setBulkReplyModalOpen(false)
-          setGeneratedBulkReply('')
+          setGeneratedBulkReplies([])
         }}
-        generatedReply={generatedBulkReply}
-        reviewCount={selectedReviewIds.size}
+        generatedReplies={generatedBulkReplies}
+        reviews={filteredReviews.filter((r) => selectedReviewIds.has(r.id))}
         onApprove={handlePostBulkReply}
+        onPostSingle={handlePostSingleReply}
         onCancel={() => {
-          setGeneratedBulkReply('')
+          setGeneratedBulkReplies([])
         }}
       />
       <div className="h-full min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-4">
@@ -319,54 +388,66 @@ export function RespondTab({ businessLocationId, businessName }: RespondTabProps
         </div>
 
         {/* List - Middle Column */}
-        <div className="lg:col-span-4 min-h-0 overflow-y-auto border-r border-slate-200 pr-4 flex flex-col">
+        <div className={`min-h-0 overflow-y-auto flex flex-col ${selectionMode ? 'lg:col-span-10' : 'lg:col-span-4 border-r border-slate-200 pr-4'}`}>
           {/* Bulk Reply Controls */}
-          <div className="mb-4 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  setSelectionMode(!selectionMode)
-                  if (selectionMode) {
-                    setSelectedReviewIds(new Set())
-                  }
-                }}
-                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                  selectionMode
-                    ? 'bg-[#1a73e8] text-white'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
-                style={{ fontFamily: 'var(--font-google-sans)' }}
-              >
-                {selectionMode ? 'Cancel Selection' : 'Select Reviews'}
-              </button>
-              {selectionMode && (
-                <>
-                  <button
-                    onClick={handleSelectAll}
-                    className="px-3 py-1.5 text-sm rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
-                    style={{ fontFamily: 'var(--font-google-sans)' }}
-                  >
-                    {selectedReviewIds.size === filteredReviews.filter((r) => !r.replied).length
-                      ? 'Deselect All'
-                      : 'Select All'}
-                  </button>
-                  {selectedReviewIds.size > 0 && (
-                    <span className="text-sm text-slate-600">
-                      {selectedReviewIds.size} selected
-                    </span>
-                  )}
-                </>
+          <div className="mb-4 bg-white rounded-lg border border-slate-200 p-3 shadow-sm">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    if (selectionMode) {
+                      // Exiting selection mode
+                      setSelectedReviewIds(new Set())
+                      setSelectionMode(false)
+                    } else {
+                      // Entering selection mode
+                      setSelectedReview(null)
+                      setSelectionMode(true)
+                    }
+                  }}
+                  className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                    selectionMode
+                      ? 'bg-[#1a73e8] text-white'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                  style={{ fontFamily: 'var(--font-google-sans)' }}
+                >
+                  {selectionMode ? 'Cancel Selection' : 'Bulk Reply'}
+                </button>
+                {selectionMode && (
+                  <>
+                    <button
+                      onClick={handleSelectAll}
+                      className="px-3 py-1.5 text-sm rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
+                      style={{ fontFamily: 'var(--font-google-sans)' }}
+                    >
+                      {selectedReviewIds.size === filteredReviews.filter((r) => !r.replied).length
+                        ? 'Deselect All'
+                        : 'Select All'}
+                    </button>
+                    {selectedReviewIds.size > 0 && (
+                      <span className="text-sm font-medium text-slate-700 px-2 py-1 bg-blue-50 rounded-md">
+                        {selectedReviewIds.size} selected
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+              {selectionMode && selectedReviewIds.size > 0 && (
+                <button
+                  onClick={handleGenerateBulkReply}
+                  disabled={generatingBulkReply}
+                  className="px-4 py-1.5 text-sm font-medium rounded-md bg-[#1a73e8] text-white hover:bg-[#1557b0] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  style={{ fontFamily: 'var(--font-google-sans)' }}
+                >
+                  {generatingBulkReply ? 'Generating...' : 'Generate Bulk Reply'}
+                </button>
               )}
             </div>
-            {selectionMode && selectedReviewIds.size > 0 && (
-              <button
-                onClick={handleGenerateBulkReply}
-                disabled={generatingBulkReply}
-                className="px-4 py-1.5 text-sm rounded-md bg-[#1a73e8] text-white hover:bg-[#1557b0] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                style={{ fontFamily: 'var(--font-google-sans)' }}
-              >
-                {generatingBulkReply ? 'Generating...' : 'Generate Bulk Reply'}
-              </button>
+            {selectionMode && (
+              <p className="text-xs text-slate-500">
+                Select multiple reviews that need replies. Click checkboxes or click on review cards to toggle selection.
+              </p>
             )}
           </div>
           <div className="flex-1 min-h-0 overflow-y-auto">
@@ -382,26 +463,28 @@ export function RespondTab({ businessLocationId, businessName }: RespondTabProps
           </div>
         </div>
 
-        {/* Detail + Composer - Right Column */}
-        <div className="lg:col-span-6 min-h-0 overflow-y-auto pl-4">
-          {selectedReview ? (
-            <div className="bg-white rounded-lg border border-slate-200 p-6 shadow-sm">
-            <ReviewDetail
-              review={selectedReview}
-              businessLocationId={businessLocationId}
-              businessName={businessName}
-              onReplyPosted={handleReplyPosted}
-              onReplyUpdated={handleReplyUpdated}
-              onReplyDeleted={handleReplyDeleted}
-              onError={(error: string) => showToast(error, 'error')}
-            />
-            </div>
-          ) : (
-            <div className="flex items-center justify-center h-full min-h-[400px] text-slate-400 bg-white rounded-lg border border-slate-200 p-8">
-              Select a review to view details and compose a reply
-            </div>
-          )}
-        </div>
+        {/* Detail + Composer - Right Column - Hidden in selection mode */}
+        {!selectionMode && (
+          <div className="lg:col-span-6 min-h-0 overflow-y-auto pl-4">
+            {selectedReview ? (
+              <div className="bg-white rounded-lg border border-slate-200 p-6 shadow-sm">
+              <ReviewDetail
+                review={selectedReview}
+                businessLocationId={businessLocationId}
+                businessName={businessName}
+                onReplyPosted={handleReplyPosted}
+                onReplyUpdated={handleReplyUpdated}
+                onReplyDeleted={handleReplyDeleted}
+                onError={(error: string) => showToast(error, 'error')}
+              />
+              </div>
+            ) : (
+              <div className="flex items-center justify-center h-full min-h-[400px] text-slate-400 bg-white rounded-lg border border-slate-200 p-8">
+                Select a review to view details and compose a reply
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </>
   )

@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     const businessContextStr = contextParts.join('\n')
 
     const systemPrompt = `You are a professional customer service representative writing replies to Google Business Profile reviews.
-Your goal is to write ONE reply that works well for multiple reviews at once.
+Your goal is to write personalized replies for each individual review.
 
 Rules:
 * Use placeholders like \`{businessName}\` or \`{name}\`. If a field is missing, write naturally without it.
@@ -70,68 +70,91 @@ Rules:
 * Keep it human, specific, and not repetitive.
 * Do not claim actions you can't verify (refund issued, manager called, etc).
 * Don't ask for personal info publicly.
-* The reply should be general enough to work for multiple reviews but still feel personal and authentic.
-* If reviews are mixed (positive and negative), focus on a balanced, appreciative tone that acknowledges feedback.
-* If reviews are mostly negative, apologize, acknowledge the issues, briefly state intent to fix, invite them to contact the business offline (use phone/website if available), and keep it calm.
-* If reviews are mostly positive, thank them, acknowledge their support, reinforce trust, invite them back.
-* Keep the reply medium length (3-5 sentences) to work well across different review types.
+* Each reply should be personalized to the specific review content, rating, and reviewer name.
+* If negative (rating <= 3): apologize, acknowledge the issue, briefly state intent to fix, invite them to contact the business offline (use phone/website if available), and keep it calm.
+* If positive (rating >= 4): thank them, mirror a specific detail from the review, reinforce trust, invite them back.
+* Keep the reply medium length (3-5 sentences).
+* IMPORTANT: Always address the reviewer by their FIRST NAME ONLY. If the reviewer's name is "Murray Legg", address them as "Murray". If the reviewer's name is "John Smith", address them as "John". Extract and use only the first name from the full name provided.
 
 Business context (use when relevant):
 ${businessContextStr}`
 
-    // Build user message with all reviews
-    const reviewsSummary = reviews.map((review, index) => {
-      return `Review ${index + 1}:
+    console.log('[Generate Bulk Reply] Generating individual replies for', reviews.length, 'reviews')
+
+    // Generate individual reply for each review
+    const replyPromises = reviews.map(async (review, index) => {
+      // Extract first name from author name
+      const firstName = review.authorName
+        ? review.authorName.trim().split(/\s+/)[0]
+        : null
+
+      const userMessage = `Review details:
 Rating: ${review.rating || 'Not specified'}/5
 Reviewer: ${review.authorName || 'Anonymous'}
+${firstName ? `Reviewer's first name: ${firstName}` : 'Reviewer name not available'}
 Review text: ${review.text}
-${review.createdAt ? `Posted: ${review.createdAt}` : ''}`
-    }).join('\n\n')
+${review.createdAt ? `Posted: ${review.createdAt}` : ''}
 
-    const userMessage = `You need to write ONE reply that will be posted to ${reviews.length} review${reviews.length > 1 ? 's' : ''}.
+Write a personalized reply for this specific review:
+1. Address the reviewer by their FIRST NAME ONLY if provided${firstName ? ` (use "${firstName}")` : ' (reviewer name not available)'}
+2. Reference specific details from their review
+3. Match the tone to the rating (${review.rating || 'N/A'}/5)
+4. Is 3-5 sentences long
+5. Uses the business context above when relevant
+6. If rating <= 3, include contact information (phone/website) ONLY if available in the business context`
 
-All reviews:
-${reviewsSummary}
+      try {
+        const completion = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMessage },
+          ],
+          temperature: 0.7,
+          max_tokens: 300,
+        })
 
-Write a single reply that:
-1. Works well for all these reviews (general enough but still feels personal)
-2. Is appropriate for the mix of ratings and sentiments
-3. Is 3-5 sentences long
-4. Uses the business context above when relevant
-5. If there are negative reviews (rating <= 3), include contact information (phone/website) ONLY if available in the business context`
+        const reply = completion.choices[0]?.message?.content?.trim()
 
-    console.log('[Generate Bulk Reply] Calling OpenAI', {
-      locationId,
-      reviewCount: reviews.length,
-      hasBusinessName: !!businessContext.businessName,
-      hasPhone: !!businessContext.phone,
-      hasWebsite: !!businessContext.website,
+        if (!reply) {
+          throw new Error(`No reply generated for review ${index + 1}`)
+        }
+
+        // Replace placeholders with actual values
+        let finalReply = reply
+          .replace(/{businessName}/g, businessContext.businessName || 'us')
+          .replace(/{name}/g, businessContext.businessName || 'us')
+
+        return {
+          reviewId: review.reviewId || `review-${index}`,
+          reply: finalReply,
+          success: true,
+        }
+      } catch (error: any) {
+        console.error(`[Generate Bulk Reply] Error generating reply for review ${index + 1}:`, error)
+        return {
+          reviewId: review.reviewId || `review-${index}`,
+          reply: '',
+          success: false,
+          error: error.message || 'Failed to generate reply',
+        }
+      }
     })
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage },
-      ],
-      temperature: 0.7,
-      max_tokens: 300,
-    })
+    const replies = await Promise.all(replyPromises)
 
-    const reply = completion.choices[0]?.message?.content?.trim()
-
-    if (!reply) {
-      throw new Error('No reply generated from OpenAI')
+    // Check if all replies were generated successfully
+    const failedReplies = replies.filter((r) => !r.success)
+    if (failedReplies.length > 0) {
+      console.error('[Generate Bulk Reply] Some replies failed to generate:', failedReplies)
     }
-
-    // Replace placeholders with actual values
-    let finalReply = reply
-      .replace(/{businessName}/g, businessContext.businessName || 'us')
-      .replace(/{name}/g, businessContext.businessName || 'us')
 
     return NextResponse.json({
       success: true,
-      reply: finalReply,
+      replies: replies.map((r) => ({
+        reviewId: r.reviewId,
+        reply: r.reply,
+      })),
     })
   } catch (error: any) {
     console.error('[Generate Bulk Reply] Error:', error)

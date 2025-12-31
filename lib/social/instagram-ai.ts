@@ -43,7 +43,7 @@ Return ONLY valid JSON with this exact structure:
           "text": "quote text, max 120 chars"
         }
       ],
-      "prescribedModules": ["Reputation Hub", "Social Studio", "Influencer Hub"]
+      "prescribedModules": ["Reputation Hub", "Social Studio", "Creator Hub"]
     }
   ]
 }`
@@ -104,7 +104,7 @@ TASKS:
          * Choose one or more from:
            - "Reputation Hub" (reply to comments, handle complaints, fix public issues fast)
            - "Social Studio" (improve what you post, how often you post, and your captions/CTAs)
-           - "Influencer Hub" (use creators and UGC to grow reach and trust)
+           - "Creator Hub" (use creators and UGC to grow reach and trust)
          * Only include modules that clearly fit the problem.
 
 EXTRA RULES:
@@ -126,7 +126,7 @@ type InstagramAiAnalysis = {
     severity: 'low' | 'medium' | 'high';
     severityLabel: string;
     audienceQuotes: { username?: string; text: string; }[];
-    prescribedModules: ('Reputation Hub' | 'Social Studio' | 'Influencer Hub')[];
+    prescribedModules: ('Reputation Hub' | 'Social Studio' | 'Creator Hub')[];
   }[];
 };`
 
@@ -188,10 +188,10 @@ type InstagramAiAnalysis = {
     }
 
     // Validate and filter prescribedModules
-    const validModules: Array<'Reputation Hub' | 'Social Studio' | 'Influencer Hub'> = [
+    const validModules: Array<'Reputation Hub' | 'Social Studio' | 'Creator Hub'> = [
       'Reputation Hub',
       'Social Studio',
-      'Influencer Hub',
+      'Creator Hub',
     ]
 
     const mainRisks = parsed.mainRisks.slice(0, 4).map((risk: any) => ({

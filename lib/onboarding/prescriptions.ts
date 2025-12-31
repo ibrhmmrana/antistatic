@@ -27,7 +27,8 @@ export function normalizeModuleId(moduleId: string): string {
     'Insights Lab': 'insights_lab',
     'Profile Manager': 'profile_manager',
     'Competitor Radar': 'competitor_radar',
-    'Influencer Hub': 'influencer_hub',
+    'Influencer Hub': 'influencer_hub', // Keep for backward compatibility
+    'Creator Hub': 'influencer_hub',
     // Uppercase constants
     'REPUTATION_HUB': 'reputation_hub',
     'SOCIAL_STUDIO': 'social_studio',

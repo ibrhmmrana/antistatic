@@ -2,7 +2,7 @@
  * Instagram Analysis Types
  */
 
-export type InstaModuleKey = 'Reputation Hub' | 'Social Studio' | 'Influencer Hub'
+export type InstaModuleKey = 'Reputation Hub' | 'Social Studio' | 'Creator Hub'
 
 export type InstagramAudienceQuote = {
   username?: string

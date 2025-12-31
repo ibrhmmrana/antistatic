@@ -81,7 +81,7 @@ export const MODULES: Record<ModuleKey, ModuleInfo> = {
   },
   influencer_hub: {
     key: 'influencer_hub',
-    name: 'Influencer Hub',
+    name: 'Creator Hub',
     tagline: 'Creator partnerships',
     category: 'Creator partnerships',
     bullets: [

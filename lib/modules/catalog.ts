@@ -95,11 +95,11 @@ export const ANTISTATIC_MODULES: Record<AntistaticModuleId, AntistaticModule> = 
   },
   influencerHub: {
     id: 'influencerHub',
-    label: 'Influencer Hub',
-    shortLabel: 'Influencer Hub',
+    label: 'Creator Hub',
+    shortLabel: 'Creator Hub',
     colorClass: 'bg-pink-50 border-pink-200',
     textColorClass: 'text-pink-700',
-    tooltipTitle: 'Influencer Hub',
+    tooltipTitle: 'Creator Hub',
     tooltipBullets: [
       'Helps you identify local creators and regulars who can vouch for your business',
       'Supports campaigns for UGC, testimonials, ads, and review boosts',
