@@ -173,10 +173,19 @@ export async function GET(request: NextRequest) {
     })
 
     // Instagram API with Instagram Login uses Instagram's authorize endpoint
+    // ALWAYS use this exact URL format
     const authUrl = `https://www.instagram.com/oauth/authorize?${params.toString()}`
 
     // Log the full auth URL (no secrets, just the URL - safe to log)
-    console.log('Instagram OAuth URL:', authUrl)
+    console.log('[Instagram Connect] Generated OAuth URL:', authUrl)
+    console.log('[Instagram Connect] OAuth URL details:', {
+      baseUrl: 'https://www.instagram.com/oauth/authorize',
+      clientId: config.appId,
+      redirectUri: config.redirectUri,
+      scopes,
+      stateLength: state.length,
+      hasState: !!state,
+    })
 
     // Check if debug mode is requested (dev mode only)
     const isDebug = requestUrl.searchParams.get('debug') === '1' && process.env.NODE_ENV !== 'production'

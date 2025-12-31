@@ -77,6 +77,13 @@ const CHANNELS: Channel[] = [
   },
 ]
 
+interface InstagramConnectionStatus {
+  connected: boolean
+  username?: string | null
+  instagram_user_id?: string
+  scopes?: string[]
+}
+
 export function ConnectAccounts({ userName = 'there', locationId, connectedAccounts }: ConnectAccountsProps) {
   const [loading, setLoading] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -88,6 +95,8 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
     linkedin: '',
     tiktok: '',
   })
+  const [instagramStatus, setInstagramStatus] = useState<InstagramConnectionStatus | null>(null)
+  const [instagramLoading, setInstagramLoading] = useState(true)
   const router = useRouter()
   const searchParams = useSearchParams()
   const supabase = createClient()
@@ -149,11 +158,89 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
     }
   }
 
+  // Fetch Instagram connection status
+  useEffect(() => {
+    const fetchInstagramStatus = async () => {
+      if (!locationId) return
+
+      try {
+        setInstagramLoading(true)
+        const response = await fetch(`/api/integrations/instagram/status?business_location_id=${locationId}`)
+        if (response.ok) {
+          const data = await response.json()
+          setInstagramStatus(data)
+        } else {
+          setInstagramStatus({ connected: false })
+        }
+      } catch (err) {
+        console.error('Failed to fetch Instagram status:', err)
+        setInstagramStatus({ connected: false })
+      } finally {
+        setInstagramLoading(false)
+      }
+    }
+
+    fetchInstagramStatus()
+  }, [locationId])
+
   // Check for OAuth callback success/error
   useEffect(() => {
     const googleStatus = searchParams.get('google') || searchParams.get('gbp')
     const errorReason = searchParams.get('reason')
     const allowBack = searchParams.get('allowBack')
+
+    // Check for Instagram OAuth callback
+    const igStatus = searchParams.get('ig')
+    const igConnected = searchParams.get('connected')
+    const igError = searchParams.get('ig_error')
+
+    if (igStatus === 'connected' && igConnected === '1') {
+      // Refresh Instagram status
+      const fetchStatus = async () => {
+        try {
+          const response = await fetch(`/api/integrations/instagram/status?business_location_id=${locationId}`)
+          if (response.ok) {
+            const data = await response.json()
+            setInstagramStatus(data)
+          }
+        } catch (err) {
+          console.error('Failed to refresh Instagram status:', err)
+        }
+      }
+      fetchStatus()
+
+      // Preserve allowBack param
+      if (allowBack) {
+        router.replace('/onboarding/connect?allowBack=true')
+      } else {
+        router.replace('/onboarding/connect')
+      }
+    } else if (igError) {
+      // Handle Instagram errors
+      const errorMessages: Record<string, string> = {
+        access_denied: 'Instagram connection was cancelled. Please try again when ready.',
+        invalid_request: 'Invalid Instagram OAuth request. Please check configuration.',
+        redirect_uri_mismatch: 'Redirect URI mismatch. Please contact support.',
+        no_code: 'No authorization code received from Instagram.',
+        invalid_state: 'Invalid or expired OAuth state. Please try again.',
+        invalid_session: 'Invalid session. Please try again.',
+        expired_state: 'OAuth session expired. Please try again.',
+        config_error: 'Instagram OAuth not configured properly.',
+        token_exchange_failed: 'Failed to exchange authorization code. Please try again.',
+        invalid_token_response: 'Invalid response from Instagram. Please try again.',
+        db_save_failed: 'Failed to save connection. Please try again.',
+        not_authenticated: 'User not authenticated. Please log in and try again.',
+        internal_error: 'An internal error occurred. Please try again.',
+      }
+      setError(errorMessages[igError] || 'Failed to connect Instagram account. Please try again.')
+
+      // Preserve allowBack param
+      if (allowBack) {
+        router.replace('/onboarding/connect?allowBack=true')
+      } else {
+        router.replace('/onboarding/connect')
+      }
+    }
 
     if (googleStatus === 'connected') {
       refreshAccounts()
@@ -568,8 +655,8 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
               }
 
               // Check if Instagram is connected via OAuth
-              const isInstagramOAuthConnected = channel.id === 'instagram' && 
-                accounts.some(acc => acc.provider === 'instagram_oauth' && acc.status === 'connected')
+              const isInstagramOAuthConnected = channel.id === 'instagram' && instagramStatus?.connected === true
+              const isInstagramLoading = channel.id === 'instagram' && (instagramLoading || loading === channel.id)
 
               return (
                 <div key={channel.id} className="w-full">
@@ -593,25 +680,72 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
                       />
                     </div>
                     {channel.id === 'instagram' && (
-                      <button
-                        onClick={() => handleChannelClick(channel)}
-                        disabled={loading !== null && loading !== channel.id}
-                        className={`
-                          px-4 py-2 text-sm font-medium rounded-md border transition-colors
-                          ${isInstagramOAuthConnected
-                            ? 'bg-green-50 border-green-200 text-green-700'
-                            : 'bg-white border-[var(--google-grey-300)] text-[var(--google-grey-700)] hover:border-[#1565B4] hover:text-[#1565B4]'
-                          }
-                          ${loading === channel.id ? 'opacity-50 cursor-wait' : ''}
-                          ${loading !== null && loading !== channel.id ? 'opacity-50 cursor-not-allowed' : ''}
-                        `}
-                        style={{ fontFamily: 'var(--font-roboto-stack)' }}
-                      >
-                        {loading === channel.id ? 'Connecting...' : isInstagramOAuthConnected ? 'Connected' : 'Connect via OAuth'}
-                      </button>
+                      <div className="flex gap-2">
+                        {isInstagramOAuthConnected ? (
+                          <>
+                            <button
+                              onClick={() => handleChannelClick(channel)}
+                              disabled={loading !== null && loading !== channel.id}
+                              className={`
+                                px-4 py-2 text-sm font-medium rounded-md border transition-colors
+                                bg-white border-[var(--google-grey-300)] text-[var(--google-grey-700)] hover:border-[#1565B4] hover:text-[#1565B4]
+                                ${loading === channel.id ? 'opacity-50 cursor-wait' : ''}
+                                ${loading !== null && loading !== channel.id ? 'opacity-50 cursor-not-allowed' : ''}
+                              `}
+                              style={{ fontFamily: 'var(--font-roboto-stack)' }}
+                            >
+                              {loading === channel.id ? 'Reconnecting...' : 'Reconnect'}
+                            </button>
+                            <button
+                              onClick={async () => {
+                                if (!confirm('Are you sure you want to disconnect your Instagram account?')) return
+                                try {
+                                  setLoading('instagram_disconnect')
+                                  const response = await fetch(`/api/integrations/instagram/disconnect?business_location_id=${locationId}`, {
+                                    method: 'POST',
+                                  })
+                                  if (response.ok) {
+                                    setInstagramStatus({ connected: false })
+                                  } else {
+                                    setError('Failed to disconnect Instagram account')
+                                  }
+                                } catch (err: any) {
+                                  setError(err.message || 'Failed to disconnect Instagram account')
+                                } finally {
+                                  setLoading(null)
+                                }
+                              }}
+                              disabled={loading !== null}
+                              className="px-4 py-2 text-sm font-medium rounded-md border border-red-300 text-red-700 hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              style={{ fontFamily: 'var(--font-roboto-stack)' }}
+                            >
+                              Disconnect
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => handleChannelClick(channel)}
+                            disabled={loading !== null && loading !== channel.id}
+                            className={`
+                              px-4 py-2 text-sm font-medium rounded-md border transition-colors
+                              bg-white border-[var(--google-grey-300)] text-[var(--google-grey-700)] hover:border-[#1565B4] hover:text-[#1565B4]
+                              ${isInstagramLoading ? 'opacity-50 cursor-wait' : ''}
+                              ${loading !== null && loading !== channel.id ? 'opacity-50 cursor-not-allowed' : ''}
+                            `}
+                            style={{ fontFamily: 'var(--font-roboto-stack)' }}
+                          >
+                            {isInstagramLoading ? 'Connecting...' : 'Connect via OAuth'}
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
-                  {channel.id === 'instagram' && isInstagramOAuthConnected && (
+                  {channel.id === 'instagram' && isInstagramOAuthConnected && instagramStatus?.username && (
+                    <p className="text-xs text-green-600 mt-1" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                      Connected as @{instagramStatus.username}. Username field is for Apify analysis only.
+                    </p>
+                  )}
+                  {channel.id === 'instagram' && isInstagramOAuthConnected && !instagramStatus?.username && (
                     <p className="text-xs text-green-600 mt-1" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
                       Instagram connected via OAuth. Username field is for Apify analysis only.
                     </p>

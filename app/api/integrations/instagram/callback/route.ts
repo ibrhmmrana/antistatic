@@ -13,12 +13,30 @@ import { getInstagramOAuthConfig } from '@/lib/instagram/config'
  * ${NEXT_PUBLIC_APP_URL}/api/integrations/instagram/callback
  */
 export async function GET(request: NextRequest) {
-  const requestUrl = new URL(request.url)
+  // Handle Instagram redirects that may include #_ fragment
+  // Strip the fragment before parsing URL
+  let urlString = request.url
+  if (urlString.includes('#_')) {
+    urlString = urlString.split('#_')[0]
+  }
+  if (urlString.includes('#')) {
+    urlString = urlString.split('#')[0]
+  }
+  
+  const requestUrl = new URL(urlString)
   const code = requestUrl.searchParams.get('code')
   const error = requestUrl.searchParams.get('error')
   const errorDescription = requestUrl.searchParams.get('error_description')
   const state = requestUrl.searchParams.get('state')
   const supabase = await createClient()
+
+  console.log('[Instagram Callback] Received callback:', {
+    hasCode: !!code,
+    hasError: !!error,
+    hasState: !!state,
+    error,
+    errorDescription,
+  })
 
   // Handle OAuth errors from Instagram
   if (error) {
@@ -27,31 +45,35 @@ export async function GET(request: NextRequest) {
       errorDescription,
     })
     
+    let errorCode = 'unknown_error'
     let errorMessage = 'Failed to connect Instagram account.'
     if (error === 'access_denied') {
+      errorCode = 'access_denied'
       errorMessage = 'Connection cancelled. Please try again when ready.'
     } else if (error === 'invalid_request') {
+      errorCode = 'invalid_request'
       errorMessage = 'Invalid OAuth request. Please check redirect URI configuration.'
     } else if (error === 'redirect_uri_mismatch') {
+      errorCode = 'redirect_uri_mismatch'
       errorMessage = 'Redirect URI mismatch. Please contact support.'
     }
 
     return NextResponse.redirect(
-      new URL(`/settings/integrations/instagram?error=${encodeURIComponent(errorMessage)}`, requestUrl.origin)
+      new URL(`/onboarding/connect?ig_error=${errorCode}`, requestUrl.origin)
     )
   }
 
   if (!code) {
     console.error('[Instagram Callback] No authorization code received')
     return NextResponse.redirect(
-      new URL('/settings/integrations/instagram?error=No authorization code received', requestUrl.origin)
+      new URL('/onboarding/connect?ig_error=no_code', requestUrl.origin)
     )
   }
 
   if (!state) {
     console.error('[Instagram Callback] No state parameter received')
     return NextResponse.redirect(
-      new URL('/settings/integrations/instagram?error=Invalid OAuth state', requestUrl.origin)
+      new URL('/onboarding/connect?ig_error=invalid_state', requestUrl.origin)
     )
   }
 
@@ -63,7 +85,7 @@ export async function GET(request: NextRequest) {
 
     if (!user) {
       return NextResponse.redirect(
-        new URL('/settings/integrations/instagram?error=User not authenticated', requestUrl.origin)
+        new URL('/onboarding/connect?ig_error=not_authenticated', requestUrl.origin)
       )
     }
 
@@ -79,7 +101,7 @@ export async function GET(request: NextRequest) {
     if (stateError || !typedStateRecord) {
       console.error('[Instagram Callback] Invalid or expired state:', stateError)
       return NextResponse.redirect(
-        new URL('/settings/integrations/instagram?error=Invalid or expired OAuth state', requestUrl.origin)
+        new URL('/onboarding/connect?ig_error=invalid_state', requestUrl.origin)
       )
     }
 
@@ -87,7 +109,7 @@ export async function GET(request: NextRequest) {
     if (typedStateRecord.user_id !== user.id) {
       console.error('[Instagram Callback] State user mismatch')
       return NextResponse.redirect(
-        new URL('/settings/integrations/instagram?error=Invalid session', requestUrl.origin)
+        new URL('/onboarding/connect?ig_error=invalid_session', requestUrl.origin)
       )
     }
 
@@ -101,7 +123,7 @@ export async function GET(request: NextRequest) {
         .delete()
         .eq('state', state)
       return NextResponse.redirect(
-        new URL('/settings/integrations/instagram?error=OAuth session expired. Please try again.', requestUrl.origin)
+        new URL('/onboarding/connect?ig_error=expired_state', requestUrl.origin)
       )
     }
 
@@ -114,9 +136,15 @@ export async function GET(request: NextRequest) {
     } catch (configError: any) {
       console.error('[Instagram Callback] Configuration error:', configError.message)
       return NextResponse.redirect(
-        new URL('/settings/integrations/instagram?error=OAuth not configured', requestUrl.origin)
+        new URL('/onboarding/connect?ig_error=config_error', requestUrl.origin)
       )
     }
+
+    console.log('[Instagram Callback] Exchanging code for token:', {
+      hasCode: !!code,
+      redirectUri: config.redirectUri,
+      clientId: config.appId,
+    })
 
     // Exchange authorization code for access token
     // Instagram API with Instagram Login uses Instagram's token endpoint
@@ -136,22 +164,38 @@ export async function GET(request: NextRequest) {
 
     if (!tokenResponse.ok) {
       const errorData = await tokenResponse.json().catch(() => ({}))
-      console.error('[Instagram Callback] Token exchange failed:', errorData)
+      console.error('[Instagram Callback] Token exchange failed:', {
+        status: tokenResponse.status,
+        statusText: tokenResponse.statusText,
+        error: errorData,
+      })
       return NextResponse.redirect(
-        new URL('/settings/integrations/instagram?error=Failed to exchange authorization code', requestUrl.origin)
+        new URL('/onboarding/connect?ig_error=token_exchange_failed', requestUrl.origin)
       )
     }
 
     const tokenData = await tokenResponse.json()
+
+    console.log('[Instagram Callback] Token exchange result:', {
+      hasAccessToken: !!tokenData.access_token,
+      hasUserId: !!tokenData.user_id,
+      expiresIn: tokenData.expires_in,
+      scope: tokenData.scope,
+      // Do not log tokens/secrets
+    })
 
     // Instagram API returns access_token and user_id in the response
     const accessToken = tokenData.access_token
     const instagramUserId = tokenData.user_id
 
     if (!accessToken || !instagramUserId) {
-      console.error('[Instagram Callback] Missing access_token or user_id in response:', tokenData)
+      console.error('[Instagram Callback] Missing access_token or user_id in response:', {
+        hasAccessToken: !!tokenData.access_token,
+        hasUserId: !!tokenData.user_id,
+        responseKeys: Object.keys(tokenData),
+      })
       return NextResponse.redirect(
-        new URL('/settings/integrations/instagram?error=Invalid token response', requestUrl.origin)
+        new URL('/onboarding/connect?ig_error=invalid_token_response', requestUrl.origin)
       )
     }
 
@@ -179,7 +223,15 @@ export async function GET(request: NextRequest) {
     const scopes = tokenData.scope ? tokenData.scope.split(',') : null
 
     // Upsert Instagram connection
-    const { error: upsertError } = await supabase
+    console.log('[Instagram Callback] Upserting connection to database:', {
+      businessLocationId,
+      instagramUserId,
+      hasUsername: !!instagramUsername,
+      hasScopes: !!scopes,
+      scopesCount: scopes?.length || 0,
+    })
+
+    const { error: upsertError, data: upsertData } = await supabase
       .from('instagram_connections')
       .upsert({
         business_location_id: businessLocationId,
@@ -191,13 +243,25 @@ export async function GET(request: NextRequest) {
       } as any, {
         onConflict: 'business_location_id',
       })
+      .select()
 
     if (upsertError) {
-      console.error('[Instagram Callback] Failed to store connection:', upsertError)
+      console.error('[Instagram Callback] Failed to store connection:', {
+        error: upsertError,
+        message: upsertError.message,
+        code: upsertError.code,
+        hint: upsertError.hint,
+      })
       return NextResponse.redirect(
-        new URL('/settings/integrations/instagram?error=Failed to save connection', requestUrl.origin)
+        new URL('/onboarding/connect?ig_error=db_save_failed', requestUrl.origin)
       )
     }
+
+    console.log('[Instagram Callback] DB upsert result:', {
+      success: !upsertError,
+      recordCount: upsertData?.length || 0,
+      businessLocationId,
+    })
 
     // Clean up used state
     await supabase
@@ -208,17 +272,33 @@ export async function GET(request: NextRequest) {
     console.log('[Instagram Callback] Successfully connected Instagram account:', {
       businessLocationId,
       instagramUserId,
+      username: instagramUsername,
       hasUsername: !!instagramUsername,
     })
 
-    // Redirect to settings page with success
+    // Build redirect URL with success params
+    const redirectParams = new URLSearchParams({
+      ig: 'connected',
+      connected: '1',
+    })
+    if (instagramUserId) {
+      redirectParams.set('ig_user_id', instagramUserId)
+    }
+    if (instagramUsername) {
+      redirectParams.set('ig_username', instagramUsername)
+    }
+
+    // Redirect to onboarding connect page with success
     return NextResponse.redirect(
-      new URL('/settings/integrations/instagram?success=Instagram account connected successfully', requestUrl.origin)
+      new URL(`/onboarding/connect?${redirectParams.toString()}`, requestUrl.origin)
     )
   } catch (error: any) {
-    console.error('[Instagram Callback] Error:', error)
+    console.error('[Instagram Callback] Unexpected error:', {
+      error: error.message,
+      stack: error.stack,
+    })
     return NextResponse.redirect(
-      new URL(`/settings/integrations/instagram?error=${encodeURIComponent(error.message || 'Internal server error')}`, requestUrl.origin)
+      new URL(`/onboarding/connect?ig_error=internal_error`, requestUrl.origin)
     )
   }
 }
