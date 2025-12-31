@@ -21,7 +21,9 @@ export default async function InstagramIntegrationPage() {
     .limit(1)
     .single()
 
-  if (!location) {
+  const typedLocation = location as { id: string } | null
+
+  if (!typedLocation) {
     redirect('/onboarding/business')
   }
 
@@ -29,9 +31,9 @@ export default async function InstagramIntegrationPage() {
   const { data: connection } = await supabase
     .from('instagram_connections')
     .select('instagram_user_id, instagram_username, created_at')
-    .eq('business_location_id', location.id)
+    .eq('business_location_id', typedLocation.id)
     .maybeSingle()
 
-  return <InstagramIntegrationSettings businessLocationId={location.id} connection={connection} />
+  return <InstagramIntegrationSettings businessLocationId={typedLocation.id} connection={connection} />
 }
 
