@@ -37,61 +37,16 @@ export function InstagramTab({ locationId, instagramConnection }: InstagramTabPr
   const [syncing, setSyncing] = useState(false)
   const lastSyncRef = useRef<number>(0)
   const syncInProgressRef = useRef<boolean>(false)
+  
+  // Use sessionStorage to track if sync has happened in this page load
+  const SYNC_KEY = `instagram_sync_${locationId}`
 
-  // Auto-sync when Instagram tab is visited (every time, no debounce)
+  // Auto-sync when Instagram tab is visited (once per page load)
+  // Note: Sync is handled by SocialStudioPage, so we don't need to sync here
+  // This prevents double syncing
   useEffect(() => {
-    if (!instagramConnection) return
-
-    // Skip if sync already in progress
-    if (syncInProgressRef.current) {
-      return
-    }
-
-    const performSync = async () => {
-      syncInProgressRef.current = true
-      setSyncing(true)
-
-      try {
-        const response = await fetch('/api/social/instagram/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ locationId }),
-        })
-
-        // Safe JSON parsing
-        const contentType = response.headers.get('content-type') || ''
-        const rawText = await response.text()
-        let result: any = {}
-        
-        if (contentType.includes('application/json')) {
-          try {
-            result = JSON.parse(rawText)
-          } catch (parseError) {
-            console.error('[Instagram Tab Sync] JSON parse error:', parseError)
-            result = { success: false, error: 'Invalid response from sync endpoint' }
-          }
-        } else {
-          console.error('[Instagram Tab Sync] Non-JSON response:', rawText.slice(0, 200))
-          result = { success: false, error: 'Unexpected response format' }
-        }
-        
-        if (result.success) {
-          lastSyncRef.current = Date.now()
-          // Refresh the page data after sync completes
-          window.location.reload()
-        } else if (result.requiresReconnect) {
-          // Token expired - don't retry
-          lastSyncRef.current = Date.now()
-        }
-      } catch (error: any) {
-        console.error('[Instagram Tab Sync] Error:', error)
-      } finally {
-        setSyncing(false)
-        syncInProgressRef.current = false
-      }
-    }
-
-    performSync()
+    // Sync is handled by parent component (SocialStudioPage)
+    // We just need to ensure we're not causing refreshes
   }, [locationId, instagramConnection])
 
   // Sync sub-tab with URL query param

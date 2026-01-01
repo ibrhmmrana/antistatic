@@ -50,8 +50,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Build query
-    let query = supabase
-      .from('instagram_media')
+    let query = (supabase
+      .from('instagram_media') as any)
       .select('id, caption, like_count, comments_count, timestamp, media_url, permalink, media_type')
       .eq('business_location_id', locationId)
       .order('timestamp', { ascending: false })
@@ -75,8 +75,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Get total count for pagination info
-    let countQuery = supabase
-      .from('instagram_media')
+    let countQuery = (supabase
+      .from('instagram_media') as any)
       .select('*', { count: 'exact', head: true })
       .eq('business_location_id', locationId)
 
@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
 
     const { count } = await countQuery
 
-    const posts = (media || []).map((m) => ({
+    const posts = (media || []).map((m: any) => ({
       id: m.id,
       caption: m.caption || '',
       likesCount: m.like_count || 0,

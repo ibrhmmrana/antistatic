@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { ModuleGate } from '@/components/modules/ModuleGate'
 import { ConnectChannelsTab } from './connect-channels-tab'
 import { InstagramTab } from './instagram-tab'
@@ -28,11 +29,24 @@ interface SocialStudioPageProps {
 }
 
 export function SocialStudioPage({ locationId, connectedAccounts, instagramConnection }: SocialStudioPageProps) {
+  const searchParams = useSearchParams()
+  const router = useRouter()
   const [activeTab, setActiveTab] = useState<string>('connect')
   const [syncing, setSyncing] = useState(false)
   const lastSyncRef = useRef<number>(0)
   const syncInProgressRef = useRef<boolean>(false)
   const hasSyncedRef = useRef<boolean>(false)
+  
+  // Use sessionStorage to track if sync has happened in this page load
+  const SYNC_KEY = `instagram_sync_${locationId}`
+  
+  // Initialize active tab from URL param or default to 'connect'
+  useEffect(() => {
+    const tabParam = searchParams.get('tab')
+    if (tabParam && ['connect', 'instagram', 'facebook', 'linkedin', 'tiktok', 'google'].includes(tabParam)) {
+      setActiveTab(tabParam)
+    }
+  }, [searchParams])
 
   // Determine which channels are connected
   const isInstagramConnected = !!instagramConnection || connectedAccounts.some(acc => acc.provider === 'instagram')
@@ -41,12 +55,13 @@ export function SocialStudioPage({ locationId, connectedAccounts, instagramConne
   const isTikTokConnected = connectedAccounts.some(acc => acc.provider === 'tiktok')
   const isGoogleConnected = connectedAccounts.some(acc => acc.provider === 'google_gbp')
 
-  // Auto-sync Instagram when page loads (every time page refreshes)
+  // Auto-sync Instagram when page loads (once per page load)
   useEffect(() => {
     if (!instagramConnection) return
 
-    // Skip if sync already in progress
-    if (syncInProgressRef.current) {
+    // Check if sync already happened in this page load
+    const hasSynced = sessionStorage.getItem(SYNC_KEY) === 'true'
+    if (hasSynced || syncInProgressRef.current) {
       return
     }
 
@@ -78,16 +93,16 @@ export function SocialStudioPage({ locationId, connectedAccounts, instagramConne
           result = { success: false, error: 'Unexpected response format' }
         }
         
-        if (result.success) {
-          lastSyncRef.current = Date.now()
-          // Refresh the page data after sync completes
-          window.location.reload()
-        } else if (result.requiresReconnect) {
-          // Token expired - don't retry
-          lastSyncRef.current = Date.now()
-        }
+        // Mark as synced in sessionStorage (regardless of success/failure)
+        sessionStorage.setItem(SYNC_KEY, 'true')
+        lastSyncRef.current = Date.now()
+        
+        // Don't reload - just update state if needed
+        // The data will be fresh from the sync
       } catch (error: any) {
         console.error('[Instagram Auto-Sync] Error:', error)
+        // Still mark as attempted to prevent retries
+        sessionStorage.setItem(SYNC_KEY, 'true')
       } finally {
         setSyncing(false)
         syncInProgressRef.current = false
@@ -97,7 +112,7 @@ export function SocialStudioPage({ locationId, connectedAccounts, instagramConne
     // Small delay to let page render first
     const timeoutId = setTimeout(performSync, 500)
     return () => clearTimeout(timeoutId)
-  }, [locationId, instagramConnection])
+  }, [locationId, instagramConnection, SYNC_KEY])
 
   // Build tabs list - always show Connect Channels, then show connected channels
   const tabs = [
@@ -280,7 +295,13 @@ export function SocialStudioPage({ locationId, connectedAccounts, instagramConne
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => {
+                    setActiveTab(tab.id)
+                    // Update URL without reload
+                    const params = new URLSearchParams(searchParams.toString())
+                    params.set('tab', tab.id)
+                    router.push(`/social?${params.toString()}`, { scroll: false })
+                  }}
                   className={`px-4 py-2 text-sm font-medium transition-colors ${
                     activeTab === tab.id
                       ? 'text-[#1a73e8] border-b-2 border-[#1a73e8]'
