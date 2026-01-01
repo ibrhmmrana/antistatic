@@ -38,8 +38,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Get Instagram connection
-    const { data: connection } = await supabase
-      .from('instagram_connections')
+    const { data: connection } = await (supabase
+      .from('instagram_connections') as any)
       .select('access_token, instagram_user_id, scopes')
       .eq('business_location_id', locationId)
       .maybeSingle()

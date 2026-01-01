@@ -37,6 +37,10 @@ interface Comment {
   mediaId: string
   mediaPermalink?: string
   mediaThumbnail?: string
+  replied?: boolean
+  repliedAt?: string | null
+  replyText?: string | null
+  replyStatus?: string | null
 }
 
 export function InstagramComments({ locationId, instagramConnection }: InstagramCommentsProps) {
@@ -115,15 +119,28 @@ export function InstagramComments({ locationId, instagramConnection }: Instagram
       }
 
       if (response.ok && result.success) {
-        // Optimistically update UI
+        // Optimistically update UI with reply information
         setComments(comments.map(c => 
           c.id === comment.id 
-            ? { ...c, replied: true }
+            ? { 
+                ...c, 
+                replied: true,
+                repliedAt: new Date().toISOString(),
+                replyText: replyText.trim(),
+                replyStatus: 'sent'
+              }
             : c
         ))
         setReplyText('')
         setSelectedComment(null)
         showToast('Reply sent successfully!', 'success')
+        
+        // Refresh comments to get the latest data
+        const refreshResponse = await fetch(`/api/social/instagram/comments?locationId=${locationId}`)
+        if (refreshResponse.ok) {
+          const refreshData = await refreshResponse.json()
+          setComments(refreshData.comments || [])
+        }
       } else {
         // Handle error - show real error from server
         const errorMsg = result.error || `Failed to send reply (${response.status})`
@@ -227,15 +244,46 @@ export function InstagramComments({ locationId, instagramConnection }: Instagram
                       )}
                     </div>
                     <p className="text-slate-700 mb-3">{comment.text}</p>
+                    
+                    {/* Show reply if it exists */}
+                    {comment.replied && comment.replyText && (
+                      <div className="ml-4 pl-4 border-l-2 border-[#1a73e8] mb-3 bg-blue-50 rounded p-3">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium text-[#1a73e8] text-sm">You replied:</span>
+                          {comment.repliedAt && (
+                            <span className="text-xs text-slate-500">
+                              {new Date(comment.repliedAt).toLocaleDateString()}
+                            </span>
+                          )}
+                          {comment.replyStatus === 'sent' && (
+                            <span className="text-xs text-green-600 font-medium">✓ Sent</span>
+                          )}
+                        </div>
+                        <p className="text-slate-700 text-sm">{comment.replyText}</p>
+                      </div>
+                    )}
+                    
                     <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setSelectedComment(comment)}
-                      >
-                        <ReplyIcon sx={{ fontSize: 16 }} className="mr-1" />
-                        Reply
-                      </Button>
+                      {!comment.replied ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setSelectedComment(comment)}
+                        >
+                          <ReplyIcon sx={{ fontSize: 16 }} className="mr-1" />
+                          Reply
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setSelectedComment(comment)}
+                          className="text-slate-600"
+                        >
+                          <ReplyIcon sx={{ fontSize: 16 }} className="mr-1" />
+                          Reply Again
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="outline"

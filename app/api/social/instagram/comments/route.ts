@@ -43,8 +43,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Build query
-    let query = supabase
-      .from('instagram_comments')
+    let query = (supabase
+      .from('instagram_comments') as any)
       .select(`
         id,
         text,
@@ -52,6 +52,9 @@ export async function GET(request: NextRequest) {
         username,
         media_id,
         replied,
+        replied_at,
+        reply_text,
+        reply_status,
         instagram_media!inner(
           permalink,
           media_url
@@ -86,6 +89,9 @@ export async function GET(request: NextRequest) {
       mediaPermalink: c.instagram_media?.permalink || '',
       mediaThumbnail: c.instagram_media?.media_url || undefined,
       replied: c.replied || false,
+      repliedAt: c.replied_at || null,
+      replyText: c.reply_text || null,
+      replyStatus: c.reply_status || null,
     }))
 
     return NextResponse.json({
