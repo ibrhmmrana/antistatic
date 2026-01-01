@@ -296,6 +296,9 @@ export async function GET(request: NextRequest) {
     // This prevents overwriting existing username with null when profile fetch fails
     if (instagramUsername) {
       upsertPayload.instagram_username = instagramUsername
+      console.log('[Instagram Callback] Will update username in database:', instagramUsername)
+    } else {
+      console.warn('[Instagram Callback] Profile fetch returned null username - will NOT update username field to preserve existing value')
     }
 
     // Try to include connected_at (will fail gracefully if column doesn't exist)
