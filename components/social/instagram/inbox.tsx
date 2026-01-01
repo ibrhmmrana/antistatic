@@ -53,6 +53,7 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
   const [unreadCount, setUnreadCount] = useState(0)
   const [replyText, setReplyText] = useState('')
   const [sending, setSending] = useState(false)
+  const [webhookStatus, setWebhookStatus] = useState<any>(null)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -63,6 +64,15 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
 
       try {
         setLoading(true)
+        
+        // Fetch webhook status
+        const statusResponse = await fetch(`/api/social/instagram/webhook/status?locationId=${locationId}`)
+        if (statusResponse.ok) {
+          const statusData = await statusResponse.json()
+          setWebhookStatus(statusData)
+        }
+        
+        // Fetch messages
         const response = await fetch(`/api/social/instagram/messages?locationId=${locationId}`)
         if (response.ok) {
           const data = await response.json()
@@ -78,7 +88,13 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
             }
           }
         } else {
-          setEnabled(false)
+          const errorData = await response.json().catch(() => ({}))
+          // If it's a "not enabled" response, still show the UI with empty state
+          if (errorData.enabled === false) {
+            setEnabled(false)
+          } else {
+            setEnabled(false)
+          }
         }
       } catch (error) {
         setEnabled(false)
@@ -175,19 +191,37 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
     )
   }
 
-  if (!enabled) {
+  // Show empty state if no webhook configured or no messages
+  const hasWebhookConfigured = webhookStatus?.isConfigured || false
+  const hasMessages = conversations.length > 0
+
+  if (!enabled || (!hasWebhookConfigured && !hasMessages)) {
     return (
       <div className="bg-white rounded-lg border border-slate-200 p-8">
         <div className="flex items-start gap-3 mb-4">
           <InfoIcon sx={{ fontSize: 24 }} className="text-blue-500 mt-1" />
           <div>
-            <h3 className="text-lg font-semibold text-slate-900 mb-2">Direct Messages Not Enabled</h3>
-            <p className="text-slate-600 mb-4">
-              To enable Direct Messages, you need to enable Instagram "Connected Tools → Allow access to Messages" in your Meta Business settings.
-            </p>
-            <p className="text-sm text-slate-500 mb-4">
-              Messages will appear here once webhooks are configured and messages are received.
-            </p>
+            <h3 className="text-lg font-semibold text-slate-900 mb-2">
+              {hasMessages ? 'No DMs received yet' : 'Direct Messages Not Enabled'}
+            </h3>
+            {!hasWebhookConfigured ? (
+              <>
+                <p className="text-slate-600 mb-4">
+                  To enable Direct Messages, you need to:
+                </p>
+                <ol className="list-decimal list-inside text-slate-600 mb-4 space-y-2">
+                  <li>Enable Instagram "Connected Tools → Allow access to Messages" in your Meta Business settings</li>
+                  <li>Configure the webhook callback URL in Meta App settings (see Settings tab)</li>
+                </ol>
+                <p className="text-sm text-slate-500 mb-4">
+                  Once configured, send a test DM to your connected Instagram account and it will appear here.
+                </p>
+              </>
+            ) : (
+              <p className="text-slate-600 mb-4">
+                Webhook is configured. Send a test DM to your connected Instagram account and it will appear here.
+              </p>
+            )}
           </div>
         </div>
       </div>

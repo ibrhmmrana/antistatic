@@ -58,38 +58,51 @@ export async function GET(request: NextRequest) {
     const grantedScopes = syncState?.granted_scopes_list || connection.scopes || []
     const hasMessagesPermission = grantedScopes.some((s: string) => s.includes('instagram_business_manage_messages'))
 
-    // Get conversations from cached DB
+    // Get conversations from DM cache tables
     const { data: conversations } = await (supabase
-      .from('instagram_conversations') as any)
-      .select('conversation_id, participant_username, updated_time, unread_count, last_message_text, last_message_time')
+      .from('instagram_dm_conversations') as any)
+      .select('thread_key, last_message_at')
       .eq('business_location_id', locationId)
-      .order('updated_time', { ascending: false })
+      .eq('ig_account_id', connection.instagram_user_id)
+      .order('last_message_at', { ascending: false })
       .limit(50)
 
-    // Get messages for each conversation
-    const conversationIds = (conversations || []).map((c: any) => c.conversation_id)
-    const { data: messages } = await (supabase
-      .from('instagram_messages') as any)
-      .select('conversation_id, message_id, direction, from_id, to_id, text, created_time')
+    // Get messages for each conversation (limit to last 20 per thread)
+    const threadKeys = (conversations || []).map((c: any) => c.thread_key)
+    const { data: allMessages } = await (supabase
+      .from('instagram_dm_messages') as any)
+      .select('thread_key, message_mid, sender_id, recipient_id, message_text, timestamp_ms, attachments')
       .eq('business_location_id', locationId)
-      .in('conversation_id', conversationIds.length > 0 ? conversationIds : [''])
-      .order('created_time', { ascending: false })
-      .limit(200)
-
-    // Group messages by conversation
-    const messagesByConversation: Record<string, any[]> = {}
-    ;(messages || []).forEach((m: any) => {
-      if (!messagesByConversation[m.conversation_id]) {
-        messagesByConversation[m.conversation_id] = []
+      .eq('ig_account_id', connection.instagram_user_id)
+      .in('thread_key', threadKeys.length > 0 ? threadKeys : [''])
+      .order('timestamp_ms', { ascending: false })
+      .limit(1000) // Get more messages, then limit per thread
+    
+    // Group messages by thread and limit to last 20 per thread
+    const messagesByThread: Record<string, any[]> = {}
+    ;(allMessages || []).forEach((m: any) => {
+      if (!messagesByThread[m.thread_key]) {
+        messagesByThread[m.thread_key] = []
       }
-      messagesByConversation[m.conversation_id].push(m)
+      if (messagesByThread[m.thread_key].length < 20) {
+        messagesByThread[m.thread_key].push(m)
+      }
     })
 
-    // Check if messaging is enabled
+    // Check if messaging is enabled (has webhook events or permission)
     const hasConversations = conversations && conversations.length > 0
-    const hasMessages = messages && messages.length > 0
+    const hasMessages = allMessages && allMessages.length > 0
 
-    if (!hasMessagesPermission && !hasConversations && !hasMessages) {
+    // Get webhook status (separate query to avoid variable name conflict)
+    const { data: webhookState } = await (supabase
+      .from('instagram_sync_state') as any)
+      .select('webhook_verified_at, last_webhook_event_at')
+      .eq('business_location_id', locationId)
+      .maybeSingle()
+
+    const hasWebhookConfigured = !!webhookState?.webhook_verified_at
+
+    if (!hasMessagesPermission && !hasWebhookConfigured && !hasConversations && !hasMessages) {
       return NextResponse.json({
         enabled: false,
         conversations: [],
@@ -98,31 +111,47 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Calculate total unread count
-    const unreadCount = (conversations || []).reduce((sum: number, c: any) => sum + (c.unread_count || 0), 0)
-
     // Format conversations with messages
-    const formattedConversations = (conversations || []).map((conv: any) => ({
-      conversationId: conv.conversation_id,
-      participantUsername: conv.participant_username || 'Unknown',
-      updatedTime: conv.updated_time,
-      unreadCount: conv.unread_count || 0,
-      lastMessageText: conv.last_message_text,
-      lastMessageTime: conv.last_message_time,
-      messages: (messagesByConversation[conv.conversation_id] || []).map((m: any) => ({
-        id: m.message_id,
-        direction: m.direction,
-        fromId: m.from_id,
-        toId: m.to_id,
-        text: m.text || '',
-        timestamp: m.created_time,
-      })),
-    }))
+    // Note: We don't have participant username in the new schema, so we'll use sender_id
+    const formattedConversations = (conversations || []).map((conv: any) => {
+      const threadMessages = (messagesByThread[conv.thread_key] || []).sort((a: any, b: any) => 
+        a.timestamp_ms - b.timestamp_ms // Sort ascending for display (oldest first)
+      )
+      const lastMessage = threadMessages.length > 0 ? threadMessages[threadMessages.length - 1] : null
+      
+      // Determine participant (the other user in the thread)
+      const participantId = lastMessage 
+        ? (lastMessage.sender_id === connection.instagram_user_id 
+            ? lastMessage.recipient_id 
+            : lastMessage.sender_id)
+        : 'unknown'
+
+      return {
+        conversationId: conv.thread_key,
+        participantId,
+        participantUsername: `@user_${participantId.slice(-6)}`, // Fallback since we don't have username
+        updatedTime: conv.last_message_at,
+        unreadCount: 0, // Not tracking unread in new schema yet
+        lastMessageText: lastMessage?.message_text || null,
+        lastMessageTime: lastMessage ? new Date(lastMessage.timestamp_ms).toISOString() : null,
+        messages: threadMessages.map((m: any) => ({
+          id: m.message_mid || `msg_${m.timestamp_ms}`,
+          direction: m.sender_id === connection.instagram_user_id ? 'outbound' : 'inbound',
+          fromId: m.sender_id,
+          toId: m.recipient_id,
+          text: m.message_text || '',
+          timestamp: new Date(m.timestamp_ms).toISOString(),
+          attachments: m.attachments,
+        })),
+      }
+    })
 
     return NextResponse.json({
       enabled: true,
       conversations: formattedConversations,
-      unreadCount,
+      unreadCount: 0, // Not tracking unread in new schema yet
+      hasWebhookConfigured,
+      lastWebhookEventAt: webhookState?.last_webhook_event_at || null,
     })
   } catch (error: any) {
     console.error('[Instagram Messages API] Error:', error)

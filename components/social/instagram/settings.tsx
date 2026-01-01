@@ -30,27 +30,36 @@ interface InstagramSettingsProps {
 export function InstagramSettings({ locationId, instagramConnection }: InstagramSettingsProps) {
   const [copied, setCopied] = useState(false)
   const [syncState, setSyncState] = useState<any>(null)
+  const [webhookStatus, setWebhookStatus] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
   const redirectUrl = `${typeof window !== 'undefined' ? window.location.origin : 'https://app.antistatic.ai'}/api/integrations/instagram/callback`
 
   useEffect(() => {
-    const fetchSyncState = async () => {
+    const fetchData = async () => {
       try {
-        const response = await fetch(`/api/social/instagram/profile?locationId=${locationId}`)
-        if (response.ok) {
-          const data = await response.json()
-          setSyncState(data)
+        // Fetch sync state
+        const profileResponse = await fetch(`/api/social/instagram/profile?locationId=${locationId}`)
+        if (profileResponse.ok) {
+          const profileData = await profileResponse.json()
+          setSyncState(profileData)
+        }
+        
+        // Fetch webhook status
+        const webhookResponse = await fetch(`/api/social/instagram/webhook/status?locationId=${locationId}`)
+        if (webhookResponse.ok) {
+          const webhookData = await webhookResponse.json()
+          setWebhookStatus(webhookData)
         }
       } catch (error) {
-        console.error('Error fetching sync state:', error)
+        console.error('Error fetching data:', error)
       } finally {
         setLoading(false)
       }
     }
 
     if (instagramConnection) {
-      fetchSyncState()
+      fetchData()
     }
   }, [locationId, instagramConnection])
 
@@ -162,6 +171,84 @@ export function InstagramSettings({ locationId, instagramConnection }: Instagram
               <p className="text-xs text-green-600 mt-1">Copied to clipboard!</p>
             )}
           </div>
+
+          {/* Webhook Configuration */}
+          {webhookStatus && (
+            <div className="mt-6 pt-6 border-t border-slate-200">
+              <h3 className="text-lg font-semibold text-slate-900 mb-4">Webhook Configuration</h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Webhook Callback URL
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded text-sm text-slate-700">
+                      {webhookStatus.callbackUrl}
+                    </code>
+                    <button
+                      onClick={() => copyToClipboard(webhookStatus.callbackUrl)}
+                      className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded"
+                      title="Copy to clipboard"
+                    >
+                      <ContentCopyIcon sx={{ fontSize: 18 }} />
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Paste this URL into Meta App Settings → Webhooks → Callback URL
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Verify Token
+                  </label>
+                  <div className="px-3 py-2 bg-slate-50 border border-slate-200 rounded text-sm text-slate-700">
+                    <code>{webhookStatus.verifyTokenEnvVar}</code>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Use the value from your environment variable (not shown for security)
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Webhook Status
+                  </label>
+                  <div className="space-y-2">
+                    {webhookStatus.isConfigured ? (
+                      <div className="flex items-center gap-2 text-green-600">
+                        <CheckCircleIcon sx={{ fontSize: 18 }} />
+                        <span className="text-sm">Verified</span>
+                        {webhookStatus.webhookVerifiedAt && (
+                          <span className="text-xs text-slate-500">
+                            (Verified {new Date(webhookStatus.webhookVerifiedAt).toLocaleDateString()})
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-yellow-600">
+                        <WarningIcon sx={{ fontSize: 18 }} />
+                        <span className="text-sm">Not verified</span>
+                      </div>
+                    )}
+                    
+                    {webhookStatus.lastWebhookEventAt && (
+                      <p className="text-xs text-slate-500">
+                        Last event received: {new Date(webhookStatus.lastWebhookEventAt).toLocaleString()}
+                      </p>
+                    )}
+                    
+                    {webhookStatus.lastWebhookError && (
+                      <p className="text-xs text-red-600">
+                        Last error: {webhookStatus.lastWebhookError}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">
