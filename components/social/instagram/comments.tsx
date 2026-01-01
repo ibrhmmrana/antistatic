@@ -51,31 +51,45 @@ export function InstagramComments({ locationId, instagramConnection }: Instagram
   const [replying, setReplying] = useState(false)
   const { toasts, showToast, removeToast } = useToast()
 
-  useEffect(() => {
-    const fetchComments = async () => {
-      if (!instagramConnection) {
-        setLoading(false)
-        return
-      }
+  const fetchComments = async () => {
+    if (!instagramConnection) {
+      setLoading(false)
+      return
+    }
 
-      try {
-        setLoading(true)
-        const response = await fetch(`/api/social/instagram/comments?locationId=${locationId}`)
-        if (response.ok) {
-          const data = await response.json()
-          setComments(data.comments || [])
-        } else {
-          const errorData = await response.json().catch(() => ({}))
-          console.error('Error fetching comments:', errorData)
-        }
-      } catch (error) {
-        console.error('Error fetching comments:', error)
-      } finally {
-        setLoading(false)
+    try {
+      setLoading(true)
+      const response = await fetch(`/api/social/instagram/comments?locationId=${locationId}`)
+      if (response.ok) {
+        const data = await response.json()
+        setComments(data.comments || [])
+      } else {
+        const errorData = await response.json().catch(() => ({}))
+        console.error('Error fetching comments:', errorData)
+      }
+    } catch (error) {
+      console.error('Error fetching comments:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchComments()
+  }, [locationId, instagramConnection])
+
+  // Listen for sync completion event to refresh data
+  useEffect(() => {
+    const handleSyncComplete = (event: CustomEvent) => {
+      if (event.detail?.locationId === locationId) {
+        fetchComments()
       }
     }
 
-    fetchComments()
+    window.addEventListener('instagram-sync-complete', handleSyncComplete as EventListener)
+    return () => {
+      window.removeEventListener('instagram-sync-complete', handleSyncComplete as EventListener)
+    }
   }, [locationId, instagramConnection])
 
   const handleReply = async (comment: Comment) => {

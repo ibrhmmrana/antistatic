@@ -61,32 +61,46 @@ export function InstagramOverview({ locationId, instagramConnection }: Instagram
   const [data, setData] = useState<OverviewData | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    const fetchOverview = async () => {
-      if (!instagramConnection) {
-        setLoading(false)
-        return
-      }
+  const fetchOverview = async () => {
+    if (!instagramConnection) {
+      setLoading(false)
+      return
+    }
 
-      try {
-        setLoading(true)
-        const response = await fetch(`/api/social/instagram/profile?locationId=${locationId}`)
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}))
-          throw new Error(errorData.error || 'Failed to fetch overview data')
-        }
-        const result = await response.json()
-        setData(result)
-        setError(null)
-      } catch (err: any) {
-        console.error('Error fetching overview:', err)
-        setError(err.message || 'Failed to load overview')
-      } finally {
-        setLoading(false)
+    try {
+      setLoading(true)
+      const response = await fetch(`/api/social/instagram/profile?locationId=${locationId}`)
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || 'Failed to fetch overview data')
+      }
+      const result = await response.json()
+      setData(result)
+      setError(null)
+    } catch (err: any) {
+      console.error('Error fetching overview:', err)
+      setError(err.message || 'Failed to load overview')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchOverview()
+  }, [locationId, instagramConnection])
+
+  // Listen for sync completion event to refresh data
+  useEffect(() => {
+    const handleSyncComplete = (event: CustomEvent) => {
+      if (event.detail?.locationId === locationId) {
+        fetchOverview()
       }
     }
 
-    fetchOverview()
+    window.addEventListener('instagram-sync-complete', handleSyncComplete as EventListener)
+    return () => {
+      window.removeEventListener('instagram-sync-complete', handleSyncComplete as EventListener)
+    }
   }, [locationId, instagramConnection])
 
   const getPermissionStatus = () => {

@@ -189,34 +189,48 @@ export function InstagramContent({ locationId, instagramConnection }: InstagramC
     }
   }
 
-  useEffect(() => {
-    const fetchPosts = async () => {
-      if (!instagramConnection) {
-        setLoading(false)
-        return
-      }
+  const fetchPosts = async () => {
+    if (!instagramConnection) {
+      setLoading(false)
+      return
+    }
 
-      try {
-        setLoading(true)
-        const response = await fetch(
-          `/api/social/instagram/media?locationId=${locationId}&limit=12&timeFilter=${timeFilter}&mediaFilter=${mediaFilter}`
-        )
-        if (response.ok) {
-          const data = await response.json()
-          setPosts(data.posts || [])
-        } else {
-          const errorData = await response.json().catch(() => ({}))
-          console.error('Error fetching posts:', errorData)
-        }
-      } catch (error) {
-        console.error('Error fetching posts:', error)
-      } finally {
-        setLoading(false)
+    try {
+      setLoading(true)
+      const response = await fetch(
+        `/api/social/instagram/media?locationId=${locationId}&limit=12&timeFilter=${timeFilter}&mediaFilter=${mediaFilter}`
+      )
+      if (response.ok) {
+        const data = await response.json()
+        setPosts(data.posts || [])
+      } else {
+        const errorData = await response.json().catch(() => ({}))
+        console.error('Error fetching posts:', errorData)
+      }
+    } catch (error) {
+      console.error('Error fetching posts:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchPosts()
+  }, [locationId, instagramConnection, timeFilter, mediaFilter])
+
+  // Listen for sync completion event to refresh data
+  useEffect(() => {
+    const handleSyncComplete = (event: CustomEvent) => {
+      if (event.detail?.locationId === locationId) {
+        fetchPosts()
       }
     }
 
-    fetchPosts()
-  }, [locationId, instagramConnection, timeFilter, mediaFilter])
+    window.addEventListener('instagram-sync-complete', handleSyncComplete as EventListener)
+    return () => {
+      window.removeEventListener('instagram-sync-complete', handleSyncComplete as EventListener)
+    }
+  }, [locationId, instagramConnection])
 
   if (!instagramConnection) {
     return (

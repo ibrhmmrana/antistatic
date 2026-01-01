@@ -37,9 +37,6 @@ export function SocialStudioPage({ locationId, connectedAccounts, instagramConne
   const syncInProgressRef = useRef<boolean>(false)
   const hasSyncedRef = useRef<boolean>(false)
   
-  // Use sessionStorage to track if sync has happened in this page load
-  const SYNC_KEY = `instagram_sync_${locationId}`
-  
   // Initialize active tab from URL param or default to 'connect'
   useEffect(() => {
     const tabParam = searchParams.get('tab')
@@ -55,15 +52,10 @@ export function SocialStudioPage({ locationId, connectedAccounts, instagramConne
   const isTikTokConnected = connectedAccounts.some(acc => acc.provider === 'tiktok')
   const isGoogleConnected = connectedAccounts.some(acc => acc.provider === 'google_gbp')
 
-  // Auto-sync Instagram when page loads (once per page load)
+  // Auto-sync Instagram when Instagram tab becomes active
   useEffect(() => {
-    if (!instagramConnection) return
-
-    // Check if sync already happened in this page load
-    const hasSynced = sessionStorage.getItem(SYNC_KEY) === 'true'
-    if (hasSynced || syncInProgressRef.current) {
-      return
-    }
+    if (!instagramConnection || activeTab !== 'instagram') return
+    if (syncInProgressRef.current) return
 
     const performSync = async () => {
       syncInProgressRef.current = true
@@ -93,16 +85,14 @@ export function SocialStudioPage({ locationId, connectedAccounts, instagramConne
           result = { success: false, error: 'Unexpected response format' }
         }
         
-        // Mark as synced in sessionStorage (regardless of success/failure)
-        sessionStorage.setItem(SYNC_KEY, 'true')
         lastSyncRef.current = Date.now()
         
-        // Don't reload - just update state if needed
-        // The data will be fresh from the sync
+        // Dispatch custom event to trigger refresh in child components
+        if (result.success) {
+          window.dispatchEvent(new CustomEvent('instagram-sync-complete', { detail: { locationId } }))
+        }
       } catch (error: any) {
         console.error('[Instagram Auto-Sync] Error:', error)
-        // Still mark as attempted to prevent retries
-        sessionStorage.setItem(SYNC_KEY, 'true')
       } finally {
         setSyncing(false)
         syncInProgressRef.current = false
@@ -112,7 +102,7 @@ export function SocialStudioPage({ locationId, connectedAccounts, instagramConne
     // Small delay to let page render first
     const timeoutId = setTimeout(performSync, 500)
     return () => clearTimeout(timeoutId)
-  }, [locationId, instagramConnection, SYNC_KEY])
+  }, [locationId, instagramConnection, activeTab])
 
   // Build tabs list - always show Connect Channels, then show connected channels
   const tabs = [

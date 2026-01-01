@@ -54,37 +54,51 @@ export function InstagramInsights({ locationId, instagramConnection }: Instagram
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<InsightData | null>(null)
 
-  useEffect(() => {
-    const fetchInsights = async () => {
-      if (!instagramConnection) {
-        setLoading(false)
-        return
-      }
+  const fetchInsights = async () => {
+    if (!instagramConnection) {
+      setLoading(false)
+      return
+    }
 
-      try {
-        setLoading(true)
-        const response = await fetch(`/api/social/instagram/insights?locationId=${locationId}`)
-        if (response.ok) {
-          const result = await response.json()
-          setData(result)
-        } else {
-          const errorData = await response.json().catch(() => ({}))
-          setData({
-            status: 'disabled',
-            lastError: errorData.error || 'Failed to fetch insights',
-          })
-        }
-      } catch (error: any) {
+    try {
+      setLoading(true)
+      const response = await fetch(`/api/social/instagram/insights?locationId=${locationId}`)
+      if (response.ok) {
+        const result = await response.json()
+        setData(result)
+      } else {
+        const errorData = await response.json().catch(() => ({}))
         setData({
           status: 'disabled',
-          lastError: error.message || 'Failed to fetch insights',
+          lastError: errorData.error || 'Failed to fetch insights',
         })
-      } finally {
-        setLoading(false)
+      }
+    } catch (error: any) {
+      setData({
+        status: 'disabled',
+        lastError: error.message || 'Failed to fetch insights',
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchInsights()
+  }, [locationId, instagramConnection])
+
+  // Listen for sync completion event to refresh data
+  useEffect(() => {
+    const handleSyncComplete = (event: CustomEvent) => {
+      if (event.detail?.locationId === locationId) {
+        fetchInsights()
       }
     }
 
-    fetchInsights()
+    window.addEventListener('instagram-sync-complete', handleSyncComplete as EventListener)
+    return () => {
+      window.removeEventListener('instagram-sync-complete', handleSyncComplete as EventListener)
+    }
   }, [locationId, instagramConnection])
 
   if (!instagramConnection) {
