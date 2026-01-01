@@ -230,3 +230,4 @@ CREATE POLICY "Users can insert own rank snapshots"
   );
 
 
+

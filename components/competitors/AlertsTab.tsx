@@ -17,3 +17,4 @@ export function AlertsTab({ businessLocationId }: AlertsTabProps) {
 }
 
 
+

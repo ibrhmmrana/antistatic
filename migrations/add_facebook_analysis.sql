@@ -18,3 +18,4 @@ COMMENT ON COLUMN business_insights.facebook_data_fetched_at IS 'Timestamp when 
 
 
 
+

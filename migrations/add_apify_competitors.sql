@@ -8,3 +8,4 @@ COMMENT ON COLUMN business_insights.apify_competitors IS 'Array of competitor pl
 
 
 
+

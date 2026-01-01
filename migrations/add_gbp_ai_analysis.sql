@@ -12,3 +12,4 @@ COMMENT ON COLUMN business_insights.gbp_ai_analysis_generated_at IS 'Timestamp w
 
 
 
+

@@ -7,3 +7,4 @@ COMMENT ON COLUMN business_locations.categories IS 'Array of Google Places categ
 
 
 
+

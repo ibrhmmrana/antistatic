@@ -12,3 +12,4 @@ COMMENT ON COLUMN business_insights.instagram_username IS 'Instagram username us
 
 
 
+

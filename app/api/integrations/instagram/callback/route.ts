@@ -255,10 +255,6 @@ export async function GET(request: NextRequest) {
       usernameMatch: profile?.id === instagramUserId,
     })
     
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'callback/route.ts:247',message:'Profile fetch result',data:{hasProfile:!!profile,profileId:profile?.id,profileUsername:profile?.username,tokenUserId:instagramUserId,usernameMatch:profile?.id===instagramUserId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
-    
     if (profile) {
       instagramUsername = profile.username
       console.log('[Instagram Callback] Successfully fetched username:', instagramUsername)
@@ -325,10 +321,6 @@ export async function GET(request: NextRequest) {
         onConflict: 'business_location_id',
       })
       .select()
-
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'callback/route.ts:297',message:'Upsert result',data:{hasError:!!upsertError,errorCode:upsertError?.code,errorMessage:upsertError?.message,recordCount:upsertData?.length||0,upsertedUsername:upsertPayload.instagram_username,upsertedUserId:upsertPayload.instagram_user_id,businessLocationId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
 
     if (upsertError) {
       console.error('[Instagram Callback] Failed to store connection:', {

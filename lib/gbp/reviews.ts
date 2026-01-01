@@ -504,9 +504,6 @@ export async function fetchGBPReviewsForLocation(
       if (!shouldRunApify && existingApifyData) {
         if (forceRefresh) {
           console.log('[GBP Reviews] Force refresh requested - will re-run Apify despite existing data')
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'reviews.ts:505',message:'Force refresh - will run Apify',data:{locationId:businessLocationId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-          // #endregion
         } else {
           console.log('[GBP Reviews] Skipping Apify scrape - using existing data from', existingApifyData.scrapedAt)
           apifyCompetitorsData = existingApifyData
@@ -561,10 +558,6 @@ export async function fetchGBPReviewsForLocation(
         apifyRawPayload = (apifyResult.rawItems && apifyResult.rawItems.length > 0) 
           ? apifyResult.rawItems 
           : (existingApifyRawPayload && Array.isArray(existingApifyRawPayload) && existingApifyRawPayload.length > 0 ? existingApifyRawPayload : [])
-        
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'reviews.ts:560',message:'Apify payload before storage',data:{apifyResultRawItemsCount:apifyResult.rawItems?.length||0,existingApifyRawPayloadCount:existingApifyRawPayload?.length||0,apifyRawPayloadCount:apifyRawPayload.length,apifyRawPayloadIsArray:Array.isArray(apifyRawPayload)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
 
         // Step 3: Compute comparison metrics
         const places = apifyResult.places
@@ -834,20 +827,12 @@ export async function fetchGBPReviewsForLocation(
       hasCompetitorData: !!apifyCompetitorsData,
       apifyRawPayloadCount: apifyRawPayload.length,
     })
-    
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'reviews.ts:833',message:'Before upsert insights',data:{apifyRawPayloadInUpdate:update.apify_raw_payload?Array.isArray(update.apify_raw_payload)?update.apify_raw_payload.length:'not array':'undefined',updateHasApifyRawPayload:!!update.apify_raw_payload,updateKeys:Object.keys(update)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
 
     const { error: upsertError } = await supabase
       .from('business_insights')
       .upsert(update, {
         onConflict: 'location_id,source',
       })
-    
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'reviews.ts:840',message:'After upsert insights',data:{upsertError:upsertError?.message||null,success:!upsertError},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
 
     if (upsertError) {
       console.error('[GBP Reviews] Failed to save insights:', upsertError)

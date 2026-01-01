@@ -11,3 +11,4 @@ CREATE INDEX IF NOT EXISTS idx_business_reviews_competitor_name ON business_revi
 
 
 
+

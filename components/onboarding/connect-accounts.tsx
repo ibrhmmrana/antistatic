@@ -221,18 +221,9 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
       // Refresh Instagram status from API to get full details
       const fetchStatus = async () => {
         try {
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'connect-accounts.tsx:222',message:'Refreshing status after OAuth callback',data:{locationId,igUsername,igUserId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-          // #endregion
-          
           const response = await fetch(`/api/integrations/instagram/status?business_location_id=${locationId}`)
           if (response.ok) {
             const data = await response.json()
-            
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'connect-accounts.tsx:227',message:'Status refresh result',data:{connected:data.connected,username:data.username,userId:data.instagram_user_id,statusOk:response.ok},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-            // #endregion
-            
             setInstagramStatus(data)
           }
         } catch (err) {
@@ -318,22 +309,47 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
   )
 
   // Track if we've already triggered GBP data fetch to prevent double execution
-  const gbpDataFetchTriggeredRef = useRef(false)
+  // Use sessionStorage to persist across page refreshes
+  const gbpDataFetchTriggeredKey = `gbp_data_fetch_triggered_${locationId}`
+  const gbpDataFetchTriggeredRef = useRef(
+    typeof window !== 'undefined' ? sessionStorage.getItem(gbpDataFetchTriggeredKey) === 'true' : false
+  )
+  
+  // Track previous GBP connection state to detect when it transitions from disconnected to connected
+  // Initialize to true if GBP is already connected (to prevent triggering on mount/refresh)
+  const prevIsGoogleConnectedRef = useRef(isGoogleConnected)
+  
+  // Track if this is the initial mount (to skip transition check on first render)
+  const isInitialMountRef = useRef(true)
 
   // Trigger GBP data fetch and analysis immediately when GBP is connected (fire and forget)
-  // IMPORTANT: This should ONLY trigger when GBP is connected, not for Instagram or other social channels
+  // IMPORTANT: This should ONLY trigger when GBP transitions from disconnected to connected,
+  // not when other accounts (like Instagram) are connected, and NOT on page refresh
   useEffect(() => {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'connect-accounts.tsx:323',message:'GBP trigger useEffect running',data:{isGoogleConnected,locationId,accountsCount:accounts.length,accounts:accounts.map(a=>({provider:a.provider,status:a.status})),gbpAccountExists:accounts.some(a=>a.provider==='google_gbp'&&a.status==='connected')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-    // #endregion
+    // Skip on initial mount - we only want to trigger on actual transitions, not on page refresh
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false
+      // Update the previous state to current state for future transitions
+      prevIsGoogleConnectedRef.current = isGoogleConnected
+      return
+    }
+    
+    // Only trigger if GBP just transitioned from disconnected to connected
+    // This prevents triggering when other accounts (like Instagram) are connected
+    const gbpJustConnected = !prevIsGoogleConnectedRef.current && isGoogleConnected
+    
+    // Update the previous state for next render
+    prevIsGoogleConnectedRef.current = isGoogleConnected
+    
+    // If GBP didn't just get connected, skip triggering Apify
+    if (!gbpJustConnected) {
+      return
+    }
     
     const triggerGBPDataAndAnalysis = async () => {
       // Only trigger if GBP is actually connected
       // Double-check by verifying the account exists and is connected
       if (!isGoogleConnected || !locationId) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'connect-accounts.tsx:328',message:'GBP trigger early return',data:{isGoogleConnected,hasLocationId:!!locationId,reason:!isGoogleConnected?'GBP not connected':'No locationId'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-        // #endregion
         return
       }
       
@@ -344,23 +360,20 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
       )
       if (!gbpAccount) {
         console.log('[Connect Accounts] GBP account not found in accounts array, skipping Apify trigger')
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'connect-accounts.tsx:340',message:'GBP account not found - skipping Apify',data:{isGoogleConnected,accountsCount:accounts.length,accounts:accounts.map(a=>({provider:a.provider,status:a.status}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-        // #endregion
         return
       }
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'connect-accounts.tsx:345',message:'GBP account found - will trigger Apify',data:{gbpAccountProvider:gbpAccount.provider,gbpAccountStatus:gbpAccount.status,locationId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-      // #endregion
 
-      // Prevent double execution - only trigger once per connection
+      // Prevent double execution - only trigger once per connection (persists across page refreshes)
       if (gbpDataFetchTriggeredRef.current) {
         console.log('[Connect Accounts] GBP data fetch already triggered, skipping')
         return
       }
 
       gbpDataFetchTriggeredRef.current = true
+      // Persist to sessionStorage to prevent re-triggering on page refresh
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem(gbpDataFetchTriggeredKey, 'true')
+      }
       console.log('[Connect Accounts] Triggering GBP data fetch and analysis (one-time execution)')
 
       try {
@@ -445,7 +458,7 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
     }
 
     triggerGBPDataAndAnalysis()
-  }, [isGoogleConnected, locationId, accounts])
+  }, [isGoogleConnected, locationId]) // Removed 'accounts' - we track GBP connection transition with ref
 
   const handleChannelClick = async (channel: Channel) => {
     // Handle Google Business Profile OAuth
