@@ -37,8 +37,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Get sync state to check insights availability
-    const { data: syncState } = await supabase
-      .from('instagram_sync_state')
+    const { data: syncState } = await (supabase
+      .from('instagram_sync_state') as any)
       .select('insights_available, last_error_code, last_error_message, last_error_payload, granted_scopes_list, missing_scopes_list')
       .eq('business_location_id', locationId)
       .maybeSingle()
@@ -63,8 +63,8 @@ export async function GET(request: NextRequest) {
     const thirtyDaysAgo = new Date()
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
 
-    const { data: insights } = await supabase
-      .from('instagram_insights_daily')
+    const { data: insights } = await (supabase
+      .from('instagram_insights_daily') as any)
       .select('reach, impressions, profile_visits, website_clicks, email_contacts, phone_call_clicks, date')
       .eq('business_location_id', locationId)
       .gte('date', thirtyDaysAgo.toISOString().split('T')[0])
@@ -78,33 +78,33 @@ export async function GET(request: NextRequest) {
     }
 
     // Aggregate insights
-    const totalReach = insights.reduce((sum, i) => sum + (i.reach || 0), 0)
-    const totalImpressions = insights.reduce((sum, i) => sum + (i.impressions || 0), 0)
-    const totalProfileVisits = insights.reduce((sum, i) => sum + (i.profile_visits || 0), 0)
-    const totalWebsiteClicks = insights.reduce((sum, i) => sum + (i.website_clicks || 0), 0)
-    const totalEmailContacts = insights.reduce((sum, i) => sum + (i.email_contacts || 0), 0)
-    const totalPhoneCallClicks = insights.reduce((sum, i) => sum + (i.phone_call_clicks || 0), 0)
+    const totalReach = insights.reduce((sum: number, i: any) => sum + (i.reach || 0), 0)
+    const totalImpressions = insights.reduce((sum: number, i: any) => sum + (i.impressions || 0), 0)
+    const totalProfileVisits = insights.reduce((sum: number, i: any) => sum + (i.profile_visits || 0), 0)
+    const totalWebsiteClicks = insights.reduce((sum: number, i: any) => sum + (i.website_clicks || 0), 0)
+    const totalEmailContacts = insights.reduce((sum: number, i: any) => sum + (i.email_contacts || 0), 0)
+    const totalPhoneCallClicks = insights.reduce((sum: number, i: any) => sum + (i.phone_call_clicks || 0), 0)
 
     // Calculate engagement rate (if we have media data)
-    const { count: mediaCount } = await supabase
-      .from('instagram_media')
+    const { count: mediaCount } = await (supabase
+      .from('instagram_media') as any)
       .select('*', { count: 'exact', head: true })
       .eq('business_location_id', locationId)
       .gte('timestamp', thirtyDaysAgo.toISOString())
 
-    const { count: commentsCount } = await supabase
-      .from('instagram_comments')
+    const { count: commentsCount } = await (supabase
+      .from('instagram_comments') as any)
       .select('*', { count: 'exact', head: true })
       .eq('business_location_id', locationId)
       .gte('timestamp', thirtyDaysAgo.toISOString())
 
-    const { data: mediaWithLikes } = await supabase
-      .from('instagram_media')
+    const { data: mediaWithLikes } = await (supabase
+      .from('instagram_media') as any)
       .select('like_count, comments_count')
       .eq('business_location_id', locationId)
       .gte('timestamp', thirtyDaysAgo.toISOString())
 
-    const totalLikes = (mediaWithLikes || []).reduce((sum, m) => sum + (m.like_count || 0), 0)
+    const totalLikes = (mediaWithLikes || []).reduce((sum: number, m: any) => sum + (m.like_count || 0), 0)
     const totalEngagements = totalLikes + (commentsCount || 0)
     const engagementRate = totalImpressions > 0 ? (totalEngagements / totalImpressions) * 100 : undefined
 
