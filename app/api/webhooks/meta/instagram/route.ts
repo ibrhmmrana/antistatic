@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
     // Log signature header presence
     console.log('[Meta Webhook] Signature header present:', !!signature)
     if (signature) {
-      console.log('[Meta Webhook] Signature prefix:', signature.substring(0, 8))
+      console.log('[Meta Webhook] Signature prefix:', signature.substring(0, 12))
     }
     
     if (!appSecret) {
@@ -118,17 +118,29 @@ export async function POST(request: NextRequest) {
     
     // Compare lengths first
     if (receivedBuffer.length !== expectedBuffer.length) {
-      console.warn('[Meta Webhook] Signature length mismatch')
+      console.warn('[Meta Webhook] Signature length mismatch', {
+        receivedLength: receivedBuffer.length,
+        expectedLength: expectedBuffer.length,
+        receivedPrefix: receivedSignature.substring(0, 16),
+        expectedPrefix: expectedSignature.substring(0, 16),
+      })
       return NextResponse.json({ error: 'invalid_signature' }, { status: 403 })
     }
     
     // Use timing-safe comparison
     if (!crypto.timingSafeEqual(receivedBuffer, expectedBuffer)) {
-      console.warn('[Meta Webhook] Invalid signature (mismatch)')
+      console.warn('[Meta Webhook] Invalid signature (mismatch)', {
+        receivedPrefix: receivedSignature.substring(0, 16),
+        expectedPrefix: expectedSignature.substring(0, 16),
+        payloadPreview: bodyBuffer.toString('utf-8').substring(0, 100),
+      })
       return NextResponse.json({ error: 'invalid_signature' }, { status: 403 })
     }
 
-    console.log('[Meta Webhook] Signature verified successfully')
+    console.log('[Meta Webhook] Signature verified successfully (ok)', {
+      payloadSize: bodyBuffer.length,
+      signaturePrefix: receivedSignature.substring(0, 8),
+    })
 
     // Parse JSON from raw bytes only after signature verification
     let bodyJson: any
