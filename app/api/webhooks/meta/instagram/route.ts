@@ -88,90 +88,55 @@ export async function POST(request: NextRequest) {
     // Log payload byte length
     console.log('[Meta Webhook] Payload byte length:', rawBody.length)
     
-    // Read signature header (case-insensitive)
-    const sig = request.headers.get('x-hub-signature-256') || request.headers.get('X-Hub-Signature-256')
+    // Verify signature correctly (X-Hub-Signature-256)
+    // Get header
+    const sig = request.headers.get('x-hub-signature-256') || ''
     
-    // Log signature header presence
-    console.log('[Meta Webhook] Signature header present:', !!sig)
-    
-    // Get app secret (do NOT trim - use exact value from env)
+    // Get app secret
     const appSecret = process.env.META_APP_SECRET
     if (!appSecret) {
       console.error('[Meta Webhook] META_APP_SECRET not configured')
       return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 500 })
     }
     
-    // Parse signature as sha256=<hex>. If missing/invalid -> 403
-    if (!sig) {
-      console.warn('[Meta Webhook] Missing X-Hub-Signature-256 header')
+    // Accept only sha256 signatures
+    const received = sig.startsWith('sha256=') ? sig.slice(7) : ''
+    
+    if (!received) {
+      console.warn('[Meta Webhook] Missing or invalid X-Hub-Signature-256 header')
       return NextResponse.json({ error: 'invalid_signature' }, { status: 403 })
     }
     
-    if (!sig.startsWith('sha256=')) {
-      console.warn('[Meta Webhook] Invalid signature format (expected sha256=<hex>):', sig.substring(0, 20))
-      return NextResponse.json({ error: 'invalid_signature' }, { status: 403 })
-    }
-    
-    const receivedSignatureHex = sig.substring(7) // Remove 'sha256=' prefix
-    
-    // Compute expected with Node crypto over raw bytes (NOT parsed JSON)
-    const expectedSignatureHex = crypto
+    // Compute expected
+    const expected = crypto
       .createHmac('sha256', appSecret)
-      .update(rawBody) // Use raw bytes directly
+      .update(rawBody)
       .digest('hex')
     
-    // Log signature prefixes for debugging (first 8 chars only)
-    console.log('[Meta Webhook] Signature comparison:', {
-      receivedPrefix: receivedSignatureHex.substring(0, 8),
-      expectedPrefix: expectedSignatureHex.substring(0, 8),
-    })
+    // Compare with constant-time compare (handle missing/invalid lengths safely)
+    const receivedBuffer = Buffer.from(received, 'hex')
+    const expectedBuffer = Buffer.from(expected, 'hex')
     
-    // Compare using timingSafeEqual on hex buffers (also check equal length)
-    const receivedBuffer = Buffer.from(receivedSignatureHex, 'hex')
-    const expectedBuffer = Buffer.from(expectedSignatureHex, 'hex')
-    
-    // Compare lengths first
+    // Compare lengths first (safe check)
     if (receivedBuffer.length !== expectedBuffer.length) {
       console.warn('[Meta Webhook] Invalid signature (mismatch)', {
-        receivedPrefix: receivedSignatureHex.substring(0, 8),
-        expectedPrefix: expectedSignatureHex.substring(0, 8),
-        receivedLength: receivedBuffer.length,
-        expectedLength: expectedBuffer.length,
-        payloadByteLength: rawBody.length,
-        hint: 'Likely wrong META_APP_SECRET OR body was modified before hashing',
+        receivedPrefix: received.substring(0, 8),
+        expectedPrefix: expected.substring(0, 8),
       })
       return NextResponse.json({ error: 'invalid_signature' }, { status: 403 })
     }
     
-    // Use timing-safe comparison
+    // Use timing-safe comparison (never throws if lengths match)
     if (!crypto.timingSafeEqual(receivedBuffer, expectedBuffer)) {
-      // Safe diagnostics (only when mismatch)
-      const debugInfo: any = {
-        receivedPrefix: receivedSignatureHex.substring(0, 8),
-        expectedPrefix: expectedSignatureHex.substring(0, 8),
-        payloadByteLength: rawBody.length,
-        hint: 'Likely wrong META_APP_SECRET OR body was modified before hashing',
-      }
-      
-      // If META_WEBHOOK_DEBUG_CAPTURE=1, log raw body base64 (truncated to first 1KB)
-      const debugCapture = process.env.META_WEBHOOK_DEBUG_CAPTURE === '1'
-      if (debugCapture) {
-        const truncatedBody = rawBody.subarray(0, 1024) // First 1KB only
-        debugInfo.payloadBase64 = truncatedBody.toString('base64')
-        debugInfo.payloadBase64Length = truncatedBody.length
-        debugInfo.note = 'Full payload truncated to 1KB for debugging. Use this to verify signature offline.'
-      }
-      
-      console.warn('[Meta Webhook] Invalid signature (mismatch)', debugInfo)
+      console.warn('[Meta Webhook] Invalid signature (mismatch)', {
+        receivedPrefix: received.substring(0, 8),
+        expectedPrefix: expected.substring(0, 8),
+      })
       return NextResponse.json({ error: 'invalid_signature' }, { status: 403 })
     }
     
-    console.log('[Meta Webhook] Signature verified successfully (ok)', {
-      payloadByteLength: rawBody.length,
-      signaturePrefix: receivedSignatureHex.substring(0, 8),
-    })
-    
-    // Only after signature is valid, parse JSON
+    // Signature verified successfully - return 200 quickly
+    // Parse JSON from the same raw buffer (only after verification passes)
     let payload: any
     try {
       payload = JSON.parse(rawBody.toString('utf8'))
@@ -213,6 +178,12 @@ async function processWebhookEvents(body: any) {
   for (const entry of entries) {
     const igAccountId = entry.id // Instagram account ID (page-scoped)
     
+    // Handle test payloads (id="0" or missing ids) - just log and return 200
+    if (igAccountId === '0' || !igAccountId) {
+      console.log('[Meta Webhook] Test payload received, skipping persistence')
+      return
+    }
+    
     // Handle new format: entry.changes[].field === "messages"
     if (entry.changes && Array.isArray(entry.changes)) {
       for (const change of entry.changes) {
@@ -239,6 +210,7 @@ async function processWebhookEvents(body: any) {
 
 /**
  * Handle a single message event
+ * Persists to instagram_dm_events table
  */
 async function handleMessageEvent(
   event: any,
@@ -259,96 +231,38 @@ async function handleMessageEvent(
 
   if (!connection) {
     console.warn('[Meta Webhook] No connection found for ig_account_id:', igAccountId)
-    
-    // Store unmatched event for debugging
-    await (supabase
-      .from('instagram_webhook_unmatched_events') as any)
-      .insert({
-        raw_payload: event,
-        ig_account_id: igAccountId,
-        error_message: `No connection found for Instagram account ID: ${igAccountId}`,
-      })
-      .catch((err: any) => {
-        // Ignore errors if table doesn't exist yet
-        console.warn('[Meta Webhook] Could not store unmatched event:', err)
-      })
-    
     return
   }
 
   const businessLocationId = connection.business_location_id
-  
-  // Generate deterministic thread_key (sorted sender/recipient IDs)
-  const participants = [sender.id, recipient.id].sort()
-  const threadKey = participants.join('_')
-
+  const messageId = message.mid || null
   const messageText = message.text || null
-  const messageMid = message.mid || null
-  const attachments = message.attachments || null
-  const timestampMs = timestamp ? parseInt(timestamp) * 1000 : Date.now()
+  const timestampDate = timestamp ? new Date(parseInt(timestamp) * 1000) : new Date()
 
-  // Upsert conversation
-  await (supabase
-    .from('instagram_dm_conversations') as any)
-    .upsert({
+  // Insert into instagram_dm_events table
+  const { error: insertError } = await (supabase
+    .from('instagram_dm_events') as any)
+    .insert({
       business_location_id: businessLocationId,
-      ig_account_id: igAccountId,
-      thread_key: threadKey,
-      last_message_at: new Date(timestampMs).toISOString(),
-    }, {
-      onConflict: 'business_location_id,ig_account_id,thread_key',
+      ig_user_id: igAccountId,
+      sender_id: sender?.id || null,
+      recipient_id: recipient?.id || null,
+      message_id: messageId,
+      text: messageText,
+      timestamp: timestampDate.toISOString(),
+      raw: event, // Store full event payload
     })
-
-  // Insert message (only if message_mid is unique)
-  if (messageMid) {
-    const { error: insertError } = await (supabase
-      .from('instagram_dm_messages') as any)
-      .insert({
-        business_location_id: businessLocationId,
-        ig_account_id: igAccountId,
-        thread_key: threadKey,
-        message_mid: messageMid,
-        sender_id: sender.id,
-        recipient_id: recipient.id,
-        message_text: messageText,
-        attachments: attachments,
-        timestamp_ms: timestampMs,
-        raw_event: event,
-      })
-    
-    // Ignore duplicate key errors (message already exists)
-    if (insertError && insertError.code !== '23505') {
-      console.error('[Meta Webhook] Error inserting message:', insertError)
-      
-      // Update webhook state with error
-      await (supabase
-        .from('instagram_sync_state') as any)
-        .upsert({
-          business_location_id: businessLocationId,
-          last_webhook_error: insertError.message || 'Failed to insert message',
-        }, {
-          onConflict: 'business_location_id',
-        })
-    }
+  
+  // Ignore duplicate key errors (message already exists)
+  if (insertError && insertError.code !== '23505') {
+    console.error('[Meta Webhook] Error inserting DM event:', insertError)
+  } else {
+    console.log('[Meta Webhook] DM event persisted:', {
+      businessLocationId,
+      igAccountId,
+      messageId,
+    })
   }
-
-  // Update webhook state
-  await (supabase
-    .from('instagram_sync_state') as any)
-    .upsert({
-      business_location_id: businessLocationId,
-      last_webhook_event_at: new Date().toISOString(),
-      last_webhook_error: null,
-    }, {
-      onConflict: 'business_location_id',
-    })
-
-  console.log('[Meta Webhook] Message processed:', {
-    businessLocationId,
-    igAccountId,
-    threadKey,
-    messageMid,
-  })
 }
 
 /**
