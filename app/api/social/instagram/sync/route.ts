@@ -266,21 +266,31 @@ async function performSync(businessLocationId: string, supabase: any) {
 
         if ('type' in insightsResult) {
           // Insights failed - store full error payload
-          const errorPayload = {
+          const errorPayload: any = {
             type: insightsResult.type,
-            status: insightsResult.status,
-            code: insightsResult.code,
             message: insightsResult.message,
           }
           
+          // Only include status and code if they exist (APIError has them, NotConnected doesn't)
+          if ('status' in insightsResult) {
+            errorPayload.status = insightsResult.status
+          }
+          if ('code' in insightsResult) {
+            errorPayload.code = insightsResult.code
+          }
+          
           insightsError = {
-            code: insightsResult.code,
             message: insightsResult.message,
             payload: errorPayload,
           }
           
+          // Only include code if it exists (APIError has it)
+          if ('code' in insightsResult && insightsResult.code) {
+            insightsError.code = insightsResult.code
+          }
+          
           // Check if it's a permission error
-          if (insightsResult.status === 403 || insightsResult.message?.includes('permission')) {
+          if (('status' in insightsResult && insightsResult.status === 403) || insightsResult.message?.includes('permission')) {
             insightsError.requiredPermission = 'instagram_business_manage_insights'
           }
           

@@ -9,7 +9,18 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteIcon from '@mui/icons-material/Delete'
 import { Button } from '@/components/ui/button'
 
-type InstagramConnection = Database['public']['Tables']['instagram_connections']['Row']
+// Instagram connection type (table may not be in generated types yet)
+type InstagramConnection = {
+  id: string
+  business_location_id: string
+  access_token: string
+  instagram_user_id: string
+  instagram_username: string | null
+  scopes: string[] | null
+  token_expires_at: string | null
+  created_at: string
+  updated_at: string
+} | null
 
 interface InstagramSettingsProps {
   locationId: string
@@ -99,7 +110,9 @@ export function InstagramSettings({ locationId, instagramConnection }: Instagram
     )
   }
 
-  const scopes = syncState?.grantedScopes || instagramConnection.scopes || []
+  const scopes = syncState?.grantedScopes || instagramConnection?.scopes || []
+  const grantedScopesList = (syncState?.granted_scopes_list as string[]) || []
+  const missingScopesList = (syncState?.missing_scopes_list as string[]) || []
   const requiredScopes = [
     'instagram_business_basic',
     'instagram_business_manage_insights',
@@ -202,7 +215,7 @@ export function InstagramSettings({ locationId, instagramConnection }: Instagram
 
         <div className="space-y-2">
           {requiredScopes.map((scope) => {
-            const hasScope = scopes.some(s => s.includes(scope))
+            const hasScope = scopes.some((s: string) => s.includes(scope))
             return (
               <div key={scope} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
                 <span className="text-sm font-mono text-slate-700">{scope}</span>

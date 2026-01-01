@@ -12,7 +12,18 @@ import CommentIcon from '@mui/icons-material/Comment'
 import ImageIcon from '@mui/icons-material/Image'
 import TrendingUpIcon from '@mui/icons-material/TrendingUp'
 
-type InstagramConnection = Database['public']['Tables']['instagram_connections']['Row']
+// Instagram connection type (table may not be in generated types yet)
+type InstagramConnection = {
+  id: string
+  business_location_id: string
+  access_token: string
+  instagram_user_id: string
+  instagram_username: string | null
+  scopes: string[] | null
+  token_expires_at: string | null
+  created_at: string
+  updated_at: string
+} | null
 
 interface InstagramOverviewProps {
   locationId: string
@@ -42,6 +53,7 @@ interface OverviewData {
     permalink: string
   }>
   lastSync: string | null
+  lastError?: string | null
 }
 
 export function InstagramOverview({ locationId, instagramConnection }: InstagramOverviewProps) {

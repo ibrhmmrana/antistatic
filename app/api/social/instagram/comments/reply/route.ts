@@ -146,8 +146,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Update comment in DB to mark as replied
-    const { data: updatedComment, error: updateError } = await supabase
-      .from('instagram_comments')
+    const { data: updatedComment, error: updateError } = await (supabase
+      .from('instagram_comments') as any)
       .update({
         replied: true,
         replied_at: new Date().toISOString(),

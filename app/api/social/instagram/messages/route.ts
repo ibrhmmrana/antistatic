@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
       .limit(20)
 
     // Check if messaging is enabled (has threads or permission)
-    const hasMessagesPermission = connection.scopes?.some(s => s.includes('instagram_business_manage_messages'))
+    const hasMessagesPermission = connection.scopes?.some((s: string) => s.includes('instagram_business_manage_messages'))
     const hasMessages = (threads && threads.length > 0) || (messages && messages.length > 0)
 
     if (!hasMessagesPermission && !hasMessages) {

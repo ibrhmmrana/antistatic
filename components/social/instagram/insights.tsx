@@ -8,7 +8,18 @@ import PersonAddIcon from '@mui/icons-material/PersonAdd'
 import FavoriteIcon from '@mui/icons-material/Favorite'
 import { Button } from '@/components/ui/button'
 
-type InstagramConnection = Database['public']['Tables']['instagram_connections']['Row']
+// Instagram connection type (table may not be in generated types yet)
+type InstagramConnection = {
+  id: string
+  business_location_id: string
+  access_token: string
+  instagram_user_id: string
+  instagram_username: string | null
+  scopes: string[] | null
+  token_expires_at: string | null
+  created_at: string
+  updated_at: string
+} | null
 
 interface InstagramInsightsProps {
   locationId: string
