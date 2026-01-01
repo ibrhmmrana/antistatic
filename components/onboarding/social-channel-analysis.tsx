@@ -900,8 +900,9 @@ export function SocialChannelAnalysis({
             .eq('business_location_id', locationId)
             .maybeSingle()
 
-          if (instagramConnection && instagramConnection.instagram_username) {
-            setInstagramOAuthUsername(instagramConnection.instagram_username)
+          const typedConnection = instagramConnection as { instagram_username: string | null } | null
+          if (typedConnection && typedConnection.instagram_username) {
+            setInstagramOAuthUsername(typedConnection.instagram_username)
             // Trigger fetch after setting username
             fetchInstagramAnalysis()
           }
