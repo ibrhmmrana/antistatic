@@ -323,10 +323,17 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
   // Trigger GBP data fetch and analysis immediately when GBP is connected (fire and forget)
   // IMPORTANT: This should ONLY trigger when GBP is connected, not for Instagram or other social channels
   useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'connect-accounts.tsx:323',message:'GBP trigger useEffect running',data:{isGoogleConnected,locationId,accountsCount:accounts.length,accounts:accounts.map(a=>({provider:a.provider,status:a.status})),gbpAccountExists:accounts.some(a=>a.provider==='google_gbp'&&a.status==='connected')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+    // #endregion
+    
     const triggerGBPDataAndAnalysis = async () => {
       // Only trigger if GBP is actually connected
       // Double-check by verifying the account exists and is connected
       if (!isGoogleConnected || !locationId) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'connect-accounts.tsx:328',message:'GBP trigger early return',data:{isGoogleConnected,hasLocationId:!!locationId,reason:!isGoogleConnected?'GBP not connected':'No locationId'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+        // #endregion
         return
       }
       
@@ -337,8 +344,15 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
       )
       if (!gbpAccount) {
         console.log('[Connect Accounts] GBP account not found in accounts array, skipping Apify trigger')
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'connect-accounts.tsx:340',message:'GBP account not found - skipping Apify',data:{isGoogleConnected,accountsCount:accounts.length,accounts:accounts.map(a=>({provider:a.provider,status:a.status}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+        // #endregion
         return
       }
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'connect-accounts.tsx:345',message:'GBP account found - will trigger Apify',data:{gbpAccountProvider:gbpAccount.provider,gbpAccountStatus:gbpAccount.status,locationId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+      // #endregion
 
       // Prevent double execution - only trigger once per connection
       if (gbpDataFetchTriggeredRef.current) {
