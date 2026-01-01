@@ -50,8 +50,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Get connection details for API calls
-    const { data: connection } = await supabase
-      .from('instagram_connections')
+    const { data: connection } = await (supabase
+      .from('instagram_connections') as any)
       .select('access_token, instagram_user_id')
       .eq('business_location_id', locationId)
       .maybeSingle()
