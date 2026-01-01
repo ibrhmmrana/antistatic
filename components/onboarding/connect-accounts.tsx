@@ -221,9 +221,18 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
       // Refresh Instagram status from API to get full details
       const fetchStatus = async () => {
         try {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'connect-accounts.tsx:222',message:'Refreshing status after OAuth callback',data:{locationId,igUsername,igUserId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+          // #endregion
+          
           const response = await fetch(`/api/integrations/instagram/status?business_location_id=${locationId}`)
           if (response.ok) {
             const data = await response.json()
+            
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'connect-accounts.tsx:227',message:'Status refresh result',data:{connected:data.connected,username:data.username,userId:data.instagram_user_id,statusOk:response.ok},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+            // #endregion
+            
             setInstagramStatus(data)
           }
         } catch (err) {
@@ -303,6 +312,7 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
   }, [searchParams, router, locationId])
 
   // Check if Google Business Profile is connected
+  // IMPORTANT: Only check accounts array, don't trigger on other social connections
   const isGoogleConnected = accounts.some(
     (acc) => acc.provider === 'google_gbp' && acc.status === 'connected'
   )
@@ -311,9 +321,22 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
   const gbpDataFetchTriggeredRef = useRef(false)
 
   // Trigger GBP data fetch and analysis immediately when GBP is connected (fire and forget)
+  // IMPORTANT: This should ONLY trigger when GBP is connected, not for Instagram or other social channels
   useEffect(() => {
     const triggerGBPDataAndAnalysis = async () => {
+      // Only trigger if GBP is actually connected
+      // Double-check by verifying the account exists and is connected
       if (!isGoogleConnected || !locationId) {
+        return
+      }
+      
+      // Additional safety check: verify GBP is actually connected before triggering Apify
+      // This prevents false positives from state updates
+      const gbpAccount = accounts.find(
+        (acc) => acc.provider === 'google_gbp' && acc.status === 'connected'
+      )
+      if (!gbpAccount) {
+        console.log('[Connect Accounts] GBP account not found in accounts array, skipping Apify trigger')
         return
       }
 

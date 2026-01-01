@@ -378,8 +378,10 @@ export async function GET(request: NextRequest) {
     })
 
     // Build redirect URL with success params
+    // Include allowBack=true to prevent auto-redirect to analysis page
     const successParams: Record<string, string> = {
       ig: 'connected',
+      allowBack: 'true',
     }
     if (instagramUserId) {
       successParams.ig_user_id = instagramUserId
@@ -389,6 +391,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Redirect to onboarding connect page with success
+    // allowBack=true prevents server-side redirect to analysis page
     return NextResponse.redirect(buildRedirectUrl('/onboarding/connect', successParams))
   } catch (error: any) {
     console.error('[Instagram Callback] Unexpected error:', {
