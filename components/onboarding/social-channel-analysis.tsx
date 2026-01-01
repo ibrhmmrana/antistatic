@@ -296,9 +296,10 @@ export function SocialChannelAnalysis({
             .eq('business_location_id', locationId)
             .maybeSingle()
 
-          if (instagramConnection && instagramConnection.instagram_username) {
+          const typedConnection = instagramConnection as { instagram_username: string | null } | null
+          if (typedConnection && typedConnection.instagram_username) {
             hasInstagram = true
-            setInstagramOAuthUsername(instagramConnection.instagram_username)
+            setInstagramOAuthUsername(typedConnection.instagram_username)
           }
         } catch (error) {
           console.warn('[Channel Analysis] Error checking Instagram OAuth connection:', error)
