@@ -70,43 +70,81 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    // Verify webhook signature using META_APP_SECRET
+    // Get signature header
     const signature = request.headers.get('x-hub-signature-256')
-    const appSecret = process.env.META_APP_SECRET
+    const appSecret = process.env.META_APP_SECRET?.trim()
+    
+    // Log signature header presence
+    console.log('[Meta Webhook] Signature header present:', !!signature)
+    if (signature) {
+      console.log('[Meta Webhook] Signature prefix:', signature.substring(0, 8))
+    }
     
     if (!appSecret) {
       console.error('[Meta Webhook] META_APP_SECRET not configured')
       return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 500 })
     }
 
-    // Read raw body for signature verification
-    const bodyText = await request.text()
+    // Read raw body as ArrayBuffer to preserve exact bytes
+    const arrayBuffer = await request.arrayBuffer()
+    const bodyBuffer = Buffer.from(arrayBuffer)
     
-    if (signature) {
-      const expectedSignature = crypto
-        .createHmac('sha256', appSecret)
-        .update(bodyText)
-        .digest('hex')
-      
-      if (`sha256=${expectedSignature}` !== signature) {
-        console.warn('[Meta Webhook] Invalid signature')
-        return NextResponse.json({ error: 'Invalid signature' }, { status: 403 })
-      }
-    } else {
+    // Log payload size
+    console.log('[Meta Webhook] Payload size:', bodyBuffer.length, 'bytes')
+
+    // Verify signature if present
+    if (!signature) {
       console.warn('[Meta Webhook] Missing X-Hub-Signature-256 header')
-      // In development, we might allow this, but in production we should require it
-      if (process.env.NODE_ENV === 'production') {
-        return NextResponse.json({ error: 'Missing signature' }, { status: 403 })
-      }
+      return NextResponse.json({ error: 'invalid_signature' }, { status: 403 })
     }
 
-    // Parse JSON after signature verification
-    const bodyJson = JSON.parse(bodyText)
-    
-    // Process webhook events
-    await processWebhookEvents(bodyJson)
+    // Extract signature value (format: sha256=<hex>)
+    if (!signature.startsWith('sha256=')) {
+      console.warn('[Meta Webhook] Invalid signature format:', signature.substring(0, 20))
+      return NextResponse.json({ error: 'invalid_signature' }, { status: 403 })
+    }
 
-    return NextResponse.json({ success: true })
+    const receivedSignature = signature.substring(7) // Remove 'sha256=' prefix
+    
+    // Compute expected signature using raw body bytes
+    const expectedSignature = crypto
+      .createHmac('sha256', appSecret)
+      .update(bodyBuffer)
+      .digest('hex')
+
+    // Use timing-safe comparison to prevent timing attacks
+    const receivedBuffer = Buffer.from(receivedSignature, 'hex')
+    const expectedBuffer = Buffer.from(expectedSignature, 'hex')
+    
+    // Compare lengths first
+    if (receivedBuffer.length !== expectedBuffer.length) {
+      console.warn('[Meta Webhook] Signature length mismatch')
+      return NextResponse.json({ error: 'invalid_signature' }, { status: 403 })
+    }
+    
+    // Use timing-safe comparison
+    if (!crypto.timingSafeEqual(receivedBuffer, expectedBuffer)) {
+      console.warn('[Meta Webhook] Invalid signature (mismatch)')
+      return NextResponse.json({ error: 'invalid_signature' }, { status: 403 })
+    }
+
+    console.log('[Meta Webhook] Signature verified successfully')
+
+    // Parse JSON from raw bytes only after signature verification
+    let bodyJson: any
+    try {
+      bodyJson = JSON.parse(bodyBuffer.toString('utf-8'))
+    } catch (parseError) {
+      console.error('[Meta Webhook] JSON parse error:', parseError)
+      return NextResponse.json({ error: 'invalid_payload' }, { status: 400 })
+    }
+    
+    // Return 200 quickly, process events asynchronously
+    processWebhookEvents(bodyJson).catch((error) => {
+      console.error('[Meta Webhook] Error processing events:', error)
+    })
+
+    return NextResponse.json({ ok: true }, { status: 200 })
   } catch (error: any) {
     console.error('[Meta Webhook] POST Error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
