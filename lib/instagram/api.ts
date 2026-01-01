@@ -38,8 +38,8 @@ export class InstagramAPI {
   static async loadConnection(businessLocationId: string): Promise<InstagramConnection | InstagramError> {
     const supabase = await createClient()
     
-    const { data: connection, error } = await supabase
-      .from('instagram_connections')
+    const { data: connection, error } = await (supabase
+      .from('instagram_connections') as any)
       .select('access_token, instagram_user_id, scopes, token_expires_at')
       .eq('business_location_id', businessLocationId)
       .maybeSingle()
