@@ -204,14 +204,17 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
   const hasWebhookConfigured = webhookStatus?.isConfigured || false
   const hasMessages = conversations.length > 0
 
-  if (!enabled || (!hasWebhookConfigured && !hasMessages)) {
+  // Show empty state only if:
+  // 1. Not enabled AND no webhook configured AND no messages, OR
+  // 2. Enabled but no messages yet (show helpful message)
+  if ((!enabled && !hasWebhookConfigured && !hasMessages) || (enabled && !hasMessages)) {
     return (
       <div className="bg-white rounded-lg border border-slate-200 p-8">
         <div className="flex items-start gap-3 mb-4">
           <InfoIcon sx={{ fontSize: 24 }} className="text-blue-500 mt-1" />
           <div>
             <h3 className="text-lg font-semibold text-slate-900 mb-2">
-              {hasMessages ? 'No DMs received yet' : 'Direct Messages Not Enabled'}
+              {enabled && hasWebhookConfigured ? 'No messages received yet' : 'Direct Messages Not Enabled'}
             </h3>
             {!hasWebhookConfigured ? (
               <>

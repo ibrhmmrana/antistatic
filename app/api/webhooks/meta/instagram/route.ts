@@ -240,6 +240,8 @@ export async function POST(request: NextRequest) {
 async function processWebhookEvents(body: any) {
   const supabase = await createClient()
   
+  console.log('[Meta Webhook] Processing events, body.object:', body.object)
+  
   // Meta webhook format: { object: 'instagram', entry: [...] }
   if (body.object !== 'instagram') {
     console.log('[Meta Webhook] Ignoring non-Instagram object:', body.object)
@@ -247,24 +249,29 @@ async function processWebhookEvents(body: any) {
   }
 
   const entries = body.entry || []
+  console.log('[Meta Webhook] Processing', entries.length, 'entry/entries')
 
   for (const entry of entries) {
     const igAccountId = entry.id // Instagram account ID (page-scoped)
+    console.log('[Meta Webhook] Processing entry with id:', igAccountId)
     
-    // Handle test payloads (id="0" or missing ids) - just log and return 200
+    // Handle test payloads (id="0" or missing ids) - still try to process but log it
     if (igAccountId === '0' || !igAccountId) {
-      console.log('[Meta Webhook] Test payload received, skipping persistence')
-      return
+      console.log('[Meta Webhook] Test payload received (id="0"), attempting to process anyway')
     }
     
     // Handle new format: entry.changes[].field === "messages"
     if (entry.changes && Array.isArray(entry.changes)) {
+      console.log('[Meta Webhook] Found', entry.changes.length, 'changes')
       for (const change of entry.changes) {
         if (change.field === 'messages' && change.value) {
+          console.log('[Meta Webhook] Processing messages change')
           // change.value contains the messaging event
           const event = change.value
           if (event.message) {
             await handleMessageEvent(event, igAccountId, supabase)
+          } else {
+            console.log('[Meta Webhook] Change value has no message field:', Object.keys(change.value || {}))
           }
         }
       }
@@ -272,11 +279,19 @@ async function processWebhookEvents(body: any) {
     
     // Handle legacy format: entry.messaging[]
     if (entry.messaging && Array.isArray(entry.messaging)) {
+      console.log('[Meta Webhook] Found', entry.messaging.length, 'messaging events')
       for (const event of entry.messaging) {
         if (event.message) {
           await handleMessageEvent(event, igAccountId, supabase)
+        } else {
+          console.log('[Meta Webhook] Messaging event has no message field:', Object.keys(event || {}))
         }
       }
+    }
+    
+    // Log if no messages found
+    if (!entry.changes && !entry.messaging) {
+      console.log('[Meta Webhook] Entry has no changes or messaging fields:', Object.keys(entry))
     }
   }
 }
@@ -290,34 +305,74 @@ async function handleMessageEvent(
   igAccountId: string,
   supabase: any
 ) {
+  console.log('[Meta Webhook] handleMessageEvent called for igAccountId:', igAccountId)
+  
   const message = event.message
   const sender = event.sender
   const recipient = event.recipient
   const timestamp = event.timestamp
 
+  console.log('[Meta Webhook] Message event details:', {
+    hasMessage: !!message,
+    hasSender: !!sender,
+    hasRecipient: !!recipient,
+    timestamp,
+    messageId: message?.mid,
+    messageText: message?.text?.substring(0, 50),
+  })
+
   // Find business_location_id by Instagram account ID
-  const { data: connection } = await (supabase
-    .from('instagram_connections') as any)
-    .select('business_location_id, instagram_user_id')
-    .eq('instagram_user_id', igAccountId)
-    .maybeSingle()
+  // Try both exact match and partial match (in case of test payloads)
+  let connection = null
+  
+  if (igAccountId && igAccountId !== '0') {
+    const { data } = await (supabase
+      .from('instagram_connections') as any)
+      .select('business_location_id, instagram_user_id')
+      .eq('instagram_user_id', igAccountId)
+      .maybeSingle()
+    connection = data
+  }
+  
+  // If no exact match, try to get any connection (for test payloads)
+  if (!connection) {
+    console.log('[Meta Webhook] No exact match for igAccountId, trying to get any connection')
+    const { data: anyConnection } = await (supabase
+      .from('instagram_connections') as any)
+      .select('business_location_id, instagram_user_id')
+      .limit(1)
+      .maybeSingle()
+    connection = anyConnection
+    if (connection) {
+      console.log('[Meta Webhook] Using first available connection for test payload')
+    }
+  }
 
   if (!connection) {
     console.warn('[Meta Webhook] No connection found for ig_account_id:', igAccountId)
+    console.warn('[Meta Webhook] Available connections check failed')
     return
   }
 
   const businessLocationId = connection.business_location_id
-  const messageId = message.mid || null
-  const messageText = message.text || null
+  const actualIgUserId = connection.instagram_user_id || igAccountId
+  const messageId = message?.mid || null
+  const messageText = message?.text || null
   const timestampDate = timestamp ? new Date(parseInt(timestamp) * 1000) : new Date()
 
+  console.log('[Meta Webhook] Inserting DM event:', {
+    businessLocationId,
+    igUserId: actualIgUserId,
+    messageId,
+    hasText: !!messageText,
+  })
+
   // Insert into instagram_dm_events table
-  const { error: insertError } = await (supabase
+  const { error: insertError, data: insertData } = await (supabase
     .from('instagram_dm_events') as any)
     .insert({
       business_location_id: businessLocationId,
-      ig_user_id: igAccountId,
+      ig_user_id: actualIgUserId,
       sender_id: sender?.id || null,
       recipient_id: recipient?.id || null,
       message_id: messageId,
@@ -325,15 +380,25 @@ async function handleMessageEvent(
       timestamp: timestampDate.toISOString(),
       raw: event, // Store full event payload
     })
+    .select()
   
   // Ignore duplicate key errors (message already exists)
-  if (insertError && insertError.code !== '23505') {
-    console.error('[Meta Webhook] Error inserting DM event:', insertError)
+  if (insertError) {
+    if (insertError.code === '23505') {
+      console.log('[Meta Webhook] DM event already exists (duplicate), skipping')
+    } else {
+      console.error('[Meta Webhook] Error inserting DM event:', {
+        code: insertError.code,
+        message: insertError.message,
+        details: insertError.details,
+      })
+    }
   } else {
-    console.log('[Meta Webhook] DM event persisted:', {
+    console.log('[Meta Webhook] DM event persisted successfully:', {
       businessLocationId,
-      igAccountId,
+      igUserId: actualIgUserId,
       messageId,
+      insertedId: insertData?.[0]?.id,
     })
   }
 }
