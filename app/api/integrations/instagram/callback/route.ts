@@ -245,6 +245,11 @@ export async function GET(request: NextRequest) {
     // Fetch Instagram user profile to get username using helper
     let instagramUsername: string | null = null
     const profile = await getInstagramProfile(accessToken)
+    
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'callback/route.ts:247',message:'Profile fetch result',data:{hasProfile:!!profile,profileId:profile?.id,profileUsername:profile?.username,tokenUserId:instagramUserId,usernameMatch:profile?.id===instagramUserId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    
     if (profile) {
       instagramUsername = profile.username
       // Verify the user ID matches
@@ -277,13 +282,20 @@ export async function GET(request: NextRequest) {
     })
 
     // Build upsert payload - try with connected_at first, fallback without it if column doesn't exist
+    // IMPORTANT: Only include instagram_username if we successfully fetched it
+    // If profile fetch failed, don't overwrite existing username with null
     const upsertPayload: any = {
       business_location_id: businessLocationId,
       instagram_user_id: instagramUserId,
-      instagram_username: instagramUsername,
       access_token: accessToken,
       token_expires_at: tokenExpiresAt,
       scopes: scopes,
+    }
+    
+    // Only set username if we successfully fetched it
+    // This prevents overwriting existing username with null when profile fetch fails
+    if (instagramUsername) {
+      upsertPayload.instagram_username = instagramUsername
     }
 
     // Try to include connected_at (will fail gracefully if column doesn't exist)
@@ -300,6 +312,10 @@ export async function GET(request: NextRequest) {
         onConflict: 'business_location_id',
       })
       .select()
+
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'callback/route.ts:297',message:'Upsert result',data:{hasError:!!upsertError,errorCode:upsertError?.code,errorMessage:upsertError?.message,recordCount:upsertData?.length||0,upsertedUsername:upsertPayload.instagram_username,upsertedUserId:upsertPayload.instagram_user_id,businessLocationId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
 
     if (upsertError) {
       console.error('[Instagram Callback] Failed to store connection:', {
