@@ -325,26 +325,42 @@ async function handleMessageEvent(
   // Try both exact match and partial match (in case of test payloads)
   let connection = null
   
+  console.log('[Meta Webhook] Looking up connection for igAccountId:', igAccountId)
+  
   if (igAccountId && igAccountId !== '0') {
-    const { data } = await (supabase
+    const { data, error: lookupError } = await (supabase
       .from('instagram_connections') as any)
       .select('business_location_id, instagram_user_id')
       .eq('instagram_user_id', igAccountId)
       .maybeSingle()
-    connection = data
+    
+    if (lookupError) {
+      console.error('[Meta Webhook] Error looking up connection:', lookupError)
+    } else {
+      connection = data
+      console.log('[Meta Webhook] Connection lookup result:', connection ? 'found' : 'not found')
+    }
   }
   
   // If no exact match, try to get any connection (for test payloads)
   if (!connection) {
     console.log('[Meta Webhook] No exact match for igAccountId, trying to get any connection')
-    const { data: anyConnection } = await (supabase
+    const { data: anyConnection, error: anyLookupError } = await (supabase
       .from('instagram_connections') as any)
       .select('business_location_id, instagram_user_id')
       .limit(1)
       .maybeSingle()
-    connection = anyConnection
-    if (connection) {
-      console.log('[Meta Webhook] Using first available connection for test payload')
+    
+    if (anyLookupError) {
+      console.error('[Meta Webhook] Error looking up any connection:', anyLookupError)
+    } else {
+      connection = anyConnection
+      if (connection) {
+        console.log('[Meta Webhook] Using first available connection for test payload:', {
+          business_location_id: connection.business_location_id,
+          instagram_user_id: connection.instagram_user_id,
+        })
+      }
     }
   }
 
@@ -358,7 +374,11 @@ async function handleMessageEvent(
   const actualIgUserId = connection.instagram_user_id || igAccountId
   const messageId = message?.mid || null
   const messageText = message?.text || null
-  const timestampDate = timestamp ? new Date(parseInt(timestamp) * 1000) : new Date()
+  
+  // Timestamp is in milliseconds, not seconds
+  const timestampDate = timestamp 
+    ? new Date(typeof timestamp === 'string' ? parseInt(timestamp) : timestamp)
+    : new Date()
 
   console.log('[Meta Webhook] Inserting DM event:', {
     businessLocationId,

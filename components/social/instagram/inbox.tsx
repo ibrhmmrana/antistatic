@@ -104,7 +104,16 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
     }
 
     fetchData()
-  }, [locationId, instagramConnection, selectedConversationId])
+    
+    // Poll for new messages every 5 seconds when enabled
+    const interval = setInterval(() => {
+      if (enabled) {
+        fetchData()
+      }
+    }, 5000)
+    
+    return () => clearInterval(interval)
+  }, [locationId, instagramConnection, selectedConversationId, enabled])
 
   useEffect(() => {
     if (selectedConversationId) {
@@ -253,6 +262,29 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
               </span>
             )}
           </h2>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={async () => {
+              try {
+                setLoading(true)
+                const response = await fetch(`/api/social/instagram/messages?locationId=${locationId}`)
+                if (response.ok) {
+                  const data = await response.json()
+                  setEnabled(data.enabled || false)
+                  setConversations(data.conversations || [])
+                  setUnreadCount(data.unreadCount || 0)
+                }
+              } catch (error) {
+                console.error('Error refreshing messages:', error)
+              } finally {
+                setLoading(false)
+              }
+            }}
+            disabled={loading}
+          >
+            Refresh
+          </Button>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
