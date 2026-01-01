@@ -244,7 +244,16 @@ export async function GET(request: NextRequest) {
 
     // Fetch Instagram user profile to get username using helper
     let instagramUsername: string | null = null
+    console.log('[Instagram Callback] Fetching profile for user_id:', instagramUserId)
     const profile = await getInstagramProfile(accessToken)
+    
+    console.log('[Instagram Callback] Profile fetch result:', {
+      hasProfile: !!profile,
+      profileId: profile?.id,
+      profileUsername: profile?.username,
+      tokenUserId: instagramUserId,
+      usernameMatch: profile?.id === instagramUserId,
+    })
     
     // #region agent log
     fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'callback/route.ts:247',message:'Profile fetch result',data:{hasProfile:!!profile,profileId:profile?.id,profileUsername:profile?.username,tokenUserId:instagramUserId,usernameMatch:profile?.id===instagramUserId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
@@ -252,6 +261,7 @@ export async function GET(request: NextRequest) {
     
     if (profile) {
       instagramUsername = profile.username
+      console.log('[Instagram Callback] Successfully fetched username:', instagramUsername)
       // Verify the user ID matches
       if (profile.id !== instagramUserId) {
         console.warn('[Instagram Callback] User ID mismatch between token and profile:', {
