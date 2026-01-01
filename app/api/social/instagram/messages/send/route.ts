@@ -40,19 +40,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Location not found' }, { status: 404 })
     }
 
-    // Get conversation to get participant ID
-    const { data: conversation } = await (supabase
-      .from('instagram_conversations') as any)
-      .select('participant_ig_user_id, business_location_id')
-      .eq('business_location_id', locationId)
-      .eq('conversation_id', conversationId)
-      .maybeSingle()
-
-    if (!conversation) {
-      return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
-    }
-
-    // Get Instagram connection
+    // Get Instagram connection first
     const { data: connection } = await (supabase
       .from('instagram_connections') as any)
       .select('access_token, instagram_user_id')
@@ -63,6 +51,39 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Instagram not connected' }, { status: 404 })
     }
 
+    // Get conversation to verify it exists (using new DM tables)
+    const { data: conversation } = await (supabase
+      .from('instagram_dm_conversations') as any)
+      .select('thread_key, ig_account_id, business_location_id')
+      .eq('business_location_id', locationId)
+      .eq('ig_account_id', connection.instagram_user_id)
+      .eq('thread_key', conversationId)
+      .maybeSingle()
+
+    if (!conversation) {
+      return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
+    }
+
+    // Get the most recent message to determine participant
+    const { data: lastMessage } = await (supabase
+      .from('instagram_dm_messages') as any)
+      .select('sender_id, recipient_id')
+      .eq('business_location_id', locationId)
+      .eq('ig_account_id', connection.instagram_user_id)
+      .eq('thread_key', conversationId)
+      .order('timestamp_ms', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (!lastMessage) {
+      return NextResponse.json({ error: 'Cannot determine conversation participant' }, { status: 404 })
+    }
+
+    // Determine recipient (the other user in the thread)
+    const recipientId = lastMessage.sender_id === connection.instagram_user_id 
+      ? lastMessage.recipient_id 
+      : lastMessage.sender_id
+
     // Create API client and send message
     const api = await InstagramAPI.create(locationId)
 
@@ -70,44 +91,51 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: api.message }, { status: 400 })
     }
 
-    const recipientId = conversation.participant_ig_user_id
     const sendResult = await api.sendMessage(recipientId, text.trim())
 
     if ('type' in sendResult) {
-      return NextResponse.json({
+      const errorResponse: any = {
         error: sendResult.message,
-        code: sendResult.code,
-      }, { status: sendResult.type === 'APIError' ? sendResult.status : 500 })
+      }
+      
+      // Only include code if it's an APIError
+      if (sendResult.type === 'APIError' && sendResult.code) {
+        errorResponse.code = sendResult.code
+      }
+      
+      return NextResponse.json(
+        errorResponse,
+        { status: sendResult.type === 'APIError' ? sendResult.status : 500 }
+      )
     }
 
-    // Insert outbound message into database
+    // Insert outbound message into database (using new DM tables)
     const messageId = sendResult.id || `msg_${Date.now()}_${Math.random()}`
-    const messageTime = new Date().toISOString()
+    const messageTime = Date.now()
 
     await (supabase
-      .from('instagram_messages') as any)
+      .from('instagram_dm_messages') as any)
       .insert({
         business_location_id: locationId,
-        conversation_id: conversationId,
-        message_id: messageId,
-        direction: 'outbound',
-        from_id: connection.instagram_user_id,
-        to_id: recipientId,
-        text: text.trim(),
-        created_time: messageTime,
-        raw_payload: { id: messageId },
+        ig_account_id: connection.instagram_user_id,
+        thread_key: conversationId,
+        message_mid: messageId,
+        sender_id: connection.instagram_user_id,
+        recipient_id: recipientId,
+        message_text: text.trim(),
+        timestamp_ms: messageTime,
+        raw_event: { id: messageId, text: text.trim() },
       })
 
     // Update conversation metadata
     await (supabase
-      .from('instagram_conversations') as any)
+      .from('instagram_dm_conversations') as any)
       .update({
-        updated_time: messageTime,
-        last_message_text: text.trim(),
-        last_message_time: messageTime,
+        last_message_at: new Date(messageTime).toISOString(),
       })
       .eq('business_location_id', locationId)
-      .eq('conversation_id', conversationId)
+      .eq('ig_account_id', connection.instagram_user_id)
+      .eq('thread_key', conversationId)
 
     return NextResponse.json({
       success: true,

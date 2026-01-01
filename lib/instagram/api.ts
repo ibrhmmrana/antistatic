@@ -467,16 +467,39 @@ export class InstagramAPI {
    */
   async sendMessage(recipientId: string, messageText: string): Promise<{ id: string } | InstagramError> {
     try {
-      const response = await this.igFetch(`/${this.userId}/messages`, {
-        recipient: JSON.stringify({ id: recipientId }),
-        message: JSON.stringify({ text: messageText }),
-      }, 'POST')
-
-      if ('type' in response) {
-        return response
+      const url = new URL(`${API_BASE}/${API_VERSION}/${this.userId}/messages`)
+      url.searchParams.set('access_token', this.accessToken)
+      
+      const body = new URLSearchParams()
+      body.append('recipient', JSON.stringify({ id: recipientId }))
+      body.append('message', JSON.stringify({ text: messageText }))
+      
+      const response = await fetch(url.toString(), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: body.toString(),
+      })
+      
+      if (!response.ok) {
+        const error = (await response.json().catch(() => ({}))).error || {}
+        console.error('[Instagram API] Send message error:', {
+          status: response.status,
+          code: error.code,
+          message: error.message,
+        })
+        
+        return {
+          type: 'APIError',
+          status: response.status,
+          code: error.code,
+          message: error.message || `Failed to send message: ${response.statusText}`,
+        }
       }
 
-      return { id: response.id || response.message_id || 'unknown' }
+      const data = await response.json()
+      return { id: data.id || data.message_id || 'unknown' }
     } catch (error: any) {
       console.error('[Instagram API] Error sending message:', error)
       return {
