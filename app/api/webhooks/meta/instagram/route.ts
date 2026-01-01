@@ -85,12 +85,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 500 })
     }
 
+    // Log secret presence (not the value itself) - helps verify it's set
+    console.log('[Meta Webhook] META_APP_SECRET configured:', !!appSecret, 'length:', appSecret.length)
+    
+    // IMPORTANT: META_APP_SECRET must be the Meta App Secret from Meta App Dashboard
+    // NOT the Instagram App Secret. It should match the App Secret shown in:
+    // Meta App Dashboard → Settings → Basic → App Secret
+
     // Read raw body as ArrayBuffer to preserve exact bytes
+    // IMPORTANT: Use arrayBuffer() to get raw bytes, not text() which can alter encoding
     const arrayBuffer = await request.arrayBuffer()
     const bodyBuffer = Buffer.from(arrayBuffer)
     
-    // Log payload size
+    // Log payload size and first few bytes for debugging
     console.log('[Meta Webhook] Payload size:', bodyBuffer.length, 'bytes')
+    console.log('[Meta Webhook] Payload first 50 bytes (hex):', bodyBuffer.subarray(0, 50).toString('hex'))
 
     // Verify signature if present
     if (!signature) {
@@ -107,10 +116,18 @@ export async function POST(request: NextRequest) {
     const receivedSignature = signature.substring(7) // Remove 'sha256=' prefix
     
     // Compute expected signature using raw body bytes
-    const expectedSignature = crypto
-      .createHmac('sha256', appSecret)
-      .update(bodyBuffer)
-      .digest('hex')
+    // IMPORTANT: Use the exact raw bytes as received, with the exact secret (trimmed)
+    const hmac = crypto.createHmac('sha256', appSecret)
+    hmac.update(bodyBuffer)
+    const expectedSignature = hmac.digest('hex')
+    
+    // Log for debugging (first 16 chars only)
+    console.log('[Meta Webhook] Signature comparison:', {
+      receivedPrefix: receivedSignature.substring(0, 16),
+      expectedPrefix: expectedSignature.substring(0, 16),
+      receivedLength: receivedSignature.length,
+      expectedLength: expectedSignature.length,
+    })
 
     // Use timing-safe comparison to prevent timing attacks
     const receivedBuffer = Buffer.from(receivedSignature, 'hex')
