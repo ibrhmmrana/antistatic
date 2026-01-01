@@ -48,49 +48,81 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Instagram not connected' }, { status: 404 })
     }
 
-    // Get threads and messages from cached DB
-    const { data: threads } = await (supabase
-      .from('instagram_threads') as any)
-      .select('id, unread_count, last_message_at')
+    // Get sync state to check granted scopes
+    const { data: syncState } = await (supabase
+      .from('instagram_sync_state') as any)
+      .select('granted_scopes_list')
       .eq('business_location_id', locationId)
-      .order('last_message_at', { ascending: false })
-      .limit(10)
+      .maybeSingle()
 
-    // Get messages from most recent threads
-    const threadIds = (threads || []).map((t: any) => t.id)
+    const grantedScopes = syncState?.granted_scopes_list || connection.scopes || []
+    const hasMessagesPermission = grantedScopes.some((s: string) => s.includes('instagram_business_manage_messages'))
+
+    // Get conversations from cached DB
+    const { data: conversations } = await (supabase
+      .from('instagram_conversations') as any)
+      .select('conversation_id, participant_username, updated_time, unread_count, last_message_text, last_message_time')
+      .eq('business_location_id', locationId)
+      .order('updated_time', { ascending: false })
+      .limit(50)
+
+    // Get messages for each conversation
+    const conversationIds = (conversations || []).map((c: any) => c.conversation_id)
     const { data: messages } = await (supabase
       .from('instagram_messages') as any)
-      .select('id, from_username, text, created_time, thread_id')
+      .select('conversation_id, message_id, direction, from_id, to_id, text, created_time')
       .eq('business_location_id', locationId)
-      .in('thread_id', threadIds.length > 0 ? threadIds : [''])
+      .in('conversation_id', conversationIds.length > 0 ? conversationIds : [''])
       .order('created_time', { ascending: false })
-      .limit(20)
+      .limit(200)
 
-    // Check if messaging is enabled (has threads or permission)
-    const hasMessagesPermission = connection.scopes?.some((s: string) => s.includes('instagram_business_manage_messages'))
-    const hasMessages = (threads && threads.length > 0) || (messages && messages.length > 0)
+    // Group messages by conversation
+    const messagesByConversation: Record<string, any[]> = {}
+    ;(messages || []).forEach((m: any) => {
+      if (!messagesByConversation[m.conversation_id]) {
+        messagesByConversation[m.conversation_id] = []
+      }
+      messagesByConversation[m.conversation_id].push(m)
+    })
 
-    if (!hasMessagesPermission && !hasMessages) {
+    // Check if messaging is enabled
+    const hasConversations = conversations && conversations.length > 0
+    const hasMessages = messages && messages.length > 0
+
+    if (!hasMessagesPermission && !hasConversations && !hasMessages) {
       return NextResponse.json({
         enabled: false,
-        messages: [],
+        conversations: [],
+        unreadCount: 0,
         note: 'Messaging requires instagram_business_manage_messages permission and webhook setup',
       })
     }
 
-    return NextResponse.json({
-      enabled: true,
-      messages: (messages || []).map((m: any) => ({
-        id: m.id,
-        from: {
-          username: m.from_username || 'unknown',
-          id: '',
-        },
+    // Calculate total unread count
+    const unreadCount = (conversations || []).reduce((sum: number, c: any) => sum + (c.unread_count || 0), 0)
+
+    // Format conversations with messages
+    const formattedConversations = (conversations || []).map((conv: any) => ({
+      conversationId: conv.conversation_id,
+      participantUsername: conv.participant_username || 'Unknown',
+      updatedTime: conv.updated_time,
+      unreadCount: conv.unread_count || 0,
+      lastMessageText: conv.last_message_text,
+      lastMessageTime: conv.last_message_time,
+      messages: (messagesByConversation[conv.conversation_id] || []).map((m: any) => ({
+        id: m.message_id,
+        direction: m.direction,
+        fromId: m.from_id,
+        toId: m.to_id,
         text: m.text || '',
         timestamp: m.created_time,
-        threadId: m.thread_id,
       })),
-      threads: threads || [],
+    }))
+
+    return NextResponse.json({
+      enabled: true,
+      conversations: formattedConversations,
+      unreadCount,
     })
   } catch (error: any) {
     console.error('[Instagram Messages API] Error:', error)

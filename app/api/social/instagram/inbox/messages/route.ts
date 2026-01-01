@@ -37,12 +37,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Location not found' }, { status: 404 })
     }
 
-    // Get messages for thread
+    // Get messages for conversation
     const { data: messages, error } = await (supabase
       .from('instagram_messages') as any)
-      .select('id, from_id, from_username, text, created_time')
+      .select('message_id, direction, from_id, to_id, text, created_time')
       .eq('business_location_id', locationId)
-      .eq('thread_id', threadId)
+      .eq('conversation_id', threadId)
       .order('created_time', { ascending: true })
       .limit(100)
 
@@ -51,15 +51,34 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch messages' }, { status: 500 })
     }
 
-    // Mark thread as read (reset unread count)
+    // Mark conversation as read (reset unread count)
     await (supabase
-      .from('instagram_threads') as any)
+      .from('instagram_conversations') as any)
       .update({ unread_count: 0 })
-      .eq('id', threadId)
+      .eq('conversation_id', threadId)
       .eq('business_location_id', locationId)
 
+    // Get conversation to get participant username
+    const { data: conversation } = await (supabase
+      .from('instagram_conversations') as any)
+      .select('participant_username')
+      .eq('business_location_id', locationId)
+      .eq('conversation_id', threadId)
+      .maybeSingle()
+
+    const participantUsername = conversation?.participant_username || 'User'
+
     return NextResponse.json({
-      messages: messages || [],
+      messages: (messages || []).map((m: any) => ({
+        id: m.message_id,
+        direction: m.direction,
+        from: {
+          id: m.from_id,
+          username: m.direction === 'inbound' ? participantUsername : 'You',
+        },
+        text: m.text || '',
+        timestamp: m.created_time,
+      })),
     })
   } catch (error: any) {
     console.error('[Instagram Messages] Error:', error)

@@ -38,12 +38,16 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    // Verify webhook signature (if configured)
+    // Verify webhook signature using META_APP_SECRET
     const signature = request.headers.get('x-hub-signature-256')
-    if (signature && process.env.INSTAGRAM_WEBHOOK_SECRET) {
+    const appSecret = process.env.META_APP_SECRET || process.env.INSTAGRAM_WEBHOOK_SECRET
+    
+    let bodyJson: any = {}
+    
+    if (signature && appSecret) {
       const body = await request.text()
       const expectedSignature = crypto
-        .createHmac('sha256', process.env.INSTAGRAM_WEBHOOK_SECRET)
+        .createHmac('sha256', appSecret)
         .update(body)
         .digest('hex')
       
@@ -51,31 +55,41 @@ export async function POST(request: NextRequest) {
         console.warn('[Instagram Webhook] Invalid signature')
         return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
       }
+      
+      // Re-parse body as JSON after signature verification
+      bodyJson = JSON.parse(body)
+    } else {
+      // If no signature verification, still process (for development)
+      bodyJson = await request.json()
     }
 
-    const body = await request.json()
-    const object = body.object
-
-    // Handle Instagram messaging events
-    if (object === 'instagram') {
-      const entries = body.entry || []
-
-      for (const entry of entries) {
-        const messaging = entry.messaging || []
-
-        for (const event of messaging) {
-          // Handle message events
-          if (event.message) {
-            await handleMessageEvent(event, entry.id) // entry.id is the ig_user_id
-          }
-        }
-      }
-    }
+    await processWebhookEvents(bodyJson)
 
     return NextResponse.json({ success: true })
   } catch (error: any) {
     console.error('[Instagram Webhook] Error processing event:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+async function processWebhookEvents(body: any) {
+  const object = body.object
+
+  // Handle Instagram messaging events
+  if (object === 'instagram') {
+    const entries = body.entry || []
+
+    for (const entry of entries) {
+      const messaging = entry.messaging || []
+      const igUserId = entry.id // Instagram user ID (page-scoped)
+
+      for (const event of messaging) {
+        // Handle message events
+        if (event.message) {
+          await handleMessageEvent(event, igUserId)
+        }
+      }
+    }
   }
 }
 
@@ -88,8 +102,8 @@ async function handleMessageEvent(event: any, igUserId: string) {
   const timestamp = event.timestamp
 
   // Find business location by ig_user_id
-  const { data: connection } = await supabase
-    .from('instagram_connections')
+  const { data: connection } = await (supabase
+    .from('instagram_connections') as any)
     .select('business_location_id, instagram_user_id')
     .eq('instagram_user_id', igUserId)
     .maybeSingle()
@@ -100,44 +114,57 @@ async function handleMessageEvent(event: any, igUserId: string) {
   }
 
   const businessLocationId = connection.business_location_id
-  const threadId = sender.id || `thread_${sender.id}`
+  const conversationId = sender.id // Use sender ID as conversation ID (1:1 conversation)
+  const participantId = sender.id
+  const participantUsername = sender.username || null
+  const messageText = message.text || null
+  const messageTime = new Date(timestamp * 1000).toISOString()
 
-  // Upsert thread
-  await supabase
-    .from('instagram_threads')
+  // Upsert conversation
+  const { data: existingConv } = await (supabase
+    .from('instagram_conversations') as any)
+    .select('id, unread_count')
+    .eq('business_location_id', businessLocationId)
+    .eq('conversation_id', conversationId)
+    .maybeSingle()
+
+  const currentUnreadCount = existingConv?.unread_count || 0
+
+  await (supabase
+    .from('instagram_conversations') as any)
     .upsert({
-      id: threadId,
       business_location_id: businessLocationId,
-      ig_user_id: igUserId,
-      participants: [sender.id, recipient.id],
-      last_message_at: new Date(timestamp * 1000).toISOString(),
-      unread_count: 1, // Increment unread count
-      raw: event,
+      conversation_id: conversationId,
+      participant_ig_user_id: participantId,
+      participant_username: participantUsername,
+      updated_time: messageTime,
+      unread_count: currentUnreadCount + 1,
+      last_message_text: messageText,
+      last_message_time: messageTime,
     }, {
-      onConflict: 'id',
+      onConflict: 'business_location_id,conversation_id',
     })
 
-  // Insert message
-  await supabase
-    .from('instagram_messages')
-    .upsert({
-      id: message.mid || `msg_${Date.now()}_${Math.random()}`,
+  // Insert message (inbound)
+  const messageId = message.mid || `msg_${Date.now()}_${Math.random()}`
+  await (supabase
+    .from('instagram_messages') as any)
+    .insert({
       business_location_id: businessLocationId,
-      ig_user_id: igUserId,
-      thread_id: threadId,
+      conversation_id: conversationId,
+      message_id: messageId,
+      direction: 'inbound',
       from_id: sender.id,
-      from_username: sender.username || null,
-      text: message.text || null,
-      created_time: new Date(timestamp * 1000).toISOString(),
-      raw: message,
-    }, {
-      onConflict: 'id',
+      to_id: recipient.id,
+      text: messageText,
+      created_time: messageTime,
+      raw_payload: message,
     })
 
   console.log('[Instagram Webhook] Message processed:', {
     businessLocationId,
-    threadId,
-    messageId: message.mid,
+    conversationId,
+    messageId,
   })
 }
 

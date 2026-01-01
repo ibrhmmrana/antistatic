@@ -215,10 +215,17 @@ export function InstagramSettings({ locationId, instagramConnection }: Instagram
 
         <div className="space-y-2">
           {requiredScopes.map((scope) => {
-            const hasScope = scopes.some((s: string) => s.includes(scope))
+            const hasScope = grantedScopesList.some((s: string) => s.includes(scope)) || scopes.some((s: string) => s.includes(scope))
             return (
               <div key={scope} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                <span className="text-sm font-mono text-slate-700">{scope}</span>
+                <div className="flex-1">
+                  <span className="text-sm font-mono text-slate-700">{scope}</span>
+                  {scope === 'instagram_business_manage_messages' && !hasScope && (
+                    <p className="text-xs text-slate-500 mt-1">
+                      Enable Instagram "Connected Tools → Allow access to Messages" in Meta Business settings.
+                    </p>
+                  )}
+                </div>
                 {hasScope ? (
                   <div className="flex items-center gap-1 text-green-600">
                     <CheckCircleIcon sx={{ fontSize: 18 }} />

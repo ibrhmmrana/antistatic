@@ -460,6 +460,34 @@ export class InstagramAPI {
   }
 
   /**
+   * Send a Direct Message via Instagram Messaging API
+   * 
+   * @param recipientId Instagram user ID of the recipient
+   * @param messageText Text content of the message
+   */
+  async sendMessage(recipientId: string, messageText: string): Promise<{ id: string } | InstagramError> {
+    try {
+      const response = await this.igFetch(`/${this.userId}/messages`, {
+        recipient: JSON.stringify({ id: recipientId }),
+        message: JSON.stringify({ text: messageText }),
+      }, 'POST')
+
+      if ('type' in response) {
+        return response
+      }
+
+      return { id: response.id || response.message_id || 'unknown' }
+    } catch (error: any) {
+      console.error('[Instagram API] Error sending message:', error)
+      return {
+        type: 'APIError',
+        status: error.status || 500,
+        message: error.message || 'Failed to send message',
+      }
+    }
+  }
+
+  /**
    * Check if a specific permission is granted
    */
   hasPermission(permission: string): boolean {
