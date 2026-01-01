@@ -96,7 +96,11 @@ export async function fetchInstagramFromGraphAPI(
         // For now, we'll include all media types
         // Graph API field names: like_count, comments_count, timestamp
         // item.id is the correct ig_media_id from listMedia() - use this for comments endpoint
-        const post: InstaPost & { commentsDiagnostic?: { mediaId: string; mediaPermalink: string; commentsCountFromAPI: number; commentsReturned: number; pagingPresent: boolean } } = {
+        const post: InstaPost & { 
+          commentsDiagnostic?: { mediaId: string; mediaPermalink: string; commentsCountFromAPI: number; commentsReturned: number; pagingPresent: boolean }
+          media_url?: string
+          media_type?: string
+        } = {
           id: item.id, // This is the ig_media_id from the API - correct ID to use for comments
           url: item.permalink || `https://www.instagram.com/p/${item.id}/`,
           caption: item.caption || '',
@@ -105,6 +109,8 @@ export async function fetchInstagramFromGraphAPI(
           timestamp: item.timestamp || item.created_time || new Date().toISOString(), // Handle both field names
           ownerUsername: username,
           ownerFullName: undefined, // Graph API doesn't return full name in media endpoint
+          media_url: item.media_url || (item as any).thumbnail_url, // Use thumbnail_url for videos if media_url not available
+          media_type: item.media_type, // Include media_type for filtering
         }
 
         posts.push(post)
@@ -192,11 +198,17 @@ export async function fetchInstagramFromGraphAPI(
                 const commentTimestamp = comment.timestamp || comment.created_time || new Date().toISOString()
 
                 comments.push({
+                  id: comment.id || `${item.id}_${comments.length}`,
                   text: commentText,
                   username: commentUsername,
                   timestamp: commentTimestamp,
                   postUrl: post.url,
-                })
+                  mediaId: item.id, // Add mediaId for linking comments to posts
+                  from: {
+                    username: commentUsername,
+                    id: comment.from?.id || comment.id || '',
+                  },
+                } as InstaComment & { id: string; mediaId: string; from: { username: string; id: string } })
               }
               
               // Store diagnostic info for UI fallback message
