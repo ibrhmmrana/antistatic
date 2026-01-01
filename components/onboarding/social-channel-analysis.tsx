@@ -705,9 +705,10 @@ export function SocialChannelAnalysis({
           .eq('business_location_id', locationId)
           .maybeSingle()
 
-        if (instagramConnection && instagramConnection.instagram_username) {
-          instagramUsername = instagramConnection.instagram_username
-          setInstagramOAuthUsername(instagramConnection.instagram_username)
+        const typedConnection = instagramConnection as { instagram_username: string | null } | null
+        if (typedConnection && typedConnection.instagram_username) {
+          instagramUsername = typedConnection.instagram_username
+          setInstagramOAuthUsername(typedConnection.instagram_username)
         }
       } catch (error) {
         console.warn('[Instagram Analysis] Error checking OAuth connection:', error)
@@ -804,9 +805,10 @@ export function SocialChannelAnalysis({
           .eq('business_location_id', locationId)
           .maybeSingle()
 
-        if (instagramConnection && instagramConnection.instagram_username) {
-          instagramUsername = instagramConnection.instagram_username
-          setInstagramOAuthUsername(instagramConnection.instagram_username)
+        const typedConnection = instagramConnection as { instagram_username: string | null } | null
+        if (typedConnection && typedConnection.instagram_username) {
+          instagramUsername = typedConnection.instagram_username
+          setInstagramOAuthUsername(typedConnection.instagram_username)
         }
       } catch (error) {
         console.warn('[Instagram Analysis] Error checking OAuth connection:', error)
