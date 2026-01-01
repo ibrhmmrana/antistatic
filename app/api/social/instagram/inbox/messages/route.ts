@@ -38,8 +38,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Get messages for thread
-    const { data: messages, error } = await supabase
-      .from('instagram_messages')
+    const { data: messages, error } = await (supabase
+      .from('instagram_messages') as any)
       .select('id, from_id, from_username, text, created_time')
       .eq('business_location_id', locationId)
       .eq('thread_id', threadId)
@@ -52,8 +52,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Mark thread as read (reset unread count)
-    await supabase
-      .from('instagram_threads')
+    await (supabase
+      .from('instagram_threads') as any)
       .update({ unread_count: 0 })
       .eq('id', threadId)
       .eq('business_location_id', locationId)

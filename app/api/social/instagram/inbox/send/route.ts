@@ -38,8 +38,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Get thread to verify it exists
-    const { data: thread } = await supabase
-      .from('instagram_threads')
+    const { data: thread } = await (supabase
+      .from('instagram_threads') as any)
       .select('id, ig_user_id')
       .eq('id', threadId)
       .eq('business_location_id', locationId)
@@ -62,8 +62,8 @@ export async function POST(request: NextRequest) {
 
     // Store sent message in DB (optimistic)
     const messageId = `msg_${Date.now()}_${Math.random()}`
-    await supabase
-      .from('instagram_messages')
+    await (supabase
+      .from('instagram_messages') as any)
       .insert({
         id: messageId,
         business_location_id: locationId,
@@ -75,8 +75,8 @@ export async function POST(request: NextRequest) {
       })
 
     // Update thread
-    await supabase
-      .from('instagram_threads')
+    await (supabase
+      .from('instagram_threads') as any)
       .update({
         last_message_at: new Date().toISOString(),
       })

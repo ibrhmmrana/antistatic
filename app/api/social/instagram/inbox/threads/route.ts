@@ -37,8 +37,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Get threads
-    const { data: threads, error } = await supabase
-      .from('instagram_threads')
+    const { data: threads, error } = await (supabase
+      .from('instagram_threads') as any)
       .select('id, participants, last_message_at, unread_count')
       .eq('business_location_id', locationId)
       .order('last_message_at', { ascending: false })

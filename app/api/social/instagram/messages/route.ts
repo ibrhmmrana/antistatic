@@ -49,17 +49,17 @@ export async function GET(request: NextRequest) {
     }
 
     // Get threads and messages from cached DB
-    const { data: threads } = await supabase
-      .from('instagram_threads')
+    const { data: threads } = await (supabase
+      .from('instagram_threads') as any)
       .select('id, unread_count, last_message_at')
       .eq('business_location_id', locationId)
       .order('last_message_at', { ascending: false })
       .limit(10)
 
     // Get messages from most recent threads
-    const threadIds = (threads || []).map(t => t.id)
-    const { data: messages } = await supabase
-      .from('instagram_messages')
+    const threadIds = (threads || []).map((t: any) => t.id)
+    const { data: messages } = await (supabase
+      .from('instagram_messages') as any)
       .select('id, from_username, text, created_time, thread_id')
       .eq('business_location_id', locationId)
       .in('thread_id', threadIds.length > 0 ? threadIds : [''])
@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       enabled: true,
-      messages: (messages || []).map(m => ({
+      messages: (messages || []).map((m: any) => ({
         id: m.id,
         from: {
           username: m.from_username || 'unknown',
