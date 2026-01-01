@@ -431,7 +431,7 @@ export function ConnectAccounts({ userName = 'there', locationId, connectedAccou
     }
 
     triggerGBPDataAndAnalysis()
-  }, [isGoogleConnected, locationId])
+  }, [isGoogleConnected, locationId, accounts])
 
   const handleChannelClick = async (channel: Channel) => {
     // Handle Google Business Profile OAuth
