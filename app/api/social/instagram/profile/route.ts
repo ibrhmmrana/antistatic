@@ -37,8 +37,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Get sync state (contains username, last sync, scopes)
-    const { data: syncState, error: syncStateError } = await supabase
-      .from('instagram_sync_state')
+    const { data: syncState, error: syncStateError } = await (supabase
+      .from('instagram_sync_state') as any)
       .select('ig_user_id, username, granted_scopes, granted_scopes_list, missing_scopes_list, last_synced_at, last_error')
       .eq('business_location_id', locationId)
       .maybeSingle()
@@ -48,8 +48,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Get Instagram connection for fallback
-    const { data: connection } = await supabase
-      .from('instagram_connections')
+    const { data: connection } = await (supabase
+      .from('instagram_connections') as any)
       .select('instagram_user_id, instagram_username, scopes')
       .eq('business_location_id', locationId)
       .maybeSingle()
@@ -63,36 +63,36 @@ export async function GET(request: NextRequest) {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
 
     // Count media
-    const { count: totalPosts } = await supabase
-      .from('instagram_media')
+    const { count: totalPosts } = await (supabase
+      .from('instagram_media') as any)
       .select('*', { count: 'exact', head: true })
       .eq('business_location_id', locationId)
       .gte('timestamp', thirtyDaysAgo.toISOString())
 
     // Count comments
-    const { count: totalComments } = await supabase
-      .from('instagram_comments')
+    const { count: totalComments } = await (supabase
+      .from('instagram_comments') as any)
       .select('*', { count: 'exact', head: true })
       .eq('business_location_id', locationId)
       .gte('timestamp', thirtyDaysAgo.toISOString())
 
     // Count pending comments (unreplied)
-    const { count: pendingComments } = await supabase
-      .from('instagram_comments')
+    const { count: pendingComments } = await (supabase
+      .from('instagram_comments') as any)
       .select('*', { count: 'exact', head: true })
       .eq('business_location_id', locationId)
       .eq('replied', false)
       .gte('timestamp', thirtyDaysAgo.toISOString())
 
     // Get recent posts (last 12)
-    const { data: recentMedia } = await supabase
-      .from('instagram_media')
+    const { data: recentMedia } = await (supabase
+      .from('instagram_media') as any)
       .select('id, caption, like_count, comments_count, timestamp, media_url, permalink')
       .eq('business_location_id', locationId)
       .order('timestamp', { ascending: false })
       .limit(12)
 
-    const recentPosts = (recentMedia || []).map((m) => ({
+    const recentPosts = (recentMedia || []).map((m: any) => ({
       id: m.id,
       caption: m.caption || '',
       likesCount: m.like_count || 0,
