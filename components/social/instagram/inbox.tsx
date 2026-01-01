@@ -110,12 +110,19 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
     if (selectedConversationId) {
       const fetchMessages = async () => {
         try {
+          // Use the main messages endpoint with conversationId parameter
           const response = await fetch(
-            `/api/social/instagram/inbox/messages?locationId=${locationId}&threadId=${selectedConversationId}`
+            `/api/social/instagram/messages?locationId=${locationId}&conversationId=${selectedConversationId}`
           )
           if (response.ok) {
             const data = await response.json()
-            setMessages(data.messages || [])
+            // Extract messages from the conversation
+            const conversation = data.conversations?.[0]
+            if (conversation) {
+              setMessages(conversation.messages || [])
+            } else {
+              setMessages([])
+            }
             
             // Refresh conversations to update unread count
             const refreshResponse = await fetch(`/api/social/instagram/messages?locationId=${locationId}`)
@@ -130,6 +137,8 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
         }
       }
       fetchMessages()
+    } else {
+      setMessages([])
     }
   }, [selectedConversationId, locationId])
 

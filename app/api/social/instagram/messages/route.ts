@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
   try {
     const requestUrl = new URL(request.url)
     const locationId = requestUrl.searchParams.get('locationId')
+    const conversationId = requestUrl.searchParams.get('conversationId') // Optional: fetch specific conversation
 
     if (!locationId) {
       return NextResponse.json({ error: 'locationId is required' }, { status: 400 })
@@ -59,13 +60,20 @@ export async function GET(request: NextRequest) {
     const hasMessagesPermission = grantedScopes.some((s: string) => s.includes('instagram_business_manage_messages'))
 
     // Get conversations from DM cache tables
-    const { data: conversations } = await (supabase
+    // If conversationId is provided, filter to that conversation
+    let conversationsQuery = (supabase
       .from('instagram_dm_conversations') as any)
       .select('thread_key, last_message_at')
       .eq('business_location_id', locationId)
       .eq('ig_account_id', connection.instagram_user_id)
+    
+    if (conversationId) {
+      conversationsQuery = conversationsQuery.eq('thread_key', conversationId)
+    }
+    
+    const { data: conversations } = await conversationsQuery
       .order('last_message_at', { ascending: false })
-      .limit(50)
+      .limit(conversationId ? 1 : 50)
 
     // Get messages for each conversation (limit to last 20 per thread)
     const threadKeys = (conversations || []).map((c: any) => c.thread_key)

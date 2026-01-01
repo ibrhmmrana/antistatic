@@ -67,6 +67,17 @@ export async function GET(request: NextRequest) {
  * POST /api/webhooks/meta/instagram
  * 
  * Handle Meta webhook events for Instagram messaging
+ * 
+ * Signature Verification:
+ * - Reads raw request body bytes ONCE using `await request.arrayBuffer()` (NOT request.json())
+ * - Computes HMAC-SHA256 over raw bytes using META_APP_SECRET
+ * - Compares against X-Hub-Signature-256 header (format: sha256=<hex>) using crypto.timingSafeEqual
+ * - META_APP_SECRET must match Meta App Dashboard → Settings → Basic → App Secret (NOT Instagram App Secret)
+ * - Only parses JSON after signature verification passes
+ * 
+ * Debug Mode:
+ * - Set META_WEBHOOK_DEBUG_CAPTURE=1 to log raw body base64 (truncated to 1KB) on signature mismatch
+ * - This allows offline signature verification for debugging
  */
 export async function POST(request: NextRequest) {
   try {
@@ -134,12 +145,24 @@ export async function POST(request: NextRequest) {
     
     // Use timing-safe comparison
     if (!crypto.timingSafeEqual(receivedBuffer, expectedBuffer)) {
-      console.warn('[Meta Webhook] Invalid signature (mismatch)', {
+      // Safe diagnostics (only when mismatch)
+      const debugInfo: any = {
         receivedPrefix: receivedSignatureHex.substring(0, 8),
         expectedPrefix: expectedSignatureHex.substring(0, 8),
         payloadByteLength: rawBody.length,
         hint: 'Likely wrong META_APP_SECRET OR body was modified before hashing',
-      })
+      }
+      
+      // If META_WEBHOOK_DEBUG_CAPTURE=1, log raw body base64 (truncated to first 1KB)
+      const debugCapture = process.env.META_WEBHOOK_DEBUG_CAPTURE === '1'
+      if (debugCapture) {
+        const truncatedBody = rawBody.subarray(0, 1024) // First 1KB only
+        debugInfo.payloadBase64 = truncatedBody.toString('base64')
+        debugInfo.payloadBase64Length = truncatedBody.length
+        debugInfo.note = 'Full payload truncated to 1KB for debugging. Use this to verify signature offline.'
+      }
+      
+      console.warn('[Meta Webhook] Invalid signature (mismatch)', debugInfo)
       return NextResponse.json({ error: 'invalid_signature' }, { status: 403 })
     }
     
@@ -171,6 +194,10 @@ export async function POST(request: NextRequest) {
 
 /**
  * Process Meta webhook events
+ * 
+ * Supports two Meta webhook formats:
+ * 1. Legacy: { object: 'instagram', entry: [{ id, messaging: [...] }] }
+ * 2. New: { object: 'instagram', entry: [{ id, changes: [{ field: 'messages', value: {...} }] }] }
  */
 async function processWebhookEvents(body: any) {
   const supabase = await createClient()
@@ -185,11 +212,26 @@ async function processWebhookEvents(body: any) {
 
   for (const entry of entries) {
     const igAccountId = entry.id // Instagram account ID (page-scoped)
-    const messaging = entry.messaging || []
-
-    for (const event of messaging) {
-      if (event.message) {
-        await handleMessageEvent(event, igAccountId, supabase)
+    
+    // Handle new format: entry.changes[].field === "messages"
+    if (entry.changes && Array.isArray(entry.changes)) {
+      for (const change of entry.changes) {
+        if (change.field === 'messages' && change.value) {
+          // change.value contains the messaging event
+          const event = change.value
+          if (event.message) {
+            await handleMessageEvent(event, igAccountId, supabase)
+          }
+        }
+      }
+    }
+    
+    // Handle legacy format: entry.messaging[]
+    if (entry.messaging && Array.isArray(entry.messaging)) {
+      for (const event of entry.messaging) {
+        if (event.message) {
+          await handleMessageEvent(event, igAccountId, supabase)
+        }
       }
     }
   }
