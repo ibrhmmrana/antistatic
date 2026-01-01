@@ -10,6 +10,57 @@ export const runtime = 'nodejs'
  * 
  * GET: Webhook verification (Meta standard)
  * POST: Receive messaging events from Meta
+ * 
+ * IMPORTANT: Signature verification MUST be computed over raw request body bytes.
+ * NEVER call request.json() or request.text() before signature verification.
+ * The body must be read exactly ONCE using request.arrayBuffer().
+ */
+
+/**
+ * Compute expected signature for raw body bytes
+ * @param raw - Raw request body as Buffer
+ * @returns Hex digest of HMAC-SHA256 signature
+ */
+function computeExpectedSignature(raw: Buffer): string {
+  const appSecret = process.env.META_APP_SECRET
+  if (!appSecret) {
+    throw new Error('META_APP_SECRET not configured')
+  }
+  return crypto
+    .createHmac('sha256', appSecret)
+    .update(raw)
+    .digest('hex')
+}
+
+/**
+ * Safely compare two hex strings using timing-safe comparison
+ * Validates hex length and uses crypto.timingSafeEqual
+ * @param a - First hex string
+ * @param b - Second hex string
+ * @returns true if equal, false otherwise
+ */
+function safeEqualHex(a: string, b: string): boolean {
+  try {
+    const aBuffer = Buffer.from(a, 'hex')
+    const bBuffer = Buffer.from(b, 'hex')
+    
+    // Compare lengths first
+    if (aBuffer.length !== bBuffer.length) {
+      return false
+    }
+    
+    // Use timing-safe comparison
+    return crypto.timingSafeEqual(aBuffer, bBuffer)
+  } catch (error) {
+    // Invalid hex strings
+    return false
+  }
+}
+
+/**
+ * GET /api/webhooks/meta/instagram
+ * 
+ * Meta webhook verification (challenge-response)
  */
 export async function GET(request: NextRequest) {
   try {
@@ -68,29 +119,38 @@ export async function GET(request: NextRequest) {
  * 
  * Handle Meta webhook events for Instagram messaging
  * 
- * Signature Verification:
- * - Reads raw request body bytes ONCE using `await request.arrayBuffer()` (NOT request.json())
- * - Computes HMAC-SHA256 over raw bytes using META_APP_SECRET
- * - Compares against X-Hub-Signature-256 header (format: sha256=<hex>) using crypto.timingSafeEqual
- * - META_APP_SECRET must match Meta App Dashboard → Settings → Basic → App Secret (NOT Instagram App Secret)
- * - Only parses JSON after signature verification passes
- * 
- * Debug Mode:
- * - Set META_WEBHOOK_DEBUG_CAPTURE=1 to log raw body base64 (truncated to 1KB) on signature mismatch
- * - This allows offline signature verification for debugging
+ * Signature Verification Process:
+ * 1. Read raw request body bytes ONCE using request.arrayBuffer()
+ * 2. NEVER call request.json() or request.text() before verification
+ * 3. Get x-hub-signature-256 header
+ * 4. Extract hex signature (handle "sha256=<hex>" or "<hex>" formats)
+ * 5. Compute expected signature using HMAC-SHA256 over raw bytes
+ * 6. Compare using timing-safe comparison
+ * 7. Only after verification passes, parse JSON from raw bytes
  */
 export async function POST(request: NextRequest) {
   try {
-    // Read the raw body bytes ONCE - this is critical for signature verification
-    // IMPORTANT: Never use request.json() or request.text() before hashing
-    const rawBody = Buffer.from(await request.arrayBuffer())
+    // Read the raw request body bytes ONCE - this is critical
+    // IMPORTANT: Do NOT call request.json() or request.text() before this
+    const arrayBuffer = await request.arrayBuffer()
+    const rawBody = Buffer.from(arrayBuffer)
     
-    // Log payload byte length
-    console.log('[Meta Webhook] Payload byte length:', rawBody.length)
+    // Get signature header
+    const signatureHeader = request.headers.get('x-hub-signature-256') || 
+                        request.headers.get('X-Hub-Signature-256') || 
+                        ''
     
-    // Verify signature correctly (X-Hub-Signature-256)
-    // Get header
-    const sig = request.headers.get('x-hub-signature-256') || ''
+    // Get content-type for logging
+    const contentType = request.headers.get('content-type') || 'unknown'
+    
+    // Robust logging
+    const debugMode = process.env.META_WEBHOOK_DEBUG === '1' || process.env.NODE_ENV === 'development'
+    
+    console.log('[Meta Webhook] POST request received', {
+      signatureHeaderExists: !!signatureHeader,
+      contentType,
+      rawBodyByteLength: rawBody.length,
+    })
     
     // Get app secret
     const appSecret = process.env.META_APP_SECRET
@@ -99,44 +159,57 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 500 })
     }
     
-    // Accept only sha256 signatures
-    const received = sig.startsWith('sha256=') ? sig.slice(7) : ''
+    // Fix common header parsing pitfalls
+    // Accept both "sha256=<hex>" and "<hex>" formats, trim whitespace
+    let receivedHex = signatureHeader.trim()
     
-    if (!received) {
-      console.warn('[Meta Webhook] Missing or invalid X-Hub-Signature-256 header')
+    if (receivedHex.startsWith('sha256=')) {
+      receivedHex = receivedHex.slice(7).trim()
+    }
+    
+    if (!receivedHex) {
+      console.warn('[Meta Webhook] Missing or empty X-Hub-Signature-256 header')
       return NextResponse.json({ error: 'invalid_signature' }, { status: 403 })
     }
     
-    // Compute expected
-    const expected = crypto
-      .createHmac('sha256', appSecret)
-      .update(rawBody)
-      .digest('hex')
+    // Compute expected signature using raw body bytes
+    const expectedHex = computeExpectedSignature(rawBody)
     
-    // Compare with constant-time compare (handle missing/invalid lengths safely)
-    const receivedBuffer = Buffer.from(received, 'hex')
-    const expectedBuffer = Buffer.from(expected, 'hex')
+    // Log signature prefixes for debugging (first 8 chars only)
+    console.log('[Meta Webhook] Signature comparison', {
+      receivedPrefix: receivedHex.substring(0, 8),
+      expectedPrefix: expectedHex.substring(0, 8),
+      receivedLength: receivedHex.length,
+      expectedLength: expectedHex.length,
+    })
     
-    // Compare lengths first (safe check)
-    if (receivedBuffer.length !== expectedBuffer.length) {
+    // Debug logging (only when enabled)
+    if (debugMode) {
+      const bodyPreview = rawBody.toString('utf8').substring(0, 60)
+      console.log('[Meta Webhook] Debug info', {
+        bodyPreview,
+        receivedHex: receivedHex.substring(0, 16) + '...',
+        expectedHex: expectedHex.substring(0, 16) + '...',
+      })
+    }
+    
+    // Compare using timing-safe comparison
+    if (!safeEqualHex(receivedHex, expectedHex)) {
       console.warn('[Meta Webhook] Invalid signature (mismatch)', {
-        receivedPrefix: received.substring(0, 8),
-        expectedPrefix: expected.substring(0, 8),
+        receivedPrefix: receivedHex.substring(0, 8),
+        expectedPrefix: expectedHex.substring(0, 8),
+        payloadByteLength: rawBody.length,
+        hint: 'Likely wrong META_APP_SECRET OR body was modified before hashing',
       })
       return NextResponse.json({ error: 'invalid_signature' }, { status: 403 })
     }
     
-    // Use timing-safe comparison (never throws if lengths match)
-    if (!crypto.timingSafeEqual(receivedBuffer, expectedBuffer)) {
-      console.warn('[Meta Webhook] Invalid signature (mismatch)', {
-        receivedPrefix: received.substring(0, 8),
-        expectedPrefix: expected.substring(0, 8),
-      })
-      return NextResponse.json({ error: 'invalid_signature' }, { status: 403 })
-    }
+    console.log('[Meta Webhook] Signature verified successfully', {
+      payloadByteLength: rawBody.length,
+      signaturePrefix: receivedHex.substring(0, 8),
+    })
     
-    // Signature verified successfully - return 200 quickly
-    // Parse JSON from the same raw buffer (only after verification passes)
+    // Only after signature is valid, parse JSON from raw bytes
     let payload: any
     try {
       payload = JSON.parse(rawBody.toString('utf8'))
@@ -264,30 +337,3 @@ async function handleMessageEvent(
     })
   }
 }
-
-/**
- * Test helper: Compute expected signature for a given payload string
- * Usage: Call this with a known payload to verify META_APP_SECRET is correct
- * 
- * Example (in a test script or console):
- *   const testPayload = '{"entry": [{"id": "0", "time": 1767306476}]}'
- *   const expectedSig = computeWebhookSignature(testPayload)
- *   console.log('Expected signature:', expectedSig)
- * 
- * Note: This is a helper function, not exported to avoid Next.js route conflicts
- */
-function computeWebhookSignature(payloadString: string): string {
-  const appSecret = process.env.META_APP_SECRET
-  if (!appSecret) {
-    throw new Error('META_APP_SECRET not configured')
-  }
-  
-  const rawBody = Buffer.from(payloadString, 'utf8')
-  const signature = crypto
-    .createHmac('sha256', appSecret)
-    .update(rawBody)
-    .digest('hex')
-  
-  return `sha256=${signature}`
-}
-
