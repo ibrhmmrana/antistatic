@@ -182,13 +182,19 @@ export async function POST(request: NextRequest) {
       recipientIgsid = conversation.participant_igsid
     }
 
-    if (!recipientIgsid) {
-      console.error('[Instagram Send Message] Missing participant_igsid:', {
+    if (!recipientIgsid || recipientIgsid.startsWith('UNKNOWN_')) {
+      console.error('[Instagram Send Message] Missing or invalid participant_igsid:', {
         conversationId,
         conversation,
+        recipientIgsid,
       })
       return NextResponse.json(
-        { error: { type: 'validation', message: 'Conversation missing participant ID' } },
+        { 
+          error: { 
+            type: 'validation', 
+            message: 'Conversation missing valid participant ID. Please refresh the inbox and try again.' 
+          } 
+        },
         { status: 400 }
       )
     }

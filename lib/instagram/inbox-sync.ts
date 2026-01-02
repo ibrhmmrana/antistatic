@@ -99,6 +99,10 @@ async function fetchConversations(
       hasPaging: !!data.paging,
       nextCursor: data.paging?.cursors?.after,
     })
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[Instagram Inbox Sync] RAW conversations', JSON.stringify(data, null, 2))
+    }
     
     return conversations
   } catch (error: any) {
@@ -112,38 +116,43 @@ async function fetchConversations(
 }
 
 /**
- * Fetch messages for a conversation
+ * Fetch conversation detail with participants and messages
  * 
- * Uses the correct fields syntax: ?fields=messages{from,to,message,created_time,id,attachments}
+ * Uses the correct fields syntax: ?fields=participants{username,id,profile_pic},messages{from,to,message,created_time,id,attachments}
  */
-async function fetchConversationMessages(
+async function fetchConversationDetail(
   conversationId: string,
   accessToken: string
-): Promise<Array<{
-  id: string
-  created_time: string
-  from: { id: string }
-  to: { id: string }
-  message?: string
-  attachments?: any
-}>> {
+): Promise<{
+  participants?: { data: Array<{ id: string; username?: string; profile_pic?: string }> }
+  messages?: { data: Array<{
+    id: string
+    created_time: string
+    from: { id: string }
+    to: { data?: Array<{ id: string }>; id?: string }
+    message?: string
+    attachments?: any
+  }> }
+}> {
   try {
-    // Use correct fields syntax with nested message fields
-    // Format: fields=messages{from,to,message,created_time,id,attachments}
-    const fields = 'messages{from,to,message,created_time,id,attachments}'
+    // Fetch participants AND messages in one call
+    // Format: fields=participants{username,id,profile_pic},messages{from,to,message,created_time,id,attachments}
+    const fields = 'participants{username,id,profile_pic},messages{from,to,message,created_time,id,attachments}'
     const url = `${API_BASE}/${API_VERSION}/${conversationId}?fields=${fields}&access_token=${accessToken}`
     
-    console.log('[Instagram Inbox Sync] Fetching messages for conversation:', {
-      conversationId,
-      url: url.replace(accessToken, 'REDACTED'),
-    })
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[Instagram Inbox Sync] Fetching conversation detail:', {
+        conversationId,
+        url: url.replace(accessToken, 'REDACTED'),
+      })
+    }
     
     const response = await fetch(url)
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
       const errorMessage = errorData.error?.message || response.statusText
-      console.error('[Instagram Inbox Sync] Conversation messages API error:', {
+      console.error('[Instagram Inbox Sync] Conversation detail API error:', {
         conversationId,
         status: response.status,
         error: errorData.error,
@@ -153,18 +162,17 @@ async function fetchConversationMessages(
     }
     
     const data = await response.json()
-    const messages = data.messages?.data || []
     
-    console.log('[Instagram Inbox Sync] Fetched messages:', {
-      conversationId,
-      count: messages.length,
-      hasPaging: !!data.messages?.paging,
-      nextCursor: data.messages?.paging?.cursors?.after,
-    })
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[Instagram Inbox Sync] RAW conv detail', conversationId, JSON.stringify(data, null, 2))
+    }
     
-    return messages
+    return {
+      participants: data.participants,
+      messages: data.messages,
+    }
   } catch (error: any) {
-    console.error('[Instagram Inbox Sync] Error fetching conversation messages:', {
+    console.error('[Instagram Inbox Sync] Error fetching conversation detail:', {
       conversationId,
       message: error.message,
       stack: error.stack,
@@ -272,121 +280,158 @@ export async function syncInstagramInbox(
     }
 
     // Step 2: Process each conversation
+    const conversationsToUpsert: Array<{
+      id: string
+      ig_account_id: string
+      participant_igsid: string | null
+      updated_time: string
+      last_message_at: string
+      last_message_preview: string | null
+    }> = []
+
     for (const conversation of conversations) {
       try {
-        // Extract participant IGSID (the other user, not us)
-        const participant = conversation.participants?.find((p: any) => p.id !== igAccountId)
-        if (!participant) {
-          console.warn('[Instagram Inbox Sync] No participant found for conversation:', conversation.id)
-          continue
-        }
-        
-        const participantIgsid = participant.id
-
-        // Upsert conversation
-        const { error: convError } = await (supabase
-          .from('instagram_conversations') as any)
-          .upsert({
-            id: conversation.id,
-            ig_account_id: igAccountId,
-            participant_igsid: participantIgsid,
-            updated_time: conversation.updated_time,
-            last_message_at: conversation.updated_time,
-            unread_count: 0, // Will be updated when we process messages
-          }, {
-            onConflict: 'id',
-          })
-
-        if (convError) {
-          errors.push(`Failed to upsert conversation ${conversation.id}: ${convError.message}`)
-          continue
-        }
-        
-        conversationsUpserted++
-
-        // Step 3: Fetch messages for this conversation
+        // Step 2a: Fetch conversation detail with participants and messages
+        let conversationDetail: Awaited<ReturnType<typeof fetchConversationDetail>>
         try {
-          const messages = await retryWithBackoff(
-            () => fetchConversationMessages(conversation.id, accessToken)
+          conversationDetail = await retryWithBackoff(
+            () => fetchConversationDetail(conversation.id, accessToken)
           )
+        } catch (detailError: any) {
+          errors.push(`Failed to fetch detail for conversation ${conversation.id}: ${detailError.message}`)
+          console.error('[Instagram Inbox Sync] Conversation detail fetch error:', {
+            conversationId: conversation.id,
+            error: detailError.message,
+          })
+          continue
+        }
 
-          // Process each message
-          for (const message of messages) {
-            try {
-              // Determine direction
-              const direction = message.from.id === igAccountId ? 'outbound' : 'inbound'
+        const participants = conversationDetail.participants?.data || []
+        const messages = conversationDetail.messages?.data || []
 
-              // Upsert message
-              const { error: msgError } = await (supabase
-                .from('instagram_messages') as any)
-                .upsert({
-                  id: message.id,
-                  ig_account_id: igAccountId,
-                  conversation_id: conversation.id,
-                  direction,
-                  from_id: message.from.id,
-                  to_id: message.to.id,
-                  text: message.message || null,
-                  attachments: message.attachments || null,
-                  created_time: message.created_time,
-                  read_at: direction === 'outbound' ? message.created_time : null, // Outbound messages are read immediately
-                  raw: message,
-                }, {
-                  onConflict: 'id',
-                })
+        // Step 2b: Extract participant IGSID with robust fallbacks
+        let participantIgsid: string | null = null
 
-              if (msgError) {
-                errors.push(`Failed to upsert message ${message.id}: ${msgError.message}`)
-                continue
+        // Method 1: Try to get from participants list
+        const otherParticipantFromParticipants = participants.find((p: any) => p.id !== igAccountId)
+        if (otherParticipantFromParticipants) {
+          participantIgsid = otherParticipantFromParticipants.id
+        }
+
+        // Method 2: Fallback - derive from messages
+        if (!participantIgsid && messages.length > 0) {
+          const allIds = new Set<string>()
+          for (const msg of messages) {
+            if (msg.from?.id) allIds.add(msg.from.id)
+            // Handle both to.id (single) and to.data (array) formats
+            if (msg.to?.id) allIds.add(msg.to.id)
+            if (msg.to?.data) {
+              for (const toItem of msg.to.data) {
+                if (toItem.id) allIds.add(toItem.id)
               }
-              
-              messagesUpserted++
-
-              // Step 4: Resolve participant identity (if inbound)
-              if (direction === 'inbound' && !identitiesResolved.has(participantIgsid)) {
-                try {
-                  await resolveMessagingUserProfile(
-                    businessLocationId,
-                    igAccountId,
-                    participantIgsid
-                  )
-                  identitiesResolved.add(participantIgsid)
-                } catch (identityError: any) {
-                  // Non-blocking
-                  console.warn('[Instagram Inbox Sync] Failed to resolve identity:', {
-                    participantIgsid,
-                    error: identityError.message,
-                  })
-                }
-              }
-            } catch (msgError: any) {
-              errors.push(`Failed to process message: ${msgError.message}`)
-              continue
             }
           }
-
-          // Update conversation metadata with latest message info
-          if (messages.length > 0) {
-            const lastMessage = messages[messages.length - 1]
-            const lastMessageText = lastMessage.message || ''
-            
-            await (supabase
-              .from('instagram_conversations') as any)
-              .update({
-                last_message_preview: lastMessageText.substring(0, 100),
-                last_message_at: lastMessage.created_time,
-                updated_time: lastMessage.created_time,
-              })
-              .eq('id', conversation.id)
+          // Remove the business account id
+          allIds.delete(igAccountId)
+          const otherParticipantFromMessages = Array.from(allIds)[0]
+          if (otherParticipantFromMessages) {
+            participantIgsid = otherParticipantFromMessages
           }
-        } catch (convMsgError: any) {
-          errors.push(`Failed to fetch messages for conversation ${conversation.id}: ${convMsgError.message}`)
-          console.error('[Instagram Inbox Sync] Message fetch error:', {
-            conversationId: conversation.id,
-            error: convMsgError.message,
-          })
-          // Continue with next conversation
         }
+
+        // Method 3: Final fallback - use deterministic placeholder
+        if (!participantIgsid) {
+          participantIgsid = `UNKNOWN_${conversation.id.slice(-20)}`
+          console.warn('[Instagram Inbox Sync] Could not determine participant, using fallback:', {
+            conversationId: conversation.id,
+            fallbackParticipant: participantIgsid,
+          })
+        }
+
+        // Step 2c: Process messages
+        let lastMessageText: string | null = null
+        let lastMessageTime: string = conversation.updated_time
+
+        for (const message of messages) {
+          try {
+            // Determine direction
+            const direction = message.from.id === igAccountId ? 'outbound' : 'inbound'
+
+            // Extract to_id - handle both formats
+            let toId: string | null = null
+            if (message.to?.id) {
+              toId = message.to.id
+            } else if (message.to?.data && message.to.data.length > 0) {
+              toId = message.to.data[0].id
+            }
+
+            // Upsert message
+            const { error: msgError } = await (supabase
+              .from('instagram_messages') as any)
+              .upsert({
+                id: message.id,
+                ig_account_id: igAccountId,
+                conversation_id: conversation.id,
+                direction,
+                from_id: message.from.id,
+                to_id: toId,
+                text: message.message || null,
+                attachments: message.attachments || null,
+                created_time: message.created_time,
+                read_at: direction === 'outbound' ? message.created_time : null, // Outbound messages are read immediately
+                raw: message,
+              }, {
+                onConflict: 'id',
+              })
+
+            if (msgError) {
+              errors.push(`Failed to upsert message ${message.id}: ${msgError.message}`)
+              continue
+            }
+            
+            messagesUpserted++
+
+            // Track last message
+            if (message.message) {
+              lastMessageText = message.message
+            }
+            if (message.created_time) {
+              lastMessageTime = message.created_time
+            }
+
+            // Step 2d: Resolve participant identity (if inbound and not already resolved)
+            if (direction === 'inbound' && participantIgsid && !participantIgsid.startsWith('UNKNOWN_') && !identitiesResolved.has(participantIgsid)) {
+              try {
+                await resolveMessagingUserProfile(
+                  businessLocationId,
+                  igAccountId,
+                  participantIgsid
+                )
+                identitiesResolved.add(participantIgsid)
+              } catch (identityError: any) {
+                // Non-blocking
+                console.warn('[Instagram Inbox Sync] Failed to resolve identity:', {
+                  participantIgsid,
+                  error: identityError.message,
+                })
+              }
+            }
+          } catch (msgError: any) {
+            errors.push(`Failed to process message: ${msgError.message}`)
+            continue
+          }
+        }
+
+        // Step 2e: Prepare conversation for upsert
+        conversationsToUpsert.push({
+          id: conversation.id,
+          ig_account_id: igAccountId,
+          participant_igsid: participantIgsid,
+          updated_time: conversation.updated_time,
+          last_message_at: lastMessageTime,
+          last_message_preview: lastMessageText ? lastMessageText.substring(0, 100) : null,
+        })
+
       } catch (convError: any) {
         errors.push(`Failed to process conversation ${conversation.id}: ${convError.message}`)
         console.error('[Instagram Inbox Sync] Conversation processing error:', {
@@ -394,6 +439,39 @@ export async function syncInstagramInbox(
           error: convError.message,
         })
         continue
+      }
+    }
+
+    // Step 3: Batch upsert all conversations
+    if (conversationsToUpsert.length > 0) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[Instagram Inbox Sync] Upserting conversations', {
+          count: conversationsToUpsert.length,
+          ids: conversationsToUpsert.map(c => c.id),
+          participants: conversationsToUpsert.map(c => c.participant_igsid),
+        })
+      }
+
+      for (const conv of conversationsToUpsert) {
+        const { error: convError } = await (supabase
+          .from('instagram_conversations') as any)
+          .upsert({
+            id: conv.id,
+            ig_account_id: conv.ig_account_id,
+            participant_igsid: conv.participant_igsid,
+            updated_time: conv.updated_time,
+            last_message_at: conv.last_message_at,
+            last_message_preview: conv.last_message_preview,
+            unread_count: 0, // Will be updated by webhook or manual sync
+          }, {
+            onConflict: 'id',
+          })
+
+        if (convError) {
+          errors.push(`Failed to upsert conversation ${conv.id}: ${convError.message}`)
+        } else {
+          conversationsUpserted++
+        }
       }
     }
 

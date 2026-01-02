@@ -91,8 +91,10 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Fetch user cache for all participants
-    const participantIds = (conversations || []).map((c: any) => c.participant_igsid).filter(Boolean)
+    // Fetch user cache for all participants (exclude UNKNOWN_ placeholders)
+    const participantIds = (conversations || [])
+      .map((c: any) => c.participant_igsid)
+      .filter((id: string | null) => id && !id.startsWith('UNKNOWN_'))
     const userCacheMap: Record<string, any> = {}
 
     if (participantIds.length > 0) {
@@ -176,11 +178,16 @@ export async function GET(request: NextRequest) {
       })
       
       // Prefer username, then name, then fallback
-      const displayName = participantCache.username 
-        ? `@${participantCache.username}` 
-        : participantCache.name 
-        ? participantCache.name
-        : `user_${conv.participant_igsid.slice(-6)}`
+      let displayName: string
+      if (participantCache.username) {
+        displayName = `@${participantCache.username}`
+      } else if (participantCache.name) {
+        displayName = participantCache.name
+      } else if (conv.participant_igsid && !conv.participant_igsid.startsWith('UNKNOWN_')) {
+        displayName = `user_${conv.participant_igsid.slice(-6)}`
+      } else {
+        displayName = 'Unknown User'
+      }
       const avatarUrl = participantCache.profile_pic || null
 
       const conversationMessages = messagesByConversation[conv.id] || []
