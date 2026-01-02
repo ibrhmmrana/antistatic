@@ -774,6 +774,9 @@ async function handleMessageEvent(
                 business_location_id,
                 messageId,
               })
+              
+              // Still try to resolve usernames even for duplicates
+              await resolveUsernames(business_location_id, sender?.id, recipient?.id)
             } else {
               console.log('[Meta Webhook] Error inserting DM event (composite):', {
                 code: compositeError.code,
