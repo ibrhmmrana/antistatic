@@ -102,9 +102,19 @@ export async function GET(request: NextRequest) {
 
     // Check if messaging is enabled
     // Enabled if: has permission AND (webhook verified OR has stored messages)
-    const enabled = hasMessagesPermission && (hasWebhookConfigured || hasMessages)
+    // OR if we have messages (even without permission, show them)
+    const enabled = hasMessages || (hasMessagesPermission && hasWebhookConfigured)
 
-    if (!enabled) {
+    console.log('[Instagram Messages API] Enabled check:', {
+      hasMessages,
+      hasMessagesPermission,
+      hasWebhookConfigured,
+      enabled,
+      eventsCount: events?.length || 0,
+    })
+
+    // If we have messages, always return them (even if permission/webhook not configured)
+    if (!hasMessages && !enabled) {
       return NextResponse.json({
         enabled: false,
         conversations: [],

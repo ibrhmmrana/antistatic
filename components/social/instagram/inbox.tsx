@@ -47,6 +47,7 @@ interface Message {
 
 export function InstagramInbox({ locationId, instagramConnection }: InstagramInboxProps) {
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -77,9 +78,16 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
         const response = await fetch(`/api/social/instagram/messages?locationId=${locationId}`)
         if (response.ok) {
           const data = await response.json()
+          console.log('[Instagram Inbox] API response:', {
+            enabled: data.enabled,
+            conversationsCount: data.conversations?.length || 0,
+            conversations: data.conversations,
+            note: data.note,
+          })
           setEnabled(data.enabled || false)
           setConversations(data.conversations || [])
           setUnreadCount(data.unreadCount || 0)
+          setError(null)
           
           // If a conversation is selected, load its messages
           if (selectedConversationId) {
@@ -90,6 +98,11 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
           }
         } else {
           const errorData = await response.json().catch(() => ({}))
+          console.error('[Instagram Inbox] API error:', {
+            status: response.status,
+            error: errorData,
+          })
+          setError(errorData.error || `API error: ${response.status}`)
           // If it's a "not enabled" response, still show the UI with empty state
           if (errorData.enabled === false) {
             setEnabled(false)
@@ -97,7 +110,9 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
             setEnabled(false)
           }
         }
-      } catch (error) {
+      } catch (error: any) {
+        console.error('[Instagram Inbox] Fetch error:', error)
+        setError(error.message || 'Failed to fetch messages')
         setEnabled(false)
       } finally {
         setLoading(false)
@@ -206,6 +221,17 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
       <div className="bg-white rounded-lg border border-slate-200 p-6 animate-pulse">
         <div className="h-6 bg-slate-200 rounded w-1/3 mb-4"></div>
         <div className="h-4 bg-slate-200 rounded w-1/2"></div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="bg-white rounded-lg border border-slate-200 p-8">
+        <div className="text-center">
+          <p className="text-red-600 mb-2">Error loading messages</p>
+          <p className="text-sm text-slate-600">{error}</p>
+        </div>
       </div>
     )
   }
