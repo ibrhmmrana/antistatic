@@ -1,37 +1,53 @@
-export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong'
+/**
+ * Password Strength Utilities
+ * 
+ * Functions for checking password strength and displaying strength indicators
+ */
 
-export interface PasswordRequirements {
-  minLength: boolean
-  hasUpperCase: boolean
-  hasLowerCase: boolean
-  hasNumber: boolean
-  hasSpecialChar: boolean
-}
+export type PasswordStrength = 'very-weak' | 'weak' | 'fair' | 'good' | 'strong'
 
 export interface PasswordStrengthResult {
+  score: number // 0-5
   strength: PasswordStrength
-  score: number // 0-4
-  requirements: PasswordRequirements
   isValid: boolean
+  requirements: {
+    minLength: boolean
+    hasUpperCase: boolean
+    hasLowerCase: boolean
+    hasNumber: boolean
+    hasSpecialChar: boolean
+  }
 }
 
-const MIN_PASSWORD_LENGTH = 8
-
+/**
+ * Check password strength and validate requirements
+ */
 export function checkPasswordStrength(password: string): PasswordStrengthResult {
-  const requirements: PasswordRequirements = {
-    minLength: password.length >= MIN_PASSWORD_LENGTH,
+  const requirements = {
+    minLength: password.length >= 8,
     hasUpperCase: /[A-Z]/.test(password),
     hasLowerCase: /[a-z]/.test(password),
     hasNumber: /[0-9]/.test(password),
     hasSpecialChar: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password),
   }
 
-  // Calculate score based on requirements met
-  const score = Object.values(requirements).filter(Boolean).length
+  // Count how many requirements are met
+  const metRequirements = Object.values(requirements).filter(Boolean).length
+
+  // Calculate score (0-5)
+  let score = metRequirements
+
+  // Bonus points for length
+  if (password.length >= 12) score += 1
+  if (password.length >= 16) score += 1
+  // Cap at 5
+  score = Math.min(score, 5)
 
   // Determine strength level
   let strength: PasswordStrength
-  if (score <= 2) {
+  if (score <= 1) {
+    strength = 'very-weak'
+  } else if (score === 2) {
     strength = 'weak'
   } else if (score === 3) {
     strength = 'fair'
@@ -41,34 +57,44 @@ export function checkPasswordStrength(password: string): PasswordStrengthResult 
     strength = 'strong'
   }
 
-  // Password is valid if it meets minimum requirements (at least 4 out of 5)
-  const isValid = score >= 4 && requirements.minLength
+  // Password is valid if all requirements are met
+  const isValid = Object.values(requirements).every(Boolean)
 
   return {
-    strength,
     score,
-    requirements,
+    strength,
     isValid,
+    requirements,
   }
 }
 
+/**
+ * Get color for password strength indicator
+ */
 export function getPasswordStrengthColor(strength: PasswordStrength): string {
   switch (strength) {
+    case 'very-weak':
+      return '#dc2626' // red-600
     case 'weak':
-      return 'var(--google-red)'
+      return '#ea580c' // orange-600
     case 'fair':
-      return '#ff9800' // Orange color
+      return '#ca8a04' // yellow-600
     case 'good':
-      return 'var(--google-yellow)'
+      return '#16a34a' // green-600
     case 'strong':
-      return 'var(--google-green)'
+      return '#15803d' // green-700
     default:
-      return 'var(--google-grey-300)'
+      return '#9ca3af' // gray-400
   }
 }
 
+/**
+ * Get text label for password strength
+ */
 export function getPasswordStrengthText(strength: PasswordStrength): string {
   switch (strength) {
+    case 'very-weak':
+      return 'Very Weak'
     case 'weak':
       return 'Weak'
     case 'fair':
@@ -78,7 +104,6 @@ export function getPasswordStrengthText(strength: PasswordStrength): string {
     case 'strong':
       return 'Strong'
     default:
-      return ''
+      return 'Unknown'
   }
 }
-

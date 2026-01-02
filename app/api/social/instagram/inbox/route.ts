@@ -42,10 +42,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Location not found' }, { status: 404 })
     }
 
-    // Get Instagram connection to get ig_account_id
+    // Get Instagram connection to get ig_account_id and business account IGSID
     const { data: connection } = await (supabase
       .from('instagram_connections') as any)
-      .select('instagram_user_id')
+      .select('instagram_user_id, instagram_username')
       .eq('business_location_id', locationId)
       .maybeSingle()
 
@@ -54,6 +54,21 @@ export async function GET(request: NextRequest) {
     }
 
     const igAccountId = connection.instagram_user_id
+    
+    // Get the business account's IGSID from user cache (for identifying outbound messages)
+    let businessAccountIgsid: string | null = null
+    if (connection.instagram_username) {
+      const { data: businessAccountCache } = await (supabase
+        .from('instagram_user_cache') as any)
+        .select('ig_user_id')
+        .eq('ig_account_id', igAccountId)
+        .eq('username', connection.instagram_username)
+        .maybeSingle()
+      
+      if (businessAccountCache) {
+        businessAccountIgsid = businessAccountCache.ig_user_id
+      }
+    }
 
     // Fetch conversations
     let conversationsQuery = (supabase
@@ -109,6 +124,10 @@ export async function GET(request: NextRequest) {
         .eq('ig_account_id', igAccountId)
         .in('ig_user_id', participantIds)
 
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox/route.ts:104',message:'User cache lookup',data:{participantIds,igAccountId,cacheCount:userCache?.length||0,hasError:!!cacheError},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'F'})}).catch(()=>{});
+      // #endregion
+
       if (cacheError) {
         console.error('[Instagram Inbox API] Error fetching user cache:', cacheError)
       } else {
@@ -117,6 +136,7 @@ export async function GET(request: NextRequest) {
           entries: (userCache || []).map((c: any) => ({
             ig_user_id: c.ig_user_id,
             username: c.username,
+            name: c.name,
             hasProfilePic: !!c.profile_pic,
           })),
         })
@@ -190,6 +210,10 @@ export async function GET(request: NextRequest) {
       }
       const avatarUrl = participantCache.profile_pic || null
 
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox/route.ts:197',message:'Formatted conversation',data:{conversationId:conv.id,participantIgsid:conv.participant_igsid,displayName,avatarUrl,hasUsername:!!participantCache.username,hasName:!!participantCache.name,hasProfilePic:!!participantCache.profile_pic,cacheKeys:Object.keys(participantCache)},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'F'})}).catch(()=>{});
+      // #endregion
+
       const conversationMessages = messagesByConversation[conv.id] || []
 
       return {
@@ -203,16 +227,25 @@ export async function GET(request: NextRequest) {
         unreadCount: conv.unread_count || 0,
         updatedTime: conv.updated_time,
         messages: conversationMessages.map((msg: any) => {
+          // Determine if this is an outbound message
+          // Check both the direction field and compare from_id with business account IGSID
+          const isOutbound = msg.direction === 'outbound' || 
+            (businessAccountIgsid && msg.from_id === businessAccountIgsid) ||
+            (!businessAccountIgsid && msg.from_id === igAccountId) // Fallback for old messages
+          
           const senderCache = userCacheMap[msg.from_id] || {}
           // Prefer username, then name, then fallback
-          const senderDisplayName = senderCache.username 
+          // For outbound messages, we'll show "You" in the UI, but keep the display name for reference
+          const senderDisplayName = isOutbound
+            ? 'You'
+            : senderCache.username 
             ? `@${senderCache.username}` 
             : senderCache.name 
             ? senderCache.name
             : `user_${msg.from_id.slice(-6)}`
           return {
             id: msg.id,
-            direction: msg.direction,
+            direction: isOutbound ? 'outbound' : 'inbound', // Ensure direction is correct
             fromId: msg.from_id,
             toId: msg.to_id,
             text: msg.text || '',
@@ -220,7 +253,7 @@ export async function GET(request: NextRequest) {
             createdTime: msg.created_time,
             readAt: msg.read_at,
             displayName: senderDisplayName,
-            avatarUrl: senderCache.profile_pic || null,
+            avatarUrl: isOutbound ? null : (senderCache.profile_pic || null), // Don't show avatar for outbound
           }
         }),
       }
@@ -239,6 +272,16 @@ export async function GET(request: NextRequest) {
 
     // Calculate total unread count
     const totalUnread = formattedConversations.reduce((sum: number, conv: any) => sum + (conv.unreadCount || 0), 0)
+
+    console.log('[Instagram Inbox API] Returning formatted conversations:', {
+      count: formattedConversations.length,
+      conversations: formattedConversations.map((c: any) => ({
+        id: c.id,
+        displayName: c.displayName,
+        username: c.username,
+        hasAvatar: !!c.avatarUrl,
+      })),
+    })
 
     return NextResponse.json({
       conversations: formattedConversations,

@@ -47,10 +47,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: { type: 'not_found', message: 'Location not found' } }, { status: 404 })
     }
 
-    // Step 2: Get Instagram connection to determine ig_account_id
+    // Step 2: Get Instagram connection to determine ig_account_id and business account IGSID
     const { data: connection } = await (supabase
       .from('instagram_connections') as any)
-      .select('instagram_user_id')
+      .select('instagram_user_id, instagram_username')
       .eq('business_location_id', locationId)
       .maybeSingle()
 
@@ -62,6 +62,22 @@ export async function POST(request: NextRequest) {
     }
 
     const igAccountId = connection.instagram_user_id
+    
+    // Get the business account's IGSID from user cache (we need this for from_id)
+    // The business account IGSID is stored in instagram_user_cache with username matching
+    let businessAccountIgsid: string | null = null
+    if (connection.instagram_username) {
+      const { data: businessAccountCache } = await (supabase
+        .from('instagram_user_cache') as any)
+        .select('ig_user_id')
+        .eq('ig_account_id', igAccountId)
+        .eq('username', connection.instagram_username)
+        .maybeSingle()
+      
+      if (businessAccountCache) {
+        businessAccountIgsid = businessAccountCache.ig_user_id
+      }
+    }
 
     // Step 3: Get valid access token using centralized helper (needed for API calls)
     let accessToken: string
@@ -199,21 +215,58 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Step 6: Call Instagram Graph API (correct format per docs)
+    // Step 6: Call Instagram Graph API
+    // According to Instagram docs: Use JSON format with Authorization header
+    // Endpoint: /<IG_ID>/messages or /me/messages
     const apiVersion = 'v24.0'
-    const apiUrl = `https://graph.instagram.com/${apiVersion}/${igAccountId}/messages`
+    
+    // Try /me/messages first (standard Graph API pattern)
+    let apiUrl = `https://graph.instagram.com/${apiVersion}/me/messages`
+    const apiPayload = {
+      recipient: { id: recipientIgsid },
+      message: { text: text.trim() },
+    }
 
-    const response = await fetch(apiUrl, {
+    console.log('[Instagram Send Message] Calling Instagram API:', {
+      url: apiUrl,
+      recipientId: recipientIgsid,
+      textLength: text.length,
+      format: 'json',
+    })
+
+    let response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        recipient: { id: recipientIgsid },
-        message: { text: text.trim() },
-      }),
+      body: JSON.stringify(apiPayload),
     })
+
+    // If /me/messages fails, try with account ID
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      const errorCode = errorData.error?.code
+      
+      // If it's not a clear "me doesn't exist" error, try the account ID endpoint
+      if (errorCode !== 2500 && errorCode !== 803) {
+        console.log('[Instagram Send Message] /me/messages failed, trying with account ID:', {
+          errorCode,
+          errorMessage: errorData.error?.message,
+        })
+        
+        apiUrl = `https://graph.instagram.com/${apiVersion}/${igAccountId}/messages`
+        
+        response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(apiPayload),
+        })
+      }
+    }
 
     const responseData = await response.json().catch(() => ({}))
 
@@ -258,7 +311,17 @@ export async function POST(request: NextRequest) {
     const messageId = responseData.id || responseData.message_id || `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`
     const messageTime = new Date().toISOString()
 
+    console.log('[Instagram Send Message] Success:', {
+      messageId,
+      recipientId: recipientIgsid,
+    })
+
     // Step 8: Insert outbound message into database
+    // Use business account IGSID for from_id (not business account ID)
+    // If we don't have the IGSID, we'll need to fetch it or use a placeholder
+    // For now, we'll use the business account ID as fallback, but ideally we should have the IGSID
+    const fromId = businessAccountIgsid || igAccountId
+    
     const { error: insertError } = await (supabase
       .from('instagram_messages') as any)
       .insert({
@@ -266,7 +329,7 @@ export async function POST(request: NextRequest) {
         ig_account_id: igAccountId,
         conversation_id: finalConversationId,
         direction: 'outbound',
-        from_id: igAccountId,
+        from_id: fromId, // Use IGSID if available, otherwise fallback to account ID
         to_id: recipientIgsid,
         text: text.trim(),
         attachments: null,
@@ -280,13 +343,26 @@ export async function POST(request: NextRequest) {
       // Don't fail the request - message was sent successfully to Instagram
     }
 
-    // Step 9: Update conversation metadata
+    // Step 9: Update conversation metadata with the most recent message
+    // Get the most recent message from the database to ensure we have the correct preview
+    const { data: recentMessages } = await (supabase
+      .from('instagram_messages') as any)
+      .select('text, created_time')
+      .eq('conversation_id', finalConversationId)
+      .eq('ig_account_id', igAccountId)
+      .order('created_time', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    
+    const previewText = recentMessages?.text || text.trim()
+    const previewTime = recentMessages?.created_time || messageTime
+    
     const { error: updateError } = await (supabase
       .from('instagram_conversations') as any)
       .update({
-        last_message_preview: text.trim().substring(0, 100),
-        last_message_at: messageTime,
-        updated_time: messageTime,
+        last_message_preview: previewText ? previewText.substring(0, 100) : null,
+        last_message_at: previewTime,
+        updated_time: previewTime,
         unread_count: 0, // Reset unread since we sent it
       })
       .eq('id', finalConversationId)

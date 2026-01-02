@@ -44,9 +44,13 @@ export async function POST(request: NextRequest) {
     // Get Instagram connection
     const { data: connection } = await (supabase
       .from('instagram_connections') as any)
-      .select('access_token, instagram_user_id')
+      .select('access_token, instagram_user_id, token_expires_at')
       .eq('business_location_id', locationId)
       .maybeSingle()
+
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync/route.ts:47',message:'Connection loaded',data:{hasConnection:!!connection,hasToken:!!connection?.access_token,igUserId:connection?.instagram_user_id,hasExpiresAt:!!connection?.token_expires_at,expiresAt:connection?.token_expires_at},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
 
     if (!connection || !connection.access_token) {
       return NextResponse.json({ error: 'Instagram not connected' }, { status: 404 })
@@ -58,6 +62,10 @@ export async function POST(request: NextRequest) {
       connection.instagram_user_id,
       connection.access_token
     )
+
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync/route.ts:60',message:'Sync completed',data:{conversationsFound:result.conversationsFound,conversationsUpserted:result.conversationsUpserted,messagesUpserted:result.messagesUpserted,errors:result.errors},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
 
     return NextResponse.json({
       success: true,
