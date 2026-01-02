@@ -1,6 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { Database } from '@/lib/supabase/database.types'
 import crypto from 'crypto'
+
+/**
+ * Create a Supabase client with service role key for webhook operations
+ * This bypasses RLS and is safe to use server-side only
+ */
+function createServiceRoleClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!serviceRoleKey) {
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY is required for webhook operations')
+  }
+
+  return createSupabaseClient<Database>(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  })
+}
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -76,7 +98,8 @@ export async function GET(request: NextRequest) {
       console.log('[Meta Webhook] Verification successful')
       
       // Update webhook_verified_at in sync_state for all connected accounts
-      const supabase = await createClient()
+      // Use service role client for webhook verification (bypasses RLS)
+      const supabase = createServiceRoleClient()
       const { data: connections } = await (supabase
         .from('instagram_connections') as any)
         .select('business_location_id')
@@ -238,7 +261,8 @@ export async function POST(request: NextRequest) {
  * 2. New: { object: 'instagram', entry: [{ id, changes: [{ field: 'messages', value: {...} }] }] }
  */
 async function processWebhookEvents(body: any) {
-  const supabase = await createClient()
+  // Use service role client for webhook processing (bypasses RLS)
+  const supabase = createServiceRoleClient()
   
   console.log('[Meta Webhook] Processing events, body.object:', body.object)
   
