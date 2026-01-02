@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { Database } from '@/lib/supabase/database.types'
+import { resolveInstagramUser } from '@/lib/instagram/resolve-user'
 import crypto from 'crypto'
 
 /**
@@ -539,6 +540,44 @@ async function findBusinessLocationId(
 }
 
 /**
+ * Resolve usernames for sender and recipient (with timeout)
+ */
+async function resolveUsernames(
+  businessLocationId: string,
+  senderId: string | null | undefined,
+  recipientId: string | null | undefined
+): Promise<void> {
+  if (!senderId && !recipientId) {
+    return
+  }
+  
+  try {
+    // Wrap in timeout to not block webhook
+    const resolvePromise = Promise.all([
+      senderId ? resolveInstagramUser(businessLocationId, senderId) : Promise.resolve(null),
+      recipientId && recipientId !== senderId 
+        ? resolveInstagramUser(businessLocationId, recipientId) 
+        : Promise.resolve(null),
+    ])
+    
+    await Promise.race([
+      resolvePromise,
+      new Promise((resolve) => setTimeout(() => resolve(null), 2000))
+    ])
+    
+    console.log('[Meta Webhook] Username resolution attempted:', {
+      senderId,
+      recipientId,
+    })
+  } catch (error: any) {
+    // Don't fail webhook if resolution fails
+    console.log('[Meta Webhook] Username resolution error (non-blocking):', {
+      message: error.message,
+    })
+  }
+}
+
+/**
  * Insert message into unmatched events table
  */
 async function insertUnmatchedEvent(
@@ -758,6 +797,9 @@ async function handleMessageEvent(
               insertedId: compositeData?.[0]?.id,
               matched_via,
             })
+            
+            // Resolve usernames for sender (and recipient if different)
+            await resolveUsernames(business_location_id, sender?.id, recipient?.id)
           }
         } else if (insertError.code === '23505') {
           console.log('[Meta Webhook] DM event already exists (duplicate), skipping')
@@ -765,6 +807,9 @@ async function handleMessageEvent(
             business_location_id,
             messageId,
           })
+          
+          // Still try to resolve usernames even for duplicates
+          await resolveUsernames(business_location_id, sender?.id, recipient?.id)
         } else {
           console.log('[Meta Webhook] Error inserting DM event:', {
             code: insertError.code,
@@ -788,6 +833,9 @@ async function handleMessageEvent(
           insertedId: insertData?.[0]?.id,
           matched_via,
         })
+        
+        // Resolve usernames for sender (and recipient if different)
+        await resolveUsernames(business_location_id, sender?.id, recipient?.id)
       }
     } catch (insertException: any) {
       console.log('[Meta Webhook] Exception during insert:', {

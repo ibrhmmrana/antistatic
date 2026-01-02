@@ -26,7 +26,9 @@ interface InstagramInboxProps {
 
 interface Conversation {
   conversationId: string
+  participantId: string
   participantUsername: string
+  participantProfilePic: string | null
   updatedTime: string
   unreadCount: number
   lastMessageText: string | null
@@ -37,12 +39,13 @@ interface Conversation {
 interface Message {
   id: string
   direction: 'inbound' | 'outbound'
-  from: {
-    id: string
-    username: string
-  }
+  fromId: string
+  toId: string
+  fromUsername: string
+  fromProfilePic: string | null
   text: string
   timestamp: string
+  attachments?: any
 }
 
 export function InstagramInbox({ locationId, instagramConnection }: InstagramInboxProps) {
@@ -354,10 +357,30 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
                         : 'border-slate-200 hover:bg-slate-50'
                     }`}
                   >
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      {/* Profile Picture */}
+                      {conv.participantProfilePic ? (
+                        <img
+                          src={conv.participantProfilePic}
+                          alt={conv.participantUsername}
+                          className="w-10 h-10 rounded-full object-cover"
+                          onError={(e) => {
+                            // Fallback to avatar if image fails to load
+                            const target = e.target as HTMLImageElement
+                            target.style.display = 'none'
+                            if (target.nextElementSibling) {
+                              (target.nextElementSibling as HTMLElement).style.display = 'flex'
+                            }
+                          }}
+                        />
+                      ) : null}
+                      <div className={`w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-xs text-slate-600 ${conv.participantProfilePic ? 'hidden' : ''}`}>
+                        {conv.participantUsername.charAt(1)?.toUpperCase() || '?'}
+                      </div>
+                      
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-slate-900 truncate">
-                          @{conv.participantUsername}
+                          {conv.participantUsername}
                         </p>
                         <p className="text-xs text-slate-500 truncate">
                           {conv.lastMessageText || 'No messages'}
@@ -395,13 +418,30 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
                           key={message.id}
                           className={`flex items-start gap-3 ${isOutbound ? 'flex-row-reverse' : ''}`}
                         >
-                          <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs">
-                            {message.from?.username?.charAt(0).toUpperCase() || '?'}
+                          {/* Profile Picture */}
+                          {message.fromProfilePic ? (
+                            <img
+                              src={message.fromProfilePic}
+                              alt={message.fromUsername}
+                              className="w-8 h-8 rounded-full object-cover"
+                              onError={(e) => {
+                                // Fallback to avatar if image fails to load
+                                const target = e.target as HTMLImageElement
+                                target.style.display = 'none'
+                                if (target.nextElementSibling) {
+                                  (target.nextElementSibling as HTMLElement).style.display = 'flex'
+                                }
+                              }}
+                            />
+                          ) : null}
+                          <div className={`w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs text-slate-600 ${message.fromProfilePic ? 'hidden' : ''}`}>
+                            {message.fromUsername.charAt(1)?.toUpperCase() || '?'}
                           </div>
+                          
                           <div className={`flex-1 ${isOutbound ? 'text-right' : ''}`}>
                             <div className={`flex items-center gap-2 mb-1 ${isOutbound ? 'justify-end' : ''}`}>
                               <span className="text-sm font-medium text-slate-900">
-                                {isOutbound ? 'You' : `@${message.from?.username || 'Unknown'}`}
+                                {isOutbound ? 'You' : message.fromUsername}
                               </span>
                               <span className="text-xs text-slate-500">
                                 {new Date(message.timestamp).toLocaleString()}

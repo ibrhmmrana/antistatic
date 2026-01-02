@@ -162,6 +162,26 @@ export async function GET(request: NextRequest) {
       conversationsMap[conversationKey].push(event)
     })
 
+    // Fetch user cache for all participant IDs
+    const participantIds = Array.from(new Set(Object.keys(conversationsMap)))
+    const userCacheMap: Record<string, { username: string | null; profile_pic_url: string | null }> = {}
+    
+    if (participantIds.length > 0) {
+      const { data: userCache, error: cacheError } = await (supabase
+        .from('instagram_user_cache') as any)
+        .select('ig_user_id, username, profile_pic_url')
+        .in('ig_user_id', participantIds)
+      
+      if (!cacheError && userCache) {
+        userCache.forEach((cache: any) => {
+          userCacheMap[cache.ig_user_id] = {
+            username: cache.username,
+            profile_pic_url: cache.profile_pic_url,
+          }
+        })
+      }
+    }
+
     // Format conversations with messages
     const formattedConversations = Object.entries(conversationsMap).map(([participantId, conversationEvents]) => {
       // Sort events by timestamp (oldest first for display)
@@ -170,11 +190,16 @@ export async function GET(request: NextRequest) {
       )
       
       const lastEvent = sortedEvents[sortedEvents.length - 1]
+      const cachedUser = userCacheMap[participantId]
+      const participantUsername = cachedUser?.username 
+        ? `@${cachedUser.username}` 
+        : `@user_${participantId.slice(-6)}`
 
       return {
         conversationId: participantId,
         participantId,
-        participantUsername: `@user_${participantId.slice(-6)}`,
+        participantUsername,
+        participantProfilePic: cachedUser?.profile_pic_url || null,
         updatedTime: lastEvent?.timestamp || lastEvent?.created_at,
         unreadCount: 0,
         lastMessageText: lastEvent?.text || null,
@@ -187,11 +212,19 @@ export async function GET(request: NextRequest) {
           // If neither matches, default to inbound (someone sent it to us)
           const direction = isFromUs ? 'outbound' : (isToUs ? 'inbound' : 'inbound')
           
+          // Get sender cache info
+          const senderCache = userCacheMap[e.sender_id]
+          const senderUsername = senderCache?.username 
+            ? `@${senderCache.username}` 
+            : `@user_${e.sender_id?.slice(-6) || 'unknown'}`
+          
           return {
             id: e.message_id || e.id,
             direction,
             fromId: e.sender_id,
             toId: e.recipient_id,
+            fromUsername: senderUsername,
+            fromProfilePic: senderCache?.profile_pic_url || null,
             text: e.text || '',
             timestamp: e.timestamp || e.created_at,
             attachments: e.raw?.message?.attachments || null,
