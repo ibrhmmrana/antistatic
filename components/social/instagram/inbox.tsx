@@ -28,7 +28,10 @@ interface Conversation {
   conversationId: string
   participantId: string
   participantUsername: string
+  participantName: string | null
   participantProfilePic: string | null
+  displayName: string
+  avatarUrl: string | null
   updatedTime: string
   unreadCount: number
   lastMessageText: string | null
@@ -42,7 +45,10 @@ interface Message {
   fromId: string
   toId: string
   fromUsername: string
+  fromName: string | null
   fromProfilePic: string | null
+  displayName: string
+  avatarUrl: string | null
   text: string
   timestamp: string
   attachments?: any
@@ -320,6 +326,22 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
             onClick={async () => {
               try {
                 setLoading(true)
+                
+                // First, trigger sync to backfill messages and resolve identities
+                try {
+                  const syncResponse = await fetch(`/api/social/instagram/messages/sync?locationId=${locationId}`, {
+                    method: 'POST',
+                  })
+                  if (syncResponse.ok) {
+                    const syncData = await syncResponse.json()
+                    console.log('[Instagram Inbox] Sync completed:', syncData)
+                  }
+                } catch (syncError) {
+                  console.error('[Instagram Inbox] Sync error (non-blocking):', syncError)
+                  // Continue even if sync fails
+                }
+                
+                // Then, refresh messages
                 const response = await fetch(`/api/social/instagram/messages?locationId=${locationId}`)
                 if (response.ok) {
                   const data = await response.json()
@@ -359,10 +381,10 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
                   >
                     <div className="flex items-center gap-3">
                       {/* Profile Picture */}
-                      {conv.participantProfilePic ? (
+                      {conv.avatarUrl ? (
                         <img
-                          src={conv.participantProfilePic}
-                          alt={conv.participantUsername}
+                          src={conv.avatarUrl}
+                          alt={conv.displayName}
                           className="w-10 h-10 rounded-full object-cover"
                           onError={(e) => {
                             // Fallback to avatar if image fails to load
@@ -374,13 +396,13 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
                           }}
                         />
                       ) : null}
-                      <div className={`w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-xs text-slate-600 ${conv.participantProfilePic ? 'hidden' : ''}`}>
-                        {conv.participantUsername.charAt(1)?.toUpperCase() || '?'}
+                      <div className={`w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-xs text-slate-600 ${conv.avatarUrl ? 'hidden' : ''}`}>
+                        {conv.displayName.charAt(0)?.toUpperCase() || '?'}
                       </div>
                       
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-slate-900 truncate">
-                          {conv.participantUsername}
+                          {conv.displayName}
                         </p>
                         <p className="text-xs text-slate-500 truncate">
                           {conv.lastMessageText || 'No messages'}
@@ -419,10 +441,10 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
                           className={`flex items-start gap-3 ${isOutbound ? 'flex-row-reverse' : ''}`}
                         >
                           {/* Profile Picture */}
-                          {message.fromProfilePic ? (
+                          {message.avatarUrl ? (
                             <img
-                              src={message.fromProfilePic}
-                              alt={message.fromUsername}
+                              src={message.avatarUrl}
+                              alt={message.displayName}
                               className="w-8 h-8 rounded-full object-cover"
                               onError={(e) => {
                                 // Fallback to avatar if image fails to load
@@ -434,14 +456,14 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
                               }}
                             />
                           ) : null}
-                          <div className={`w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs text-slate-600 ${message.fromProfilePic ? 'hidden' : ''}`}>
-                            {message.fromUsername.charAt(1)?.toUpperCase() || '?'}
+                          <div className={`w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs text-slate-600 ${message.avatarUrl ? 'hidden' : ''}`}>
+                            {message.displayName.charAt(0)?.toUpperCase() || '?'}
                           </div>
                           
                           <div className={`flex-1 ${isOutbound ? 'text-right' : ''}`}>
                             <div className={`flex items-center gap-2 mb-1 ${isOutbound ? 'justify-end' : ''}`}>
                               <span className="text-sm font-medium text-slate-900">
-                                {isOutbound ? 'You' : message.fromUsername}
+                                {isOutbound ? 'You' : message.displayName}
                               </span>
                               <span className="text-xs text-slate-500">
                                 {new Date(message.timestamp).toLocaleString()}
