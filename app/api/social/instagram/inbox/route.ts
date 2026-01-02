@@ -73,22 +73,60 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch conversations' }, { status: 500 })
     }
 
+    console.log('[Instagram Inbox API] Fetched conversations:', {
+      count: conversations?.length || 0,
+      igAccountId,
+      locationId,
+      conversationIds: (conversations || []).map((c: any) => c.id),
+      participantIds: (conversations || []).map((c: any) => c.participant_igsid),
+      rawConversations: conversations,
+    })
+    
+    // If no conversations found, log a helpful message
+    if (!conversations || conversations.length === 0) {
+      console.warn('[Instagram Inbox API] No conversations found. Possible reasons:', {
+        igAccountId,
+        locationId,
+        suggestion: 'Run inbox sync to fetch conversations from Instagram API',
+      })
+    }
+
     // Fetch user cache for all participants
-    const participantIds = (conversations || []).map((c: any) => c.participant_igsid)
+    const participantIds = (conversations || []).map((c: any) => c.participant_igsid).filter(Boolean)
     const userCacheMap: Record<string, any> = {}
 
     if (participantIds.length > 0) {
-      const { data: userCache } = await (supabase
+      console.log('[Instagram Inbox API] Looking up user cache for participants:', {
+        participantIds,
+        igAccountId,
+      })
+
+      const { data: userCache, error: cacheError } = await (supabase
         .from('instagram_user_cache') as any)
         .select('ig_user_id, username, name, profile_pic')
         .eq('ig_account_id', igAccountId)
         .in('ig_user_id', participantIds)
 
-      if (userCache) {
-        userCache.forEach((cache: any) => {
-          userCacheMap[cache.ig_user_id] = cache
+      if (cacheError) {
+        console.error('[Instagram Inbox API] Error fetching user cache:', cacheError)
+      } else {
+        console.log('[Instagram Inbox API] Found user cache entries:', {
+          count: userCache?.length || 0,
+          entries: (userCache || []).map((c: any) => ({
+            ig_user_id: c.ig_user_id,
+            username: c.username,
+            hasProfilePic: !!c.profile_pic,
+          })),
         })
+
+        if (userCache) {
+          userCache.forEach((cache: any) => {
+            userCacheMap[cache.ig_user_id] = cache
+          })
+        }
       }
+    } else {
+      console.log('[Instagram Inbox API] No participant IDs to look up')
     }
 
     // Fetch messages for conversations
@@ -120,9 +158,23 @@ export async function GET(request: NextRequest) {
       messagesByConversation[msg.conversation_id].push(msg)
     })
 
+    console.log('[Instagram Inbox API] Fetched messages:', {
+      count: messages?.length || 0,
+      conversationIds: conversationIds,
+      messagesByConversation: Object.keys(messagesByConversation).length,
+    })
+
     // Format response
     const formattedConversations = (conversations || []).map((conv: any) => {
       const participantCache = userCacheMap[conv.participant_igsid] || {}
+      
+      console.log('[Instagram Inbox API] Formatting conversation:', {
+        conversationId: conv.id,
+        participantIgsid: conv.participant_igsid,
+        hasCache: !!participantCache.username || !!participantCache.name,
+        cacheData: participantCache,
+      })
+      
       // Prefer username, then name, then fallback
       const displayName = participantCache.username 
         ? `@${participantCache.username}` 
@@ -165,6 +217,17 @@ export async function GET(request: NextRequest) {
           }
         }),
       }
+    })
+
+    console.log('[Instagram Inbox API] Returning formatted conversations:', {
+      count: formattedConversations.length,
+      conversations: formattedConversations.map((c: any) => ({
+        id: c.id,
+        displayName: c.displayName,
+        username: c.username,
+        hasAvatar: !!c.avatarUrl,
+        messageCount: c.messages.length,
+      })),
     })
 
     // Calculate total unread count

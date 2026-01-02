@@ -91,6 +91,13 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
 
       const data = await response.json()
       
+      console.log('[Instagram Inbox] API response:', {
+        conversationsCount: data.conversations?.length || 0,
+        conversations: data.conversations,
+        unreadCount: data.unreadCount,
+        hasError: !!data.error,
+      })
+      
       // Check for auth error in response
       if (data.error?.type === 'instagram_auth') {
         setAuthError({
@@ -105,6 +112,11 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
       setUnreadCount(data.unreadCount || 0)
       setError(null)
       setAuthError(null) // Clear auth error on success
+      
+      console.log('[Instagram Inbox] State updated:', {
+        conversationsCount: data.conversations?.length || 0,
+        unreadCount: data.unreadCount || 0,
+      })
 
       // If a conversation is selected, update its messages
       if (selectedConversationId) {
