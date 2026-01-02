@@ -37,13 +37,25 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Location not found' }, { status: 404 })
     }
 
-    // Get messages for conversation
-    const { data: messages, error } = await (supabase
-      .from('instagram_messages') as any)
-      .select('message_id, direction, from_id, to_id, text, created_time')
+    // Get Instagram connection to determine our account ID
+    const { data: connection } = await (supabase
+      .from('instagram_connections') as any)
+      .select('instagram_user_id')
       .eq('business_location_id', locationId)
-      .eq('conversation_id', threadId)
-      .order('created_time', { ascending: true })
+      .maybeSingle()
+
+    if (!connection) {
+      return NextResponse.json({ error: 'Instagram not connected' }, { status: 404 })
+    }
+
+    // Get messages for thread (using new DM tables)
+    const { data: messages, error } = await (supabase
+      .from('instagram_dm_messages') as any)
+      .select('message_mid, sender_id, recipient_id, message_text, timestamp_ms, attachments')
+      .eq('business_location_id', locationId)
+      .eq('ig_account_id', connection.instagram_user_id)
+      .eq('thread_key', threadId)
+      .order('timestamp_ms', { ascending: true })
       .limit(100)
 
     if (error) {
@@ -51,33 +63,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch messages' }, { status: 500 })
     }
 
-    // Mark conversation as read (reset unread count)
-    await (supabase
-      .from('instagram_conversations') as any)
-      .update({ unread_count: 0 })
-      .eq('conversation_id', threadId)
-      .eq('business_location_id', locationId)
-
-    // Get conversation to get participant username
-    const { data: conversation } = await (supabase
-      .from('instagram_conversations') as any)
-      .select('participant_username')
-      .eq('business_location_id', locationId)
-      .eq('conversation_id', threadId)
-      .maybeSingle()
-
-    const participantUsername = conversation?.participant_username || 'User'
-
     return NextResponse.json({
       messages: (messages || []).map((m: any) => ({
-        id: m.message_id,
-        direction: m.direction,
+        id: m.message_mid || `msg_${m.timestamp_ms}`,
+        direction: m.sender_id === connection.instagram_user_id ? 'outbound' : 'inbound',
         from: {
-          id: m.from_id,
-          username: m.direction === 'inbound' ? participantUsername : 'You',
+          id: m.sender_id,
+          username: m.sender_id === connection.instagram_user_id ? 'You' : `@user_${m.sender_id.slice(-6)}`,
         },
-        text: m.text || '',
-        timestamp: m.created_time,
+        text: m.message_text || '',
+        timestamp: new Date(m.timestamp_ms).toISOString(),
+        attachments: m.attachments,
       })),
     })
   } catch (error: any) {

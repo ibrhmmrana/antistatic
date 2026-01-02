@@ -69,17 +69,21 @@ export async function GET(request: NextRequest) {
     const hasWebhookConfigured = !!webhookState?.webhook_verified_at
 
     // Read from instagram_dm_events table (latest 50 messages)
-    // Note: We query by business_location_id only, since ig_user_id might not match
-    // the webhook's igAccountId (could be page-scoped ID vs user ID)
+    // Query by business_location_id and order by timestamp (most recent first)
     const { data: events, error: eventsError } = await (supabase
       .from('instagram_dm_events') as any)
       .select('id, sender_id, recipient_id, message_id, text, timestamp, raw, ig_user_id, created_at')
       .eq('business_location_id', locationId)
-      .order('created_at', { ascending: false })
+      .order('timestamp', { ascending: false })
       .limit(50)
     
     if (eventsError) {
-      console.error('[Instagram Messages API] Error fetching events:', eventsError)
+      console.error('[Instagram Messages API] Error fetching events:', {
+        message: eventsError.message,
+        code: eventsError.code,
+        details: eventsError.details,
+        hint: eventsError.hint,
+      })
     } else {
       console.log('[Instagram Messages API] Fetched events:', {
         count: events?.length || 0,
@@ -89,6 +93,7 @@ export async function GET(request: NextRequest) {
           sender_id: events[0].sender_id,
           recipient_id: events[0].recipient_id,
           hasText: !!events[0].text,
+          timestamp: events[0].timestamp,
         } : null,
       })
     }
