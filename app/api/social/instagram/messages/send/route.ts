@@ -83,20 +83,83 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Step 4: If conversation not found, try to fetch from Instagram API
+    let recipientIgsid: string | null = null
+    let finalConversationId = conversationId
+
     if (!conversation) {
-      console.warn('[Instagram Send Message] Conversation not found:', {
+      console.warn('[Instagram Send Message] Conversation not found in DB, trying API lookup:', {
         conversationId,
         igAccountId,
         locationId,
       })
-      return NextResponse.json(
-        { error: { type: 'not_found', message: 'Conversation not found' } },
-        { status: 404 }
-      )
-    }
 
-    // Step 4: Get recipient IGSID from conversation
-    const recipientIgsid = conversation.participant_igsid
+      // Try to find conversation by participant_igsid if conversationId looks like a generated one
+      // Or try to fetch from Instagram API using user_id parameter
+      // For now, if conversationId is provided but not found, we'll need participant_igsid from request
+      // This is a fallback - ideally the UI should always provide valid conversationId
+      
+      // If the request includes participant_igsid, use it directly
+      if (body.participant_igsid) {
+        recipientIgsid = body.participant_igsid
+        
+        // Try to find existing conversation by participant
+        const { data: existingConv } = await (supabase
+          .from('instagram_conversations') as any)
+          .select('id, participant_igsid')
+          .eq('ig_account_id', igAccountId)
+          .eq('participant_igsid', recipientIgsid)
+          .maybeSingle()
+        
+        if (existingConv) {
+          finalConversationId = existingConv.id
+          console.log('[Instagram Send Message] Found conversation by participant:', finalConversationId)
+        } else {
+          // Try to fetch conversation from Instagram API
+          try {
+            const apiVersion = 'v24.0'
+            const convUrl = `https://graph.instagram.com/${apiVersion}/me/conversations?platform=instagram&user_id=${recipientIgsid}&access_token=${accessToken}`
+            
+            const convResponse = await fetch(convUrl)
+            if (convResponse.ok) {
+              const convData = await convResponse.json()
+              if (convData.data && convData.data.length > 0) {
+                const apiConversation = convData.data[0]
+                finalConversationId = apiConversation.id
+                
+                // Upsert conversation into DB
+                await (supabase
+                  .from('instagram_conversations') as any)
+                  .upsert({
+                    id: apiConversation.id,
+                    ig_account_id: igAccountId,
+                    participant_igsid: recipientIgsid,
+                    updated_time: apiConversation.updated_time || new Date().toISOString(),
+                    last_message_at: apiConversation.updated_time || new Date().toISOString(),
+                    unread_count: 0,
+                  }, { onConflict: 'id' })
+                
+                console.log('[Instagram Send Message] Fetched conversation from API:', finalConversationId)
+              }
+            }
+          } catch (apiError: any) {
+            console.warn('[Instagram Send Message] Failed to fetch conversation from API:', apiError.message)
+          }
+        }
+      } else {
+        return NextResponse.json(
+          { 
+            error: { 
+              type: 'not_found', 
+              message: 'Conversation not found. Please refresh the inbox and try again.' 
+            } 
+          },
+          { status: 404 }
+        )
+      }
+    } else {
+      recipientIgsid = conversation.participant_igsid
+    }
 
     if (!recipientIgsid) {
       console.error('[Instagram Send Message] Missing participant_igsid:', {
@@ -128,6 +191,14 @@ export async function POST(request: NextRequest) {
         )
       }
       throw error
+    }
+
+    // Step 5.5: If we still don't have recipientIgsid, we can't send
+    if (!recipientIgsid) {
+      return NextResponse.json(
+        { error: { type: 'validation', message: 'Missing recipient ID' } },
+        { status: 400 }
+      )
     }
 
     // Step 6: Call Instagram Graph API (correct format per docs)
@@ -195,14 +266,14 @@ export async function POST(request: NextRequest) {
       .insert({
         id: messageId,
         ig_account_id: igAccountId,
-        conversation_id: conversationId,
+        conversation_id: finalConversationId,
         direction: 'outbound',
         from_id: igAccountId,
         to_id: recipientIgsid,
         text: text.trim(),
         attachments: null,
         created_time: messageTime,
-        read_at: null,
+        read_at: messageTime, // Outbound messages are read immediately
         raw: responseData,
       })
 
@@ -220,7 +291,7 @@ export async function POST(request: NextRequest) {
         updated_time: messageTime,
         unread_count: 0, // Reset unread since we sent it
       })
-      .eq('id', conversationId)
+      .eq('id', finalConversationId)
 
     if (updateError) {
       console.error('[Instagram Send Message] Error updating conversation:', updateError)

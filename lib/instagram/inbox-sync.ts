@@ -10,7 +10,7 @@ import { Database } from '@/lib/supabase/database.types'
 import { resolveMessagingUserProfile } from './messaging-user-profile'
 
 const API_BASE = 'https://graph.instagram.com'
-const API_VERSION = 'v18.0'
+const API_VERSION = 'v24.0' // Use v24.0 for Instagram API with Instagram Login
 
 /**
  * Create service role Supabase client
@@ -59,6 +59,9 @@ async function retryWithBackoff<T>(
 
 /**
  * Fetch conversations from Instagram API
+ * 
+ * Uses the correct endpoint: GET /me/conversations?platform=instagram
+ * This requires instagram_business_manage_messages permission
  */
 async function fetchConversations(
   igAccountId: string,
@@ -69,22 +72,40 @@ async function fetchConversations(
   participants: Array<{ id: string }>
 }>> {
   try {
-    // Instagram Conversations API endpoint
-    const url = `${API_BASE}/${API_VERSION}/${igAccountId}/conversations?platform=instagram&access_token=${accessToken}`
+    // Instagram Conversations API endpoint - use /me/conversations (not /{igAccountId}/conversations)
+    // This is the correct endpoint for Instagram API with Instagram Login
+    const url = `${API_BASE}/${API_VERSION}/me/conversations?platform=instagram&access_token=${accessToken}`
+    
+    console.log('[Instagram Inbox Sync] Fetching conversations from:', url.replace(accessToken, 'REDACTED'))
     
     const response = await fetch(url)
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
-      throw new Error(`HTTP ${response.status}: ${errorData.error?.message || response.statusText}`)
+      const errorMessage = errorData.error?.message || response.statusText
+      console.error('[Instagram Inbox Sync] Conversations API error:', {
+        status: response.status,
+        error: errorData.error,
+        message: errorMessage,
+      })
+      throw new Error(`HTTP ${response.status}: ${errorMessage}`)
     }
     
     const data = await response.json()
-    return data.data || []
+    const conversations = data.data || []
+    
+    console.log('[Instagram Inbox Sync] Fetched conversations:', {
+      count: conversations.length,
+      hasPaging: !!data.paging,
+      nextCursor: data.paging?.cursors?.after,
+    })
+    
+    return conversations
   } catch (error: any) {
     console.error('[Instagram Inbox Sync] Error fetching conversations:', {
       igAccountId,
       message: error.message,
+      stack: error.stack,
     })
     throw error
   }
@@ -92,6 +113,8 @@ async function fetchConversations(
 
 /**
  * Fetch messages for a conversation
+ * 
+ * Uses the correct fields syntax: ?fields=messages{from,to,message,created_time,id,attachments}
  */
 async function fetchConversationMessages(
   conversationId: string,
@@ -105,21 +128,46 @@ async function fetchConversationMessages(
   attachments?: any
 }>> {
   try {
-    const url = `${API_BASE}/${API_VERSION}/${conversationId}?fields=messages&access_token=${accessToken}`
+    // Use correct fields syntax with nested message fields
+    // Format: fields=messages{from,to,message,created_time,id,attachments}
+    const fields = 'messages{from,to,message,created_time,id,attachments}'
+    const url = `${API_BASE}/${API_VERSION}/${conversationId}?fields=${fields}&access_token=${accessToken}`
+    
+    console.log('[Instagram Inbox Sync] Fetching messages for conversation:', {
+      conversationId,
+      url: url.replace(accessToken, 'REDACTED'),
+    })
     
     const response = await fetch(url)
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
-      throw new Error(`HTTP ${response.status}: ${errorData.error?.message || response.statusText}`)
+      const errorMessage = errorData.error?.message || response.statusText
+      console.error('[Instagram Inbox Sync] Conversation messages API error:', {
+        conversationId,
+        status: response.status,
+        error: errorData.error,
+        message: errorMessage,
+      })
+      throw new Error(`HTTP ${response.status}: ${errorMessage}`)
     }
     
     const data = await response.json()
-    return data.messages?.data || []
+    const messages = data.messages?.data || []
+    
+    console.log('[Instagram Inbox Sync] Fetched messages:', {
+      conversationId,
+      count: messages.length,
+      hasPaging: !!data.messages?.paging,
+      nextCursor: data.messages?.paging?.cursors?.after,
+    })
+    
+    return messages
   } catch (error: any) {
     console.error('[Instagram Inbox Sync] Error fetching conversation messages:', {
       conversationId,
       message: error.message,
+      stack: error.stack,
     })
     throw error
   }
@@ -258,17 +306,13 @@ export async function syncInstagramInbox(
 
         // Step 3: Fetch messages for this conversation
         try {
-          const messageIds = await retryWithBackoff(
+          const messages = await retryWithBackoff(
             () => fetchConversationMessages(conversation.id, accessToken)
           )
 
-          // Step 4: Fetch details for each message
-          for (const messageRef of messageIds) {
+          // Process each message
+          for (const message of messages) {
             try {
-              const message = await retryWithBackoff(
-                () => fetchMessageDetails(messageRef.id, accessToken)
-              )
-
               // Determine direction
               const direction = message.from.id === igAccountId ? 'outbound' : 'inbound'
 
@@ -285,6 +329,7 @@ export async function syncInstagramInbox(
                   text: message.message || null,
                   attachments: message.attachments || null,
                   created_time: message.created_time,
+                  read_at: direction === 'outbound' ? message.created_time : null, // Outbound messages are read immediately
                   raw: message,
                 }, {
                   onConflict: 'id',
@@ -297,7 +342,7 @@ export async function syncInstagramInbox(
               
               messagesUpserted++
 
-              // Step 5: Resolve participant identity (if inbound)
+              // Step 4: Resolve participant identity (if inbound)
               if (direction === 'inbound' && !identitiesResolved.has(participantIgsid)) {
                 try {
                   await resolveMessagingUserProfile(
@@ -315,33 +360,40 @@ export async function syncInstagramInbox(
                 }
               }
             } catch (msgError: any) {
-              errors.push(`Failed to fetch message ${messageRef.id}: ${msgError.message}`)
-              // Continue with next message
+              errors.push(`Failed to process message: ${msgError.message}`)
+              continue
             }
           }
 
-          // Update conversation with last message info
-          if (messageIds.length > 0) {
-            const lastMessage = messageIds[messageIds.length - 1]
-            const lastMessageDetails = await fetchMessageDetails(lastMessage.id, accessToken).catch(() => null)
+          // Update conversation metadata with latest message info
+          if (messages.length > 0) {
+            const lastMessage = messages[messages.length - 1]
+            const lastMessageText = lastMessage.message || ''
             
-            if (lastMessageDetails) {
-              await (supabase
-                .from('instagram_conversations') as any)
-                .update({
-                  last_message_preview: lastMessageDetails.message?.substring(0, 100) || null,
-                  last_message_at: lastMessageDetails.created_time,
-                })
-                .eq('id', conversation.id)
-            }
+            await (supabase
+              .from('instagram_conversations') as any)
+              .update({
+                last_message_preview: lastMessageText.substring(0, 100),
+                last_message_at: lastMessage.created_time,
+                updated_time: lastMessage.created_time,
+              })
+              .eq('id', conversation.id)
           }
         } catch (convMsgError: any) {
           errors.push(`Failed to fetch messages for conversation ${conversation.id}: ${convMsgError.message}`)
+          console.error('[Instagram Inbox Sync] Message fetch error:', {
+            conversationId: conversation.id,
+            error: convMsgError.message,
+          })
           // Continue with next conversation
         }
       } catch (convError: any) {
         errors.push(`Failed to process conversation ${conversation.id}: ${convError.message}`)
-        // Continue with next conversation
+        console.error('[Instagram Inbox Sync] Conversation processing error:', {
+          conversationId: conversation.id,
+          error: convError.message,
+        })
+        continue
       }
     }
 

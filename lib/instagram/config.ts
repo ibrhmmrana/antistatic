@@ -56,11 +56,14 @@ export function getInstagramOAuthConfig(): InstagramOAuthConfig {
  * Includes scopes for Social Studio + analytics
  * Note: For Instagram API with Instagram Login (Business Login for Instagram)
  * These are Instagram Business scopes, NOT Facebook Login scopes
+ * 
+ * IMPORTANT: instagram_business_manage_messages is required to use the
+ * Messaging + Conversations APIs for the Social Studio Inbox feature.
  */
 export const INSTAGRAM_REQUIRED_SCOPES = [
   'instagram_business_basic',
   'instagram_business_manage_comments',
-  'instagram_business_manage_messages',
+  'instagram_business_manage_messages', // Required for Messaging + Conversations APIs
   'instagram_business_content_publish',
   'instagram_business_manage_insights',
 ] as const
