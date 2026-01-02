@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { Database } from '@/lib/supabase/database.types'
 import MessageIcon from '@mui/icons-material/Message'
 import InfoIcon from '@mui/icons-material/Info'
+import { Button } from '@/components/ui/button'
 
 // Instagram connection type (table may not be in generated types yet)
 type InstagramConnection = {
@@ -263,8 +264,8 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
             )}
           </h2>
           <Button
-            variant="outlined"
-            size="small"
+            variant="outline"
+            size="sm"
             onClick={async () => {
               try {
                 setLoading(true)
