@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { Database } from '@/lib/supabase/database.types'
-import { resolveInstagramUser } from '@/lib/instagram/resolve-user'
+import { resolveMessagingUserProfile } from '@/lib/instagram/messaging-user-profile'
 import crypto from 'crypto'
 
 /**
@@ -364,7 +364,7 @@ async function timed<T>(
 async function findBusinessLocationId(
   supabase: any,
   igAccountId: string
-): Promise<{ business_location_id: string; matched_via: string } | null> {
+): Promise<{ business_location_id: string; instagram_user_id?: string; matched_via: string } | null> {
   const handlerStart = Date.now()
   console.log('[Meta Webhook] findBusinessLocationId START for igAccountId:', igAccountId)
   
@@ -415,6 +415,7 @@ async function findBusinessLocationId(
       })
       return {
         business_location_id: data.business_location_id,
+        instagram_user_id: data.instagram_user_id,
         matched_via: 'instagram_connections.instagram_user_id'
       }
     } else {
@@ -469,6 +470,7 @@ async function findBusinessLocationId(
       })
       return {
         business_location_id: data.business_location_id,
+        instagram_user_id: data.ig_user_id,
         matched_via: 'instagram_sync_state.ig_user_id'
       }
     } else {
@@ -522,6 +524,7 @@ async function findBusinessLocationId(
       })
       return {
         business_location_id: data.business_location_id,
+        instagram_user_id: data.instagram_user_id,
         matched_via: 'instagram_connections.any (fallback)'
       }
     } else {
@@ -541,9 +544,11 @@ async function findBusinessLocationId(
 
 /**
  * Resolve usernames for sender and recipient (with timeout)
+ * Uses the new messaging user profile resolver which uses graph.facebook.com
  */
 async function resolveUsernames(
   businessLocationId: string,
+  recipientIgAccountId: string,
   senderId: string | null | undefined,
   recipientId: string | null | undefined
 ): Promise<void> {
@@ -554,9 +559,9 @@ async function resolveUsernames(
   try {
     // Wrap in timeout to not block webhook
     const resolvePromise = Promise.all([
-      senderId ? resolveInstagramUser(businessLocationId, senderId) : Promise.resolve(null),
+      senderId ? resolveMessagingUserProfile(businessLocationId, recipientIgAccountId, senderId) : Promise.resolve(null),
       recipientId && recipientId !== senderId 
-        ? resolveInstagramUser(businessLocationId, recipientId) 
+        ? resolveMessagingUserProfile(businessLocationId, recipientIgAccountId, recipientId) 
         : Promise.resolve(null),
     ])
     
@@ -566,6 +571,7 @@ async function resolveUsernames(
     ])
     
     console.log('[Meta Webhook] Username resolution attempted:', {
+      recipientIgAccountId,
       senderId,
       recipientId,
     })
@@ -697,12 +703,26 @@ async function handleMessageEvent(
     }
 
     const { business_location_id, matched_via } = locationMatch
+    const instagram_user_id = (locationMatch as any).instagram_user_id || igAccountId
     console.log('[Meta Webhook] Found business_location_id:', {
       business_location_id,
       matched_via,
+      instagram_user_id,
     })
 
-    // Step 2: Insert into instagram_dm_events
+    // Step 2: Resolve user identities (non-blocking, before insert)
+    // This fetches username/name/profile_pic for sender and recipient
+    // We use igAccountId as the recipientIgAccountId (our Instagram account that receives messages)
+    const recipientIgAccountId = instagram_user_id || igAccountId
+    resolveUsernames(business_location_id, recipientIgAccountId, sender?.id, recipient?.id)
+      .catch((err) => {
+        // Don't fail webhook if identity fetch fails
+        console.log('[Meta Webhook] Identity fetch error (non-blocking):', {
+          message: err.message,
+        })
+      })
+
+    // Step 3: Insert into instagram_dm_events
     // Timestamp is in milliseconds, not seconds
     const timestampDate = timestamp 
       ? new Date(typeof timestamp === 'string' ? parseInt(timestamp) : timestamp)
@@ -776,7 +796,7 @@ async function handleMessageEvent(
               })
               
               // Still try to resolve usernames even for duplicates
-              await resolveUsernames(business_location_id, sender?.id, recipient?.id)
+              await resolveUsernames(business_location_id, recipientIgAccountId, sender?.id, recipient?.id)
             } else {
               console.log('[Meta Webhook] Error inserting DM event (composite):', {
                 code: compositeError.code,
@@ -802,7 +822,7 @@ async function handleMessageEvent(
             })
             
             // Resolve usernames for sender (and recipient if different)
-            await resolveUsernames(business_location_id, sender?.id, recipient?.id)
+            await resolveUsernames(business_location_id, recipientIgAccountId, sender?.id, recipient?.id)
           }
         } else if (insertError.code === '23505') {
           console.log('[Meta Webhook] DM event already exists (duplicate), skipping')
@@ -812,7 +832,7 @@ async function handleMessageEvent(
           })
           
           // Still try to resolve usernames even for duplicates
-          await resolveUsernames(business_location_id, sender?.id, recipient?.id)
+          await resolveUsernames(business_location_id, recipientIgAccountId, sender?.id, recipient?.id)
         } else {
           console.log('[Meta Webhook] Error inserting DM event:', {
             code: insertError.code,
@@ -837,8 +857,8 @@ async function handleMessageEvent(
           matched_via,
         })
         
-        // Resolve usernames for sender (and recipient if different)
-        await resolveUsernames(business_location_id, sender?.id, recipient?.id)
+            // Resolve usernames for sender (and recipient if different)
+            await resolveUsernames(business_location_id, recipientIgAccountId, sender?.id, recipient?.id)
       }
     } catch (insertException: any) {
       console.log('[Meta Webhook] Exception during insert:', {

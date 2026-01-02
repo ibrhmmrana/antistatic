@@ -164,18 +164,19 @@ export async function GET(request: NextRequest) {
 
     // Fetch user cache for all participant IDs
     const participantIds = Array.from(new Set(Object.keys(conversationsMap)))
-    const userCacheMap: Record<string, { username: string | null; profile_pic_url: string | null }> = {}
+    const userCacheMap: Record<string, { username: string | null; name: string | null; profile_pic_url: string | null }> = {}
     
     if (participantIds.length > 0) {
       const { data: userCache, error: cacheError } = await (supabase
         .from('instagram_user_cache') as any)
-        .select('ig_user_id, username, profile_pic_url')
+        .select('ig_user_id, username, name, profile_pic_url')
         .in('ig_user_id', participantIds)
       
       if (!cacheError && userCache) {
         userCache.forEach((cache: any) => {
           userCacheMap[cache.ig_user_id] = {
             username: cache.username,
+            name: cache.name,
             profile_pic_url: cache.profile_pic_url,
           }
         })
@@ -191,14 +192,18 @@ export async function GET(request: NextRequest) {
       
       const lastEvent = sortedEvents[sortedEvents.length - 1]
       const cachedUser = userCacheMap[participantId]
-      const participantUsername = cachedUser?.username 
+      // Prefer username, then name, then fallback to @user_XXXX
+      const participantDisplayName = cachedUser?.username 
         ? `@${cachedUser.username}` 
+        : cachedUser?.name 
+        ? cachedUser.name
         : `@user_${participantId.slice(-6)}`
 
       return {
         conversationId: participantId,
         participantId,
-        participantUsername,
+        participantUsername: participantDisplayName,
+        participantName: cachedUser?.name || null,
         participantProfilePic: cachedUser?.profile_pic_url || null,
         updatedTime: lastEvent?.timestamp || lastEvent?.created_at,
         unreadCount: 0,
@@ -214,8 +219,11 @@ export async function GET(request: NextRequest) {
           
           // Get sender cache info
           const senderCache = userCacheMap[e.sender_id]
-          const senderUsername = senderCache?.username 
+          // Prefer username, then name, then fallback
+          const senderDisplayName = senderCache?.username 
             ? `@${senderCache.username}` 
+            : senderCache?.name 
+            ? senderCache.name
             : `@user_${e.sender_id?.slice(-6) || 'unknown'}`
           
           return {
@@ -223,7 +231,8 @@ export async function GET(request: NextRequest) {
             direction,
             fromId: e.sender_id,
             toId: e.recipient_id,
-            fromUsername: senderUsername,
+            fromUsername: senderDisplayName,
+            fromName: senderCache?.name || null,
             fromProfilePic: senderCache?.profile_pic_url || null,
             text: e.text || '',
             timestamp: e.timestamp || e.created_at,
