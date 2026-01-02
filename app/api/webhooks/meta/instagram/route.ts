@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { Database } from '@/lib/supabase/database.types'
 import { resolveMessagingUserProfile } from '@/lib/instagram/messaging-user-profile'
+import { handleWebhookMessage } from '@/lib/instagram/webhook-handler'
 import crypto from 'crypto'
 
 /**
@@ -704,25 +705,31 @@ async function handleMessageEvent(
 
     const { business_location_id, matched_via } = locationMatch
     const instagram_user_id = (locationMatch as any).instagram_user_id || igAccountId
+    const recipientIgAccountId = instagram_user_id || igAccountId
     console.log('[Meta Webhook] Found business_location_id:', {
       business_location_id,
       matched_via,
       instagram_user_id,
     })
 
-    // Step 2: Resolve user identities (non-blocking, before insert)
-    // This fetches username/name/profile_pic for sender and recipient
-    // We use igAccountId as the recipientIgAccountId (our Instagram account that receives messages)
-    const recipientIgAccountId = instagram_user_id || igAccountId
-    resolveUsernames(business_location_id, recipientIgAccountId, sender?.id, recipient?.id)
-      .catch((err) => {
-        // Don't fail webhook if identity fetch fails
-        console.log('[Meta Webhook] Identity fetch error (non-blocking):', {
-          message: err.message,
-        })
+    // Step 2: Handle message using new schema (instagram_conversations + instagram_messages)
+    // This will:
+    // - Upsert conversation
+    // - Insert message
+    // - Update unread count
+    // - Resolve participant identity
+    try {
+      await handleWebhookMessage(business_location_id, igAccountId, event)
+      console.log('[Meta Webhook] Message handled successfully using new schema')
+    } catch (webhookError: any) {
+      console.error('[Meta Webhook] Error handling message with new schema:', {
+        message: webhookError.message,
+        stack: webhookError.stack?.substring(0, 500),
       })
+      // Continue with old schema for backward compatibility
+    }
 
-    // Step 3: Insert into instagram_dm_events
+    // Step 3: Also insert into instagram_dm_events (for backward compatibility during migration)
     // Timestamp is in milliseconds, not seconds
     const timestampDate = timestamp 
       ? new Date(typeof timestamp === 'string' ? parseInt(timestamp) : timestamp)

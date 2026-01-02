@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { InstagramAPI } from '@/lib/instagram/api'
+import { getInstagramAccessTokenForLocation, InstagramAuthError, isTokenExpiredError } from '@/lib/instagram/tokens'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -9,6 +9,10 @@ export const runtime = 'nodejs'
  * POST /api/social/instagram/messages/send
  * 
  * Send a Direct Message via Instagram Messaging API
+ * 
+ * According to Instagram Messaging API docs:
+ * - Endpoint: POST https://graph.instagram.com/vXX.X/<IG_ID>/messages
+ * - Body: { recipient: { id: <IGSID> }, message: { text: "<TEXT>" } }
  */
 export async function POST(request: NextRequest) {
   try {
@@ -16,7 +20,10 @@ export async function POST(request: NextRequest) {
     const { locationId, conversationId, text } = body
 
     if (!locationId || !conversationId || !text) {
-      return NextResponse.json({ error: 'Missing required fields: locationId, conversationId, text' }, { status: 400 })
+      return NextResponse.json(
+        { error: { type: 'validation', message: 'Missing required fields: locationId, conversationId, text' } },
+        { status: 400 }
+      )
     }
 
     const supabase = await createClient()
@@ -25,10 +32,10 @@ export async function POST(request: NextRequest) {
     } = await supabase.auth.getUser()
 
     if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: { type: 'auth', message: 'Unauthorized' } }, { status: 401 })
     }
 
-    // Verify location belongs to user
+    // Step 1: Verify location belongs to user
     const { data: location } = await supabase
       .from('business_locations')
       .select('id')
@@ -37,114 +44,212 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
 
     if (!location) {
-      return NextResponse.json({ error: 'Location not found' }, { status: 404 })
+      return NextResponse.json({ error: { type: 'not_found', message: 'Location not found' } }, { status: 404 })
     }
 
-    // Get Instagram connection first
+    // Step 2: Get Instagram connection to determine ig_account_id
     const { data: connection } = await (supabase
       .from('instagram_connections') as any)
-      .select('access_token, instagram_user_id')
+      .select('instagram_user_id')
       .eq('business_location_id', locationId)
       .maybeSingle()
 
-    if (!connection || !connection.access_token) {
-      return NextResponse.json({ error: 'Instagram not connected' }, { status: 404 })
-    }
-
-    // Get conversation to verify it exists (using new DM tables)
-    const { data: conversation } = await (supabase
-      .from('instagram_dm_conversations') as any)
-      .select('thread_key, ig_account_id, business_location_id')
-      .eq('business_location_id', locationId)
-      .eq('ig_account_id', connection.instagram_user_id)
-      .eq('thread_key', conversationId)
-      .maybeSingle()
-
-    if (!conversation) {
-      return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
-    }
-
-    // Get the most recent message to determine participant
-    const { data: lastMessage } = await (supabase
-      .from('instagram_dm_messages') as any)
-      .select('sender_id, recipient_id')
-      .eq('business_location_id', locationId)
-      .eq('ig_account_id', connection.instagram_user_id)
-      .eq('thread_key', conversationId)
-      .order('timestamp_ms', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    if (!lastMessage) {
-      return NextResponse.json({ error: 'Cannot determine conversation participant' }, { status: 404 })
-    }
-
-    // Determine recipient (the other user in the thread)
-    const recipientId = lastMessage.sender_id === connection.instagram_user_id 
-      ? lastMessage.recipient_id 
-      : lastMessage.sender_id
-
-    // Create API client and send message
-    const api = await InstagramAPI.create(locationId)
-
-    if ('type' in api) {
-      return NextResponse.json({ error: api.message }, { status: 400 })
-    }
-
-    const sendResult = await api.sendMessage(recipientId, text.trim())
-
-    if ('type' in sendResult) {
-      const errorResponse: any = {
-        error: sendResult.message,
-      }
-      
-      // Only include code if it's an APIError
-      if (sendResult.type === 'APIError' && sendResult.code) {
-        errorResponse.code = sendResult.code
-      }
-      
+    if (!connection) {
       return NextResponse.json(
-        errorResponse,
-        { status: sendResult.type === 'APIError' ? sendResult.status : 500 }
+        { error: { type: 'not_found', message: 'Instagram not connected' } },
+        { status: 404 }
       )
     }
 
-    // Insert outbound message into database (using new DM tables)
-    const messageId = sendResult.id || `msg_${Date.now()}_${Math.random()}`
-    const messageTime = Date.now()
+    const igAccountId = connection.instagram_user_id
 
-    await (supabase
-      .from('instagram_dm_messages') as any)
+    // Step 3: Fetch conversation row (with detailed logging)
+    const { data: conversation, error: convError } = await (supabase
+      .from('instagram_conversations') as any)
+      .select('id, participant_igsid, ig_account_id')
+      .eq('id', conversationId)
+      .eq('ig_account_id', igAccountId)
+      .maybeSingle()
+
+    if (convError) {
+      console.error('[Instagram Send Message] Conversation lookup error:', {
+        conversationId,
+        igAccountId,
+        error: convError.message,
+      })
+      return NextResponse.json(
+        { error: { type: 'database', message: 'Failed to lookup conversation' } },
+        { status: 500 }
+      )
+    }
+
+    if (!conversation) {
+      console.warn('[Instagram Send Message] Conversation not found:', {
+        conversationId,
+        igAccountId,
+        locationId,
+      })
+      return NextResponse.json(
+        { error: { type: 'not_found', message: 'Conversation not found' } },
+        { status: 404 }
+      )
+    }
+
+    // Step 4: Get recipient IGSID from conversation
+    const recipientIgsid = conversation.participant_igsid
+
+    if (!recipientIgsid) {
+      console.error('[Instagram Send Message] Missing participant_igsid:', {
+        conversationId,
+        conversation,
+      })
+      return NextResponse.json(
+        { error: { type: 'validation', message: 'Conversation missing participant ID' } },
+        { status: 400 }
+      )
+    }
+
+    // Step 5: Get valid access token using centralized helper
+    let accessToken: string
+    try {
+      const tokenResult = await getInstagramAccessTokenForLocation(locationId)
+      accessToken = tokenResult.access_token
+    } catch (error: any) {
+      if (error instanceof InstagramAuthError) {
+        return NextResponse.json(
+          {
+            error: {
+              type: 'instagram_auth',
+              code: error.code,
+              message: error.message,
+            },
+          },
+          { status: 401 }
+        )
+      }
+      throw error
+    }
+
+    // Step 6: Call Instagram Graph API (correct format per docs)
+    const apiVersion = 'v24.0'
+    const apiUrl = `https://graph.instagram.com/${apiVersion}/${igAccountId}/messages`
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        recipient: { id: recipientIgsid },
+        message: { text: text.trim() },
+      }),
+    })
+
+    const responseData = await response.json().catch(() => ({}))
+
+    if (!response.ok) {
+      const error = responseData.error || {}
+      console.error('[Instagram Send Message] Graph API error:', {
+        status: response.status,
+        code: error.code,
+        message: error.message,
+        type: error.type,
+        conversationId,
+        recipientIgsid,
+      })
+
+      // Check for token expiry (code 190)
+      if (isTokenExpiredError(error) || error.code === 190) {
+        return NextResponse.json(
+          {
+            error: {
+              type: 'instagram_auth',
+              code: 'EXPIRED',
+              message: 'Instagram token expired. Please reconnect your Instagram account.',
+            },
+          },
+          { status: 401 }
+        )
+      }
+
+      return NextResponse.json(
+        {
+          error: {
+            type: 'instagram_api',
+            message: error.message || 'Instagram API error',
+            code: error.code,
+          },
+        },
+        { status: response.status }
+      )
+    }
+
+    // Step 7: Parse response and extract message_id
+    const messageId = responseData.id || responseData.message_id || `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`
+    const messageTime = new Date().toISOString()
+
+    // Step 8: Insert outbound message into database
+    const { error: insertError } = await (supabase
+      .from('instagram_messages') as any)
       .insert({
-        business_location_id: locationId,
-        ig_account_id: connection.instagram_user_id,
-        thread_key: conversationId,
-        message_mid: messageId,
-        sender_id: connection.instagram_user_id,
-        recipient_id: recipientId,
-        message_text: text.trim(),
-        timestamp_ms: messageTime,
-        raw_event: { id: messageId, text: text.trim() },
+        id: messageId,
+        ig_account_id: igAccountId,
+        conversation_id: conversationId,
+        direction: 'outbound',
+        from_id: igAccountId,
+        to_id: recipientIgsid,
+        text: text.trim(),
+        attachments: null,
+        created_time: messageTime,
+        read_at: null,
+        raw: responseData,
       })
 
-    // Update conversation metadata
-    await (supabase
-      .from('instagram_dm_conversations') as any)
+    if (insertError) {
+      console.error('[Instagram Send Message] Error inserting message:', insertError)
+      // Don't fail the request - message was sent successfully to Instagram
+    }
+
+    // Step 9: Update conversation metadata
+    const { error: updateError } = await (supabase
+      .from('instagram_conversations') as any)
       .update({
-        last_message_at: new Date(messageTime).toISOString(),
+        last_message_preview: text.trim().substring(0, 100),
+        last_message_at: messageTime,
+        updated_time: messageTime,
+        unread_count: 0, // Reset unread since we sent it
       })
-      .eq('business_location_id', locationId)
-      .eq('ig_account_id', connection.instagram_user_id)
-      .eq('thread_key', conversationId)
+      .eq('id', conversationId)
 
+    if (updateError) {
+      console.error('[Instagram Send Message] Error updating conversation:', updateError)
+      // Don't fail the request - message was sent successfully
+    }
+
+    // Step 10: Return success
     return NextResponse.json({
-      success: true,
+      ok: true,
       messageId,
     })
   } catch (error: any) {
-    console.error('[Instagram Send Message] Error:', error)
+    console.error('[Instagram Send Message] Unexpected error:', error)
+    
+    if (error instanceof InstagramAuthError) {
+      return NextResponse.json(
+        {
+          error: {
+            type: 'instagram_auth',
+            code: error.code,
+            message: error.message,
+          },
+        },
+        { status: 401 }
+      )
+    }
+    
     return NextResponse.json(
-      { error: error.message || 'Internal server error' },
+      { error: { type: 'internal', message: error.message || 'Internal server error' } },
       { status: 500 }
     )
   }

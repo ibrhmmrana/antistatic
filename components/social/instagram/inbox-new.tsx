@@ -6,7 +6,6 @@ import MessageIcon from '@mui/icons-material/Message'
 import InfoIcon from '@mui/icons-material/Info'
 import SendIcon from '@mui/icons-material/Send'
 import { Button } from '@/components/ui/button'
-import { useToast, ToastContainer } from '@/components/ui/toast'
 
 type InstagramConnection = {
   id: string
@@ -56,9 +55,6 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
   const [replyText, setReplyText] = useState('')
   const [sending, setSending] = useState(false)
   const [syncing, setSyncing] = useState(false)
-  const [refreshingIdentities, setRefreshingIdentities] = useState(false)
-  const [authError, setAuthError] = useState<{ code: string; message: string } | null>(null)
-  const { toasts, showToast, removeToast } = useToast()
   const supabaseRef = useRef(createClient())
   const realtimeSubscriptionRef = useRef<any>(null)
 
@@ -75,36 +71,13 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
-        
-        // Check for Instagram auth error
-        if (errorData.error?.type === 'instagram_auth') {
-          setAuthError({
-            code: errorData.error.code,
-            message: errorData.error.message,
-          })
-          setError(null)
-          return
-        }
-        
-        throw new Error(errorData.error?.message || errorData.error || `HTTP ${response.status}`)
+        throw new Error(errorData.error || `HTTP ${response.status}`)
       }
 
       const data = await response.json()
-      
-      // Check for auth error in response
-      if (data.error?.type === 'instagram_auth') {
-        setAuthError({
-          code: data.error.code,
-          message: data.error.message,
-        })
-        setError(null)
-        return
-      }
-      
       setConversations(data.conversations || [])
       setUnreadCount(data.unreadCount || 0)
       setError(null)
-      setAuthError(null) // Clear auth error on success
 
       // If a conversation is selected, update its messages
       if (selectedConversationId) {
@@ -235,61 +208,16 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
-        
-        // Check for Instagram auth error
-        if (errorData.error?.type === 'instagram_auth') {
-          setAuthError({
-            code: errorData.error.code,
-            message: errorData.error.message,
-          })
-          showToast('Your Instagram connection has expired. Please reconnect in Connect Channels → Instagram.', 'error')
-          throw new Error(errorData.error.message)
-        }
-        
-        // Check for not_found error
-        if (errorData.error?.type === 'not_found') {
-          showToast('Could not send message – conversation could not be found. Try refreshing the inbox.', 'error')
-          throw new Error(errorData.error.message)
-        }
-        
-        // Check for Instagram API error
-        if (errorData.error?.type === 'instagram_api') {
-          const errorMsg = errorData.error.message || 'Instagram API error'
-          showToast(`Failed to send message: ${errorMsg}`, 'error')
-          throw new Error(errorMsg)
-        }
-        
-        // Generic error
-        const errorMsg = errorData.error?.message || errorData.error || `HTTP ${response.status}`
-        showToast(`Failed to send message: ${errorMsg}`, 'error')
-        throw new Error(errorMsg)
+        throw new Error(errorData.error || `HTTP ${response.status}`)
       }
 
-      const data = await response.json()
-      
-      // Check for error in response body
-      if (data.error) {
-        if (data.error.type === 'instagram_auth') {
-          setAuthError({
-            code: data.error.code,
-            message: data.error.message,
-          })
-          showToast('Your Instagram connection has expired. Please reconnect in Connect Channels → Instagram.', 'error')
-          throw new Error(data.error.message)
-        }
-        throw new Error(data.error.message || 'Unknown error')
-      }
-
-      // Success
-      showToast('Message sent successfully', 'success')
-      
       // Refresh to get the real message from API
       await fetchInbox()
     } catch (err: any) {
       console.error('[Instagram Inbox] Error sending message:', err)
       // Remove optimistic message on error
       setMessages(prev => prev.filter(m => !m.id.startsWith('temp_')))
-      // Toast already shown above, don't show alert
+      alert(`Failed to send message: ${err.message}`)
     } finally {
       setSending(false)
     }
@@ -305,30 +233,10 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
-        
-        // Check for Instagram auth error
-        if (errorData.error?.type === 'instagram_auth') {
-          setAuthError({
-            code: errorData.error.code,
-            message: errorData.error.message,
-          })
-          return
-        }
-        
-        throw new Error(errorData.error?.message || errorData.error || `HTTP ${response.status}`)
+        throw new Error(errorData.error || `HTTP ${response.status}`)
       }
 
       const data = await response.json()
-      
-      // Check for auth error in response
-      if (data.error?.type === 'instagram_auth') {
-        setAuthError({
-          code: data.error.code,
-          message: data.error.message,
-        })
-        return
-      }
-      
       console.log('[Instagram Inbox] Sync completed:', data)
       
       // Refresh inbox after sync
@@ -338,46 +246,6 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
       alert(`Sync failed: ${err.message}`)
     } finally {
       setSyncing(false)
-    }
-  }
-
-  // Handle refresh identities
-  const handleRefreshIdentities = async () => {
-    setRefreshingIdentities(true)
-    try {
-      const response = await fetch(`/api/social/instagram/inbox/backfill-identities?locationId=${locationId}`, {
-        method: 'POST',
-      })
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        
-        // Check for Instagram auth error
-        if (errorData.error?.type === 'instagram_auth') {
-          setAuthError({
-            code: errorData.error.code,
-            message: errorData.error.message,
-          })
-          return
-        }
-        
-        throw new Error(errorData.error?.message || errorData.error || `HTTP ${response.status}`)
-      }
-
-      const data = await response.json()
-      console.log('[Instagram Inbox] Identity refresh completed:', data)
-      
-      // Show success message
-      const message = `Refreshed Instagram identities (${data.updated || 0} updated, ${data.failed || 0} failed)`
-      alert(message)
-      
-      // Refresh inbox to show updated identities
-      await fetchInbox()
-    } catch (err: any) {
-      console.error('[Instagram Inbox] Error refreshing identities:', err)
-      alert(`Refresh failed: ${err.message}`)
-    } finally {
-      setRefreshingIdentities(false)
     }
   }
 
@@ -425,29 +293,6 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
 
   return (
     <div className="space-y-6">
-      <ToastContainer toasts={toasts} onClose={removeToast} />
-      
-      {/* Token Expiry Banner */}
-      {authError && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-start gap-3">
-          <InfoIcon sx={{ fontSize: 20, color: '#d97706', flexShrink: 0, mt: 0.5 }} />
-          <div className="flex-1">
-            <p className="text-sm font-medium text-yellow-900 mb-1">
-              Instagram Connection Expired
-            </p>
-            <p className="text-sm text-yellow-700 mb-2">
-              {authError.message || 'Your Instagram connection has expired. Please reconnect to see profile photos and reply to messages.'}
-            </p>
-            <a
-              href="/social?tab=connect"
-              className="text-sm text-yellow-900 underline hover:text-yellow-800"
-            >
-              Reconnect in Connect Channels → Instagram
-            </a>
-          </div>
-        </div>
-      )}
-
       <div className="bg-white rounded-lg border border-slate-200 p-6 shadow-sm">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-semibold text-slate-900 flex items-center gap-2">
@@ -460,17 +305,6 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
             )}
           </h2>
           <div className="flex gap-2">
-            {conversations.length > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleRefreshIdentities}
-                disabled={refreshingIdentities}
-                title="Refresh user identities (usernames, profile photos)"
-              >
-                {refreshingIdentities ? 'Refreshing...' : 'Refresh Identities'}
-              </Button>
-            )}
             <Button
               variant="outline"
               size="sm"
@@ -536,7 +370,7 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
                       
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-slate-900 truncate">
-                          {conv.username ? `@${conv.username}` : conv.displayName}
+                          {conv.displayName}
                         </p>
                         <p className="text-xs text-slate-500 truncate">
                           {conv.lastMessagePreview || 'No messages'}
@@ -581,11 +415,9 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
                           </div>
                         )}
                         <div>
-                          <p className="text-sm font-semibold text-slate-900">
-                            {conv.username ? `@${conv.username}` : conv.displayName}
-                          </p>
-                          {conv.username && conv.displayName !== `@${conv.username}` && (
-                            <p className="text-xs text-slate-500">{conv.displayName}</p>
+                          <p className="text-sm font-semibold text-slate-900">{conv.displayName}</p>
+                          {conv.username && (
+                            <p className="text-xs text-slate-500">@{conv.username}</p>
                           )}
                         </div>
                       </div>

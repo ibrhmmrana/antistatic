@@ -152,6 +152,38 @@ export class InstagramAPI {
           },
         }
       }
+      
+      // Check for error in successful response (some Graph API endpoints return 200 with error object)
+      if (data.error) {
+        const error = data.error
+        console.error('[Instagram API] Error in response:', {
+          path,
+          code: error.code,
+          message: error.message,
+          type: error.type,
+        })
+
+        // Check for token expiry (code 190)
+        if (error.code === 190 || error.message?.includes('expired')) {
+          return {
+            error: {
+              type: 'APIError',
+              status: 401,
+              code: 190,
+              message: 'Access token has expired. Please reconnect your Instagram account.',
+            },
+          }
+        }
+
+        return {
+          error: {
+            type: 'APIError',
+            status: 400,
+            code: error.code,
+            message: error.message || 'Instagram API error',
+          },
+        }
+      }
 
       return data
     } catch (error: any) {
