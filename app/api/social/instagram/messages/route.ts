@@ -102,16 +102,26 @@ export async function GET(request: NextRequest) {
     // Group events by conversation (sender/recipient pair)
     const conversationsMap: Record<string, any[]> = {}
     const ourUserId = connection.instagram_user_id
-    // Also check the event's ig_user_id in case it's different
+    // Also check the event's ig_user_id and recipient_id (webhook entry.id)
     const ourUserIdFromEvents = events?.[0]?.ig_user_id
+    
+    // Collect all possible "our" user IDs from events (recipient_id when we receive messages)
+    const ourPossibleIds = new Set([ourUserId])
+    if (ourUserIdFromEvents) ourPossibleIds.add(ourUserIdFromEvents)
+    ;(events || []).forEach((e: any) => {
+      // If recipient_id appears frequently, it might be our account ID
+      if (e.recipient_id) ourPossibleIds.add(e.recipient_id)
+      if (e.ig_user_id) ourPossibleIds.add(e.ig_user_id)
+    })
+
+    console.log('[Instagram Messages API] Our possible user IDs:', Array.from(ourPossibleIds))
+    console.log('[Instagram Messages API] Events count:', events?.length || 0)
 
     ;(events || []).forEach((event: any) => {
       // Determine if this message is from us or to us
-      // Check both our stored user ID and the event's stored user ID
-      const isFromUs = event.sender_id === ourUserId || 
-                       (ourUserIdFromEvents && event.sender_id === ourUserIdFromEvents) ||
-                       event.ig_user_id === ourUserId ||
-                       (ourUserIdFromEvents && event.ig_user_id === ourUserIdFromEvents)
+      // Check if sender_id OR recipient_id matches any of our possible IDs
+      const isFromUs = ourPossibleIds.has(event.sender_id)
+      const isToUs = ourPossibleIds.has(event.recipient_id)
       
       // Determine the other participant (not us)
       const otherParticipantId = isFromUs 
@@ -144,15 +154,16 @@ export async function GET(request: NextRequest) {
         lastMessageText: lastEvent?.text || null,
         lastMessageTime: lastEvent?.timestamp || lastEvent?.created_at || null,
         messages: sortedEvents.map((e: any) => {
-          // Determine direction more accurately
-          const isFromUs = e.sender_id === ourUserId || 
-                           (ourUserIdFromEvents && e.sender_id === ourUserIdFromEvents) ||
-                           e.ig_user_id === ourUserId ||
-                           (ourUserIdFromEvents && e.ig_user_id === ourUserIdFromEvents)
+          // Determine direction: check if sender_id matches any of our possible IDs
+          const isFromUs = ourPossibleIds.has(e.sender_id)
+          const isToUs = ourPossibleIds.has(e.recipient_id)
+          
+          // If neither matches, default to inbound (someone sent it to us)
+          const direction = isFromUs ? 'outbound' : (isToUs ? 'inbound' : 'inbound')
           
           return {
             id: e.message_id || e.id,
-            direction: isFromUs ? 'outbound' : 'inbound',
+            direction,
             fromId: e.sender_id,
             toId: e.recipient_id,
             text: e.text || '',
