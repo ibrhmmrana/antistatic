@@ -327,40 +327,69 @@ async function handleMessageEvent(
   
   console.log('[Meta Webhook] Looking up connection for igAccountId:', igAccountId)
   
+  // Try exact match first (with error handling for network issues)
   if (igAccountId && igAccountId !== '0') {
-    const { data, error: lookupError } = await (supabase
-      .from('instagram_connections') as any)
-      .select('business_location_id, instagram_user_id')
-      .eq('instagram_user_id', igAccountId)
-      .maybeSingle()
-    
-    if (lookupError) {
-      console.error('[Meta Webhook] Error looking up connection:', lookupError)
-    } else {
-      connection = data
-      console.log('[Meta Webhook] Connection lookup result:', connection ? 'found' : 'not found')
+    try {
+      const { data, error: lookupError } = await (supabase
+        .from('instagram_connections') as any)
+        .select('business_location_id, instagram_user_id')
+        .eq('instagram_user_id', igAccountId)
+        .maybeSingle()
+      
+      if (lookupError) {
+        console.error('[Meta Webhook] Error looking up connection:', {
+          message: lookupError.message,
+          code: lookupError.code,
+          hint: 'Will try fallback to any connection',
+        })
+      } else {
+        connection = data
+        if (connection) {
+          console.log('[Meta Webhook] Connection lookup result: found (exact match)')
+        } else {
+          console.log('[Meta Webhook] Connection lookup result: not found (exact match)')
+        }
+      }
+    } catch (error: any) {
+      console.error('[Meta Webhook] Connection lookup exception:', {
+        message: error.message,
+        name: error.name,
+        hint: 'Network error, will try fallback',
+      })
     }
   }
   
-  // If no exact match, try to get any connection (for test payloads)
+  // Fallback: get any connection (for test payloads or when exact match fails)
   if (!connection) {
     console.log('[Meta Webhook] No exact match for igAccountId, trying to get any connection')
-    const { data: anyConnection, error: anyLookupError } = await (supabase
-      .from('instagram_connections') as any)
-      .select('business_location_id, instagram_user_id')
-      .limit(1)
-      .maybeSingle()
-    
-    if (anyLookupError) {
-      console.error('[Meta Webhook] Error looking up any connection:', anyLookupError)
-    } else {
-      connection = anyConnection
-      if (connection) {
-        console.log('[Meta Webhook] Using first available connection for test payload:', {
-          business_location_id: connection.business_location_id,
-          instagram_user_id: connection.instagram_user_id,
+    try {
+      const { data: anyConnection, error: anyLookupError } = await (supabase
+        .from('instagram_connections') as any)
+        .select('business_location_id, instagram_user_id')
+        .limit(1)
+        .maybeSingle()
+      
+      if (anyLookupError) {
+        console.error('[Meta Webhook] Error looking up any connection:', {
+          message: anyLookupError.message,
+          code: anyLookupError.code,
         })
+      } else {
+        connection = anyConnection
+        if (connection) {
+          console.log('[Meta Webhook] Using first available connection:', {
+            business_location_id: connection.business_location_id,
+            instagram_user_id: connection.instagram_user_id,
+          })
+        } else {
+          console.log('[Meta Webhook] No connections found in database')
+        }
       }
+    } catch (error: any) {
+      console.error('[Meta Webhook] Fallback connection lookup exception:', {
+        message: error.message,
+        name: error.name,
+      })
     }
   }
 
@@ -385,40 +414,50 @@ async function handleMessageEvent(
     igUserId: actualIgUserId,
     messageId,
     hasText: !!messageText,
+    timestamp: timestampDate.toISOString(),
   })
 
-  // Insert into instagram_dm_events table
-  const { error: insertError, data: insertData } = await (supabase
-    .from('instagram_dm_events') as any)
-    .insert({
-      business_location_id: businessLocationId,
-      ig_user_id: actualIgUserId,
-      sender_id: sender?.id || null,
-      recipient_id: recipient?.id || null,
-      message_id: messageId,
-      text: messageText,
-      timestamp: timestampDate.toISOString(),
-      raw: event, // Store full event payload
-    })
-    .select()
-  
-  // Ignore duplicate key errors (message already exists)
-  if (insertError) {
-    if (insertError.code === '23505') {
-      console.log('[Meta Webhook] DM event already exists (duplicate), skipping')
+  // Insert into instagram_dm_events table (with error handling for network issues)
+  try {
+    const { error: insertError, data: insertData } = await (supabase
+      .from('instagram_dm_events') as any)
+      .insert({
+        business_location_id: businessLocationId,
+        ig_user_id: actualIgUserId,
+        sender_id: sender?.id || null,
+        recipient_id: recipient?.id || null,
+        message_id: messageId,
+        text: messageText,
+        timestamp: timestampDate.toISOString(),
+        raw: event, // Store full event payload
+      })
+      .select()
+    
+    // Ignore duplicate key errors (message already exists)
+    if (insertError) {
+      if (insertError.code === '23505') {
+        console.log('[Meta Webhook] DM event already exists (duplicate), skipping')
+      } else {
+        console.error('[Meta Webhook] Error inserting DM event:', {
+          code: insertError.code,
+          message: insertError.message,
+          details: insertError.details,
+          hint: insertError.hint,
+        })
+      }
     } else {
-      console.error('[Meta Webhook] Error inserting DM event:', {
-        code: insertError.code,
-        message: insertError.message,
-        details: insertError.details,
+      console.log('[Meta Webhook] DM event persisted successfully:', {
+        businessLocationId,
+        igUserId: actualIgUserId,
+        messageId,
+        insertedId: insertData?.[0]?.id,
       })
     }
-  } else {
-    console.log('[Meta Webhook] DM event persisted successfully:', {
-      businessLocationId,
-      igUserId: actualIgUserId,
-      messageId,
-      insertedId: insertData?.[0]?.id,
+  } catch (error: any) {
+    console.error('[Meta Webhook] Exception inserting DM event:', {
+      message: error.message,
+      name: error.name,
+      stack: error.stack?.substring(0, 200),
     })
   }
 }
