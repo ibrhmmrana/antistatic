@@ -69,13 +69,18 @@ export async function GET(request: NextRequest) {
     const hasWebhookConfigured = !!webhookState?.webhook_verified_at
 
     // Read from instagram_dm_events table (latest 50 messages)
-    const { data: events } = await (supabase
+    // Note: We query by business_location_id only, since ig_user_id might not match
+    // the webhook's igAccountId (could be page-scoped ID vs user ID)
+    const { data: events, error: eventsError } = await (supabase
       .from('instagram_dm_events') as any)
-      .select('id, sender_id, recipient_id, message_id, text, timestamp, raw')
+      .select('id, sender_id, recipient_id, message_id, text, timestamp, raw, ig_user_id')
       .eq('business_location_id', locationId)
-      .eq('ig_user_id', connection.instagram_user_id)
       .order('created_at', { ascending: false })
       .limit(50)
+    
+    if (eventsError) {
+      console.error('[Instagram Messages API] Error fetching events:', eventsError)
+    }
 
     const hasMessages = events && events.length > 0
 
@@ -97,10 +102,19 @@ export async function GET(request: NextRequest) {
     // Group events by conversation (sender/recipient pair)
     const conversationsMap: Record<string, any[]> = {}
     const ourUserId = connection.instagram_user_id
+    // Also check the event's ig_user_id in case it's different
+    const ourUserIdFromEvents = events?.[0]?.ig_user_id
 
     ;(events || []).forEach((event: any) => {
+      // Determine if this message is from us or to us
+      // Check both our stored user ID and the event's stored user ID
+      const isFromUs = event.sender_id === ourUserId || 
+                       (ourUserIdFromEvents && event.sender_id === ourUserIdFromEvents) ||
+                       event.ig_user_id === ourUserId ||
+                       (ourUserIdFromEvents && event.ig_user_id === ourUserIdFromEvents)
+      
       // Determine the other participant (not us)
-      const otherParticipantId = event.sender_id === ourUserId 
+      const otherParticipantId = isFromUs 
         ? event.recipient_id 
         : event.sender_id
       
@@ -129,15 +143,23 @@ export async function GET(request: NextRequest) {
         unreadCount: 0,
         lastMessageText: lastEvent?.text || null,
         lastMessageTime: lastEvent?.timestamp || lastEvent?.created_at || null,
-        messages: sortedEvents.map((e: any) => ({
-          id: e.message_id || e.id,
-          direction: e.sender_id === ourUserId ? 'outbound' : 'inbound',
-          fromId: e.sender_id,
-          toId: e.recipient_id,
-          text: e.text || '',
-          timestamp: e.timestamp || e.created_at,
-          attachments: e.raw?.message?.attachments || null,
-        })),
+        messages: sortedEvents.map((e: any) => {
+          // Determine direction more accurately
+          const isFromUs = e.sender_id === ourUserId || 
+                           (ourUserIdFromEvents && e.sender_id === ourUserIdFromEvents) ||
+                           e.ig_user_id === ourUserId ||
+                           (ourUserIdFromEvents && e.ig_user_id === ourUserIdFromEvents)
+          
+          return {
+            id: e.message_id || e.id,
+            direction: isFromUs ? 'outbound' : 'inbound',
+            fromId: e.sender_id,
+            toId: e.recipient_id,
+            text: e.text || '',
+            timestamp: e.timestamp || e.created_at,
+            attachments: e.raw?.message?.attachments || null,
+          }
+        }),
       }
     })
 
