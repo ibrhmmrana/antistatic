@@ -197,13 +197,28 @@ export async function GET(request: NextRequest) {
       ? formattedConversations.filter(c => c.conversationId === conversationId)
       : formattedConversations
 
-    return NextResponse.json({
+    const response = {
       enabled: true,
       conversations: filteredConversations,
       unreadCount: 0,
       hasWebhookConfigured,
       lastWebhookEventAt: webhookState?.last_webhook_event_at || null,
+    }
+    
+    console.log('[Instagram Messages API] Returning response:', {
+      enabled: response.enabled,
+      conversationsCount: response.conversations.length,
+      unreadCount: response.unreadCount,
+      hasWebhookConfigured: response.hasWebhookConfigured,
+      sampleConversation: response.conversations[0] ? {
+        conversationId: response.conversations[0].conversationId,
+        participantId: response.conversations[0].participantId,
+        messagesCount: response.conversations[0].messages.length,
+        lastMessageText: response.conversations[0].lastMessageText,
+      } : null,
     })
+    
+    return NextResponse.json(response)
   } catch (error: any) {
     console.error('[Instagram Messages API] Error:', error)
     return NextResponse.json(
