@@ -242,10 +242,12 @@ export async function POST(request: NextRequest) {
     }
     
     // Process events and await completion (for serverless)
-    // We still return 200 quickly, but ensure processing completes
-    processWebhookEvents(payload).catch((error) => {
+    // IMPORTANT: We must await to ensure DB work completes before returning
+    try {
+      await processWebhookEvents(payload)
+    } catch (error) {
       console.error('[Meta Webhook] Error processing events:', error)
-    })
+    }
     
     return NextResponse.json({ ok: true }, { status: 200 })
   } catch (error: any) {
@@ -322,6 +324,39 @@ async function processWebhookEvents(body: any) {
 }
 
 /**
+ * Timed query wrapper - ensures queries complete or timeout
+ * Logs START, END, duration, and errors at INFO level
+ */
+async function timed<T>(
+  label: string,
+  promise: Promise<T>,
+  ms: number = 3000
+): Promise<T> {
+  const start = Date.now()
+  console.log(`[Meta Webhook] ${label} START`)
+  
+  try {
+    const result = await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms)
+      )
+    ])
+    
+    const duration = Date.now() - start
+    console.log(`[Meta Webhook] ${label} END in ${duration}ms`)
+    return result
+  } catch (error: any) {
+    const duration = Date.now() - start
+    console.log(`[Meta Webhook] ${label} ERROR in ${duration}ms:`, {
+      message: error.message,
+      name: error.name,
+    })
+    throw error
+  }
+}
+
+/**
  * Find business_location_id from Instagram account ID
  * Tries multiple tables and columns in order of preference
  */
@@ -340,30 +375,34 @@ async function findBusinessLocationId(
   // Strategy 1: instagram_connections.instagram_user_id
   try {
     console.log('[Meta Webhook] Strategy 1: Querying instagram_connections.instagram_user_id =', igAccountId)
-    const queryStart = Date.now()
     
-    const result = await Promise.race([
+    const result = await timed(
+      'Strategy 1',
       (supabase
         .from('instagram_connections') as any)
         .select('business_location_id, instagram_user_id, updated_at')
         .eq('instagram_user_id', igAccountId)
         .order('updated_at', { ascending: false })
         .limit(1)
-        .maybeSingle(),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Strategy 1 timeout after 3s')), 3000)
-      )
-    ]) as any
-    
-    const queryDuration = Date.now() - queryStart
-    console.log('[Meta Webhook] Strategy 1 query completed in', queryDuration, 'ms')
+        .maybeSingle()
+    ) as any
     
     const { data, error } = result
     
-    if (error) {
-      console.error('[Meta Webhook] Strategy 1 error:', {
-        message: error.message,
+    console.log('[Meta Webhook] Strategy 1 result:', {
+      dataLength: data ? 1 : 0,
+      error: error ? {
         code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      } : null,
+    })
+    
+    if (error) {
+      console.log('[Meta Webhook] Strategy 1 error:', {
+        code: error.code,
+        message: error.message,
         details: error.details,
         hint: error.hint,
       })
@@ -371,16 +410,17 @@ async function findBusinessLocationId(
       console.log('[Meta Webhook] Strategy 1 MATCH:', {
         business_location_id: data.business_location_id,
         instagram_user_id: data.instagram_user_id,
+        matched_via: 'instagram_connections.instagram_user_id',
       })
       return {
         business_location_id: data.business_location_id,
         matched_via: 'instagram_connections.instagram_user_id'
       }
     } else {
-      console.log('[Meta Webhook] Strategy 1: No match found')
+      console.log('[Meta Webhook] Strategy 1: No match found (data is null)')
     }
   } catch (error: any) {
-    console.error('[Meta Webhook] Strategy 1 exception:', {
+    console.log('[Meta Webhook] Strategy 1 exception:', {
       message: error.message,
       name: error.name,
     })
@@ -389,30 +429,34 @@ async function findBusinessLocationId(
   // Strategy 2: instagram_sync_state.ig_user_id
   try {
     console.log('[Meta Webhook] Strategy 2: Querying instagram_sync_state.ig_user_id =', igAccountId)
-    const queryStart = Date.now()
     
-    const result = await Promise.race([
+    const result = await timed(
+      'Strategy 2',
       (supabase
         .from('instagram_sync_state') as any)
         .select('business_location_id, ig_user_id, last_synced_at')
         .eq('ig_user_id', igAccountId)
         .order('last_synced_at', { ascending: false })
         .limit(1)
-        .maybeSingle(),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Strategy 2 timeout after 3s')), 3000)
-      )
-    ]) as any
-    
-    const queryDuration = Date.now() - queryStart
-    console.log('[Meta Webhook] Strategy 2 query completed in', queryDuration, 'ms')
+        .maybeSingle()
+    ) as any
     
     const { data, error } = result
     
-    if (error) {
-      console.error('[Meta Webhook] Strategy 2 error:', {
-        message: error.message,
+    console.log('[Meta Webhook] Strategy 2 result:', {
+      dataLength: data ? 1 : 0,
+      error: error ? {
         code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      } : null,
+    })
+    
+    if (error) {
+      console.log('[Meta Webhook] Strategy 2 error:', {
+        code: error.code,
+        message: error.message,
         details: error.details,
         hint: error.hint,
       })
@@ -420,16 +464,17 @@ async function findBusinessLocationId(
       console.log('[Meta Webhook] Strategy 2 MATCH:', {
         business_location_id: data.business_location_id,
         ig_user_id: data.ig_user_id,
+        matched_via: 'instagram_sync_state.ig_user_id',
       })
       return {
         business_location_id: data.business_location_id,
         matched_via: 'instagram_sync_state.ig_user_id'
       }
     } else {
-      console.log('[Meta Webhook] Strategy 2: No match found')
+      console.log('[Meta Webhook] Strategy 2: No match found (data is null)')
     }
   } catch (error: any) {
-    console.error('[Meta Webhook] Strategy 2 exception:', {
+    console.log('[Meta Webhook] Strategy 2 exception:', {
       message: error.message,
       name: error.name,
     })
@@ -438,29 +483,33 @@ async function findBusinessLocationId(
   // Strategy 3: Get any connection (fallback for test payloads)
   try {
     console.log('[Meta Webhook] Strategy 3: Getting any instagram_connection (fallback)')
-    const queryStart = Date.now()
     
-    const result = await Promise.race([
+    const result = await timed(
+      'Strategy 3',
       (supabase
         .from('instagram_connections') as any)
         .select('business_location_id, instagram_user_id, updated_at')
         .order('updated_at', { ascending: false })
         .limit(1)
-        .maybeSingle(),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Strategy 3 timeout after 3s')), 3000)
-      )
-    ]) as any
-    
-    const queryDuration = Date.now() - queryStart
-    console.log('[Meta Webhook] Strategy 3 query completed in', queryDuration, 'ms')
+        .maybeSingle()
+    ) as any
     
     const { data, error } = result
     
-    if (error) {
-      console.error('[Meta Webhook] Strategy 3 error:', {
-        message: error.message,
+    console.log('[Meta Webhook] Strategy 3 result:', {
+      dataLength: data ? 1 : 0,
+      error: error ? {
         code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      } : null,
+    })
+    
+    if (error) {
+      console.log('[Meta Webhook] Strategy 3 error:', {
+        code: error.code,
+        message: error.message,
         details: error.details,
         hint: error.hint,
       })
@@ -468,16 +517,17 @@ async function findBusinessLocationId(
       console.log('[Meta Webhook] Strategy 3 MATCH (fallback):', {
         business_location_id: data.business_location_id,
         instagram_user_id: data.instagram_user_id,
+        matched_via: 'instagram_connections.any (fallback)',
       })
       return {
         business_location_id: data.business_location_id,
         matched_via: 'instagram_connections.any (fallback)'
       }
     } else {
-      console.log('[Meta Webhook] Strategy 3: No connections found in database')
+      console.log('[Meta Webhook] Strategy 3: No connections found in database (data is null)')
     }
   } catch (error: any) {
-    console.error('[Meta Webhook] Strategy 3 exception:', {
+    console.log('[Meta Webhook] Strategy 3 exception:', {
       message: error.message,
       name: error.name,
     })
@@ -505,27 +555,35 @@ async function insertUnmatchedEvent(
       errorMessage: errorMessage.substring(0, 100),
     })
     
-    const { error } = await (supabase
-      .from('instagram_dm_unmatched_events') as any)
-      .insert({
-        ig_account_id: igAccountId,
-        message_id: messageId,
-        payload_json: payload,
-        error_message: errorMessage,
-      })
+    const result = await timed(
+      'insert_unmatched',
+      (supabase
+        .from('instagram_dm_unmatched_events') as any)
+        .insert({
+          ig_account_id: igAccountId,
+          message_id: messageId,
+          payload_json: payload,
+          error_message: errorMessage,
+        })
+    ) as any
+    
+    const { error } = result
     
     if (error) {
-      console.error('[Meta Webhook] Error inserting unmatched event:', {
+      console.log('[Meta Webhook] Error inserting unmatched event:', {
         code: error.code,
         message: error.message,
         details: error.details,
         hint: error.hint,
       })
     } else {
-      console.log('[Meta Webhook] Unmatched event inserted successfully')
+      console.log('[Meta Webhook] Unmatched DM saved:', {
+        igAccountId,
+        messageId,
+      })
     }
   } catch (error: any) {
-    console.error('[Meta Webhook] Exception inserting unmatched event:', {
+    console.log('[Meta Webhook] Exception inserting unmatched event:', {
       message: error.message,
       name: error.name,
     })
@@ -547,6 +605,22 @@ async function handleMessageEvent(
   console.log('[Meta Webhook] Service role client configured:', !!process.env.SUPABASE_SERVICE_ROLE_KEY)
   
   try {
+    // DB connectivity sanity check
+    try {
+      await timed(
+        'db_ping',
+        (supabase
+          .from('instagram_dm_events') as any)
+          .select('id')
+          .limit(1)
+      )
+      console.log('[Meta Webhook] db_ping ok')
+    } catch (pingError: any) {
+      console.log('[Meta Webhook] db_ping ERROR:', {
+        message: pingError.message,
+        name: pingError.name,
+      })
+    }
     const message = event.message
     const sender = event.sender
     const recipient = event.recipient
@@ -567,7 +641,7 @@ async function handleMessageEvent(
     const locationMatch = await findBusinessLocationId(supabase, igAccountId)
     
     if (!locationMatch) {
-      console.warn('[Meta Webhook] No business_location_id match found for igAccountId:', igAccountId)
+      console.log('[Meta Webhook] No business_location_id match found for igAccountId:', igAccountId)
       await insertUnmatchedEvent(
         supabase,
         igAccountId,
@@ -575,6 +649,10 @@ async function handleMessageEvent(
         event,
         `No business_location_id match found for igAccountId: ${igAccountId}`
       )
+      console.log('[Meta Webhook] Unmatched DM saved:', {
+        igAccountId,
+        messageId,
+      })
       console.log('[Meta Webhook] ===== handleMessageEvent END (unmatched) =====')
       return
     }
@@ -600,37 +678,10 @@ async function handleMessageEvent(
     })
 
     // Try upsert first (idempotent)
-    const insertStart = Date.now()
-    const { error: insertError, data: insertData } = await Promise.race([
-      (supabase
-        .from('instagram_dm_events') as any)
-        .upsert({
-          business_location_id,
-          ig_user_id: igAccountId,
-          sender_id: sender?.id || null,
-          recipient_id: recipient?.id || null,
-          message_id: messageId,
-          text: messageText,
-          timestamp: timestampDate.toISOString(),
-          raw: event, // Store full event payload
-        }, {
-          onConflict: 'message_id', // Try message_id first, fallback to composite if needed
-        })
-        .select(),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Insert timeout after 5s')), 5000)
-      )
-    ]) as any
-    
-    const insertDuration = Date.now() - insertStart
-    console.log('[Meta Webhook] Insert query completed in', insertDuration, 'ms')
-    
-    if (insertError) {
-      // If unique constraint on message_id fails, try composite key
-      if (insertError.code === '23505' && insertError.message?.includes('message_id')) {
-        console.log('[Meta Webhook] message_id unique constraint failed, trying composite key upsert')
-        
-        const { error: compositeError, data: compositeData } = await (supabase
+    try {
+      const result = await timed(
+        'insert_dm_event',
+        (supabase
           .from('instagram_dm_events') as any)
           .upsert({
             business_location_id,
@@ -640,71 +691,125 @@ async function handleMessageEvent(
             message_id: messageId,
             text: messageText,
             timestamp: timestampDate.toISOString(),
-            raw: event,
+            raw: event, // Store full event payload
           }, {
-            onConflict: 'business_location_id,message_id',
+            onConflict: 'message_id', // Try message_id first, fallback to composite if needed
           })
-          .select()
-        
-        if (compositeError) {
-          if (compositeError.code === '23505') {
-            console.log('[Meta Webhook] DM event already exists (duplicate), skipping')
+          .select(),
+        5000
+      ) as any
+      
+      const { error: insertError, data: insertData } = result
+      
+      if (insertError) {
+        // If unique constraint on message_id fails, try composite key
+        if (insertError.code === '23505' && insertError.message?.includes('message_id')) {
+          console.log('[Meta Webhook] message_id unique constraint failed, trying composite key upsert')
+          
+          const compositeResult = await timed(
+            'insert_dm_event_composite',
+            (supabase
+              .from('instagram_dm_events') as any)
+              .upsert({
+                business_location_id,
+                ig_user_id: igAccountId,
+                sender_id: sender?.id || null,
+                recipient_id: recipient?.id || null,
+                message_id: messageId,
+                text: messageText,
+                timestamp: timestampDate.toISOString(),
+                raw: event,
+              }, {
+                onConflict: 'business_location_id,message_id',
+              })
+              .select(),
+            5000
+          ) as any
+          
+          const { error: compositeError, data: compositeData } = compositeResult
+          
+          if (compositeError) {
+            if (compositeError.code === '23505') {
+              console.log('[Meta Webhook] DM event already exists (duplicate), skipping')
+              console.log('[Meta Webhook] DM persisted (duplicate):', {
+                business_location_id,
+                messageId,
+              })
+            } else {
+              console.log('[Meta Webhook] Error inserting DM event (composite):', {
+                code: compositeError.code,
+                message: compositeError.message,
+                details: compositeError.details,
+                hint: compositeError.hint,
+              })
+              // Still save to unmatched for debugging
+              await insertUnmatchedEvent(
+                supabase,
+                igAccountId,
+                messageId,
+                event,
+                `Insert error (composite): ${compositeError.message}`
+              )
+            }
           } else {
-            console.error('[Meta Webhook] Error inserting DM event (composite):', {
-              code: compositeError.code,
-              message: compositeError.message,
-              details: compositeError.details,
-              hint: compositeError.hint,
-            })
-            // Still save to unmatched for debugging
-            await insertUnmatchedEvent(
-              supabase,
-              igAccountId,
+            console.log('[Meta Webhook] DM persisted:', {
+              business_location_id,
               messageId,
-              event,
-              `Insert error: ${compositeError.message}`
-            )
+              insertedId: compositeData?.[0]?.id,
+              matched_via,
+            })
           }
-        } else {
-          console.log('[Meta Webhook] DM event persisted successfully (composite):', {
+        } else if (insertError.code === '23505') {
+          console.log('[Meta Webhook] DM event already exists (duplicate), skipping')
+          console.log('[Meta Webhook] DM persisted (duplicate):', {
             business_location_id,
             messageId,
-            insertedId: compositeData?.[0]?.id,
           })
+        } else {
+          console.log('[Meta Webhook] Error inserting DM event:', {
+            code: insertError.code,
+            message: insertError.message,
+            details: insertError.details,
+            hint: insertError.hint,
+          })
+          // Save to unmatched for debugging
+          await insertUnmatchedEvent(
+            supabase,
+            igAccountId,
+            messageId,
+            event,
+            `Insert error: ${insertError.message}`
+          )
         }
-      } else if (insertError.code === '23505') {
-        console.log('[Meta Webhook] DM event already exists (duplicate), skipping')
       } else {
-        console.error('[Meta Webhook] Error inserting DM event:', {
-          code: insertError.code,
-          message: insertError.message,
-          details: insertError.details,
-          hint: insertError.hint,
-        })
-        // Save to unmatched for debugging
-        await insertUnmatchedEvent(
-          supabase,
-          igAccountId,
+        console.log('[Meta Webhook] DM persisted:', {
+          business_location_id,
           messageId,
-          event,
-          `Insert error: ${insertError.message}`
-        )
+          insertedId: insertData?.[0]?.id,
+          matched_via,
+        })
       }
-    } else {
-      console.log('[Meta Webhook] DM event persisted successfully:', {
-        business_location_id,
-        messageId,
-        insertedId: insertData?.[0]?.id,
-        matched_via,
+    } catch (insertException: any) {
+      console.log('[Meta Webhook] Exception during insert:', {
+        message: insertException.message,
+        name: insertException.name,
       })
+      // Save to unmatched for debugging
+      await insertUnmatchedEvent(
+        supabase,
+        igAccountId,
+        messageId,
+        event,
+        `Insert exception: ${insertException.message}`
+      )
     }
 
     const handlerDuration = Date.now() - handlerStart
     console.log('[Meta Webhook] ===== handleMessageEvent END (success) in', handlerDuration, 'ms =====')
   } catch (error: any) {
     const handlerDuration = Date.now() - handlerStart
-    console.error('[Meta Webhook] ===== handleMessageEvent END (exception) in', handlerDuration, 'ms =====')
-    console.error('[Meta Webhook] Exception in handleMessageEvent:', {
+    console.log('[Meta Webhook] ===== handleMessageEvent END (exception) in', handlerDuration, 'ms =====')
+    console.log('[Meta Webhook] Exception in handleMessageEvent:', {
       message: error.message,
       name: error.name,
       stack: error.stack?.substring(0, 500),
@@ -719,8 +824,12 @@ async function handleMessageEvent(
         event,
         `Handler exception: ${error.message}`
       )
+      console.log('[Meta Webhook] Unmatched DM saved (exception):', {
+        igAccountId,
+        messageId: event?.message?.mid || null,
+      })
     } catch (unmatchedError: any) {
-      console.error('[Meta Webhook] Failed to save unmatched event:', unmatchedError.message)
+      console.log('[Meta Webhook] Failed to save unmatched event:', unmatchedError.message)
     }
   }
 }
