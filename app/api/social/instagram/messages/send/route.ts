@@ -63,7 +63,28 @@ export async function POST(request: NextRequest) {
 
     const igAccountId = connection.instagram_user_id
 
-    // Step 3: Fetch conversation row (with detailed logging)
+    // Step 3: Get valid access token using centralized helper (needed for API calls)
+    let accessToken: string
+    try {
+      const tokenResult = await getInstagramAccessTokenForLocation(locationId)
+      accessToken = tokenResult.access_token
+    } catch (error: any) {
+      if (error instanceof InstagramAuthError) {
+        return NextResponse.json(
+          {
+            error: {
+              type: 'instagram_auth',
+              code: error.code,
+              message: error.message,
+            },
+          },
+          { status: 401 }
+        )
+      }
+      throw error
+    }
+
+    // Step 4: Fetch conversation row (with detailed logging)
     const { data: conversation, error: convError } = await (supabase
       .from('instagram_conversations') as any)
       .select('id, participant_igsid, ig_account_id')
@@ -83,7 +104,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Step 4: If conversation not found, try to fetch from Instagram API
+    // Step 5: If conversation not found, try to fetch from Instagram API
     let recipientIgsid: string | null = null
     let finalConversationId = conversationId
 
@@ -168,35 +189,6 @@ export async function POST(request: NextRequest) {
       })
       return NextResponse.json(
         { error: { type: 'validation', message: 'Conversation missing participant ID' } },
-        { status: 400 }
-      )
-    }
-
-    // Step 5: Get valid access token using centralized helper
-    let accessToken: string
-    try {
-      const tokenResult = await getInstagramAccessTokenForLocation(locationId)
-      accessToken = tokenResult.access_token
-    } catch (error: any) {
-      if (error instanceof InstagramAuthError) {
-        return NextResponse.json(
-          {
-            error: {
-              type: 'instagram_auth',
-              code: error.code,
-              message: error.message,
-            },
-          },
-          { status: 401 }
-        )
-      }
-      throw error
-    }
-
-    // Step 5.5: If we still don't have recipientIgsid, we can't send
-    if (!recipientIgsid) {
-      return NextResponse.json(
-        { error: { type: 'validation', message: 'Missing recipient ID' } },
         { status: 400 }
       )
     }
