@@ -350,26 +350,46 @@ async function handleMessageEvent(
   let connection = null
   
   console.log('[Meta Webhook] Looking up connection for igAccountId:', igAccountId)
+  console.log('[Meta Webhook] Service role client configured:', !!process.env.SUPABASE_SERVICE_ROLE_KEY)
   
-  // Try exact match first (with error handling for network issues)
+  // Try exact match first (with timeout and error handling)
   if (igAccountId && igAccountId !== '0') {
     try {
-      const { data, error: lookupError } = await (supabase
-        .from('instagram_connections') as any)
-        .select('business_location_id, instagram_user_id')
-        .eq('instagram_user_id', igAccountId)
-        .maybeSingle()
+      console.log('[Meta Webhook] Attempting exact match query...')
+      const queryStart = Date.now()
+      
+      // Wrap query in timeout
+      const queryResult = await Promise.race([
+        (supabase
+          .from('instagram_connections') as any)
+          .select('business_location_id, instagram_user_id')
+          .eq('instagram_user_id', igAccountId)
+          .maybeSingle(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Connection lookup timeout after 5s')), 5000)
+        )
+      ]) as any
+      
+      const queryDuration = Date.now() - queryStart
+      console.log('[Meta Webhook] Exact match query completed in', queryDuration, 'ms')
+      
+      const { data, error: lookupError } = queryResult
       
       if (lookupError) {
         console.error('[Meta Webhook] Error looking up connection:', {
           message: lookupError.message,
           code: lookupError.code,
-          hint: 'Will try fallback to any connection',
+          details: lookupError.details,
+          hint: lookupError.hint,
+          hint2: 'Will try fallback to any connection',
         })
       } else {
         connection = data
         if (connection) {
-          console.log('[Meta Webhook] Connection lookup result: found (exact match)')
+          console.log('[Meta Webhook] Connection lookup result: found (exact match)', {
+            business_location_id: connection.business_location_id,
+            instagram_user_id: connection.instagram_user_id,
+          })
         } else {
           console.log('[Meta Webhook] Connection lookup result: not found (exact match)')
         }
@@ -378,7 +398,8 @@ async function handleMessageEvent(
       console.error('[Meta Webhook] Connection lookup exception:', {
         message: error.message,
         name: error.name,
-        hint: 'Network error, will try fallback',
+        stack: error.stack?.substring(0, 300),
+        hint: 'Network error or timeout, will try fallback',
       })
     }
   }
@@ -387,16 +408,31 @@ async function handleMessageEvent(
   if (!connection) {
     console.log('[Meta Webhook] No exact match for igAccountId, trying to get any connection')
     try {
-      const { data: anyConnection, error: anyLookupError } = await (supabase
-        .from('instagram_connections') as any)
-        .select('business_location_id, instagram_user_id')
-        .limit(1)
-        .maybeSingle()
+      console.log('[Meta Webhook] Attempting fallback query...')
+      const queryStart = Date.now()
+      
+      const queryResult = await Promise.race([
+        (supabase
+          .from('instagram_connections') as any)
+          .select('business_location_id, instagram_user_id')
+          .limit(1)
+          .maybeSingle(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Fallback connection lookup timeout after 5s')), 5000)
+        )
+      ]) as any
+      
+      const queryDuration = Date.now() - queryStart
+      console.log('[Meta Webhook] Fallback query completed in', queryDuration, 'ms')
+      
+      const { data: anyConnection, error: anyLookupError } = queryResult
       
       if (anyLookupError) {
         console.error('[Meta Webhook] Error looking up any connection:', {
           message: anyLookupError.message,
           code: anyLookupError.code,
+          details: anyLookupError.details,
+          hint: anyLookupError.hint,
         })
       } else {
         connection = anyConnection
@@ -413,6 +449,7 @@ async function handleMessageEvent(
       console.error('[Meta Webhook] Fallback connection lookup exception:', {
         message: error.message,
         name: error.name,
+        stack: error.stack?.substring(0, 300),
       })
     }
   }
