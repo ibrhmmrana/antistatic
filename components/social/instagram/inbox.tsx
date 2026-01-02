@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Database } from '@/lib/supabase/database.types'
 import MessageIcon from '@mui/icons-material/Message'
 import InfoIcon from '@mui/icons-material/Info'
@@ -56,22 +56,29 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
   const [replyText, setReplyText] = useState('')
   const [sending, setSending] = useState(false)
   const [webhookStatus, setWebhookStatus] = useState<any>(null)
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const enabledRef = useRef(false)
 
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchData = async (isPolling = false) => {
       if (!instagramConnection) {
         setLoading(false)
         return
       }
 
       try {
-        setLoading(true)
+        // Only set loading on initial fetch, not on polling
+        if (!isPolling) {
+          setLoading(true)
+        }
         
-        // Fetch webhook status
-        const statusResponse = await fetch(`/api/social/instagram/webhook/status?locationId=${locationId}`)
-        if (statusResponse.ok) {
-          const statusData = await statusResponse.json()
-          setWebhookStatus(statusData)
+        // Fetch webhook status (only on initial load, not on every poll)
+        if (!isPolling) {
+          const statusResponse = await fetch(`/api/social/instagram/webhook/status?locationId=${locationId}`)
+          if (statusResponse.ok) {
+            const statusData = await statusResponse.json()
+            setWebhookStatus(statusData)
+          }
         }
         
         // Fetch messages
@@ -84,7 +91,11 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
             conversations: data.conversations,
             note: data.note,
           })
-          setEnabled(data.enabled || false)
+          
+          const newEnabled = data.enabled || false
+          setEnabled(newEnabled)
+          enabledRef.current = newEnabled
+          
           setConversations(data.conversations || [])
           setUnreadCount(data.unreadCount || 0)
           setError(null)
@@ -103,33 +114,44 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
             error: errorData,
           })
           setError(errorData.error || `API error: ${response.status}`)
-          // If it's a "not enabled" response, still show the UI with empty state
-          if (errorData.enabled === false) {
-            setEnabled(false)
-          } else {
-            setEnabled(false)
-          }
+          const newEnabled = errorData.enabled === false ? false : false
+          setEnabled(newEnabled)
+          enabledRef.current = newEnabled
         }
       } catch (error: any) {
         console.error('[Instagram Inbox] Fetch error:', error)
         setError(error.message || 'Failed to fetch messages')
         setEnabled(false)
+        enabledRef.current = false
       } finally {
-        setLoading(false)
+        if (!isPolling) {
+          setLoading(false)
+        }
       }
     }
 
-    fetchData()
+    // Initial fetch
+    fetchData(false)
     
-    // Poll for new messages every 5 seconds when enabled
-    const interval = setInterval(() => {
-      if (enabled) {
-        fetchData()
+    // Set up polling - check enabledRef to avoid dependency on enabled state
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current)
+    }
+    
+    pollingIntervalRef.current = setInterval(() => {
+      // Only poll if enabled (check ref to avoid dependency)
+      if (enabledRef.current) {
+        fetchData(true)
       }
     }, 5000)
     
-    return () => clearInterval(interval)
-  }, [locationId, instagramConnection, selectedConversationId, enabled])
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current)
+        pollingIntervalRef.current = null
+      }
+    }
+  }, [locationId, instagramConnection, selectedConversationId])
 
   useEffect(() => {
     if (selectedConversationId) {
