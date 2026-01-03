@@ -189,7 +189,7 @@ export async function GET(request: NextRequest) {
           location_id: location.id,
           source: 'google',
           apify_raw_payload: apifyResult.rawItems || [],
-          apify_competitors: apifyCompetitorsData,
+          apify_competitors: apifyCompetitorsData as any, // Cast to any to satisfy Json type
           last_scraped_at: now,
           scrape_status: 'success',
           scrape_error: null,
