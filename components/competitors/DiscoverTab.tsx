@@ -38,13 +38,44 @@ export function DiscoverTab({ businessLocationId, businessName }: DiscoverTabPro
   const loadNearestCompetitors = async () => {
     setLoading(true)
     try {
+      console.log('[DiscoverTab] Loading competitors for location:', businessLocationId)
       const response = await fetch(`/api/competitors/nearest?locationId=${businessLocationId}`)
+      
       if (response.ok) {
         const data = await response.json()
+        console.log('[DiscoverTab] API response:', {
+          competitorsCount: data.competitors?.length || 0,
+          hasError: !!data.error,
+          error: data.error,
+          details: data.details,
+        })
+        
         setNearestCompetitors(data.competitors || [])
+        
+        // Log if no competitors found for debugging
+        if (!data.competitors || data.competitors.length === 0) {
+          console.warn('[DiscoverTab] No competitors found. Possible reasons:')
+          console.warn('  - No competitor data in business_insights.apify_competitors')
+          console.warn('  - Business location missing place_id or coordinates')
+          console.warn('  - Google Places API discovery returned no results')
+          console.warn('  - All nearby businesses have fewer than 5 reviews')
+          if (data.error) {
+            console.warn('  - API error:', data.error, data.details)
+          }
+        }
+      } else {
+        const errorData = await response.json().catch(() => ({}))
+        console.error('[DiscoverTab] Failed to load competitors:', {
+          status: response.status,
+          error: errorData.error || 'Unknown error',
+          details: errorData.details,
+        })
       }
-    } catch (error) {
-      console.error('Failed to load nearest competitors:', error)
+    } catch (error: any) {
+      console.error('[DiscoverTab] Failed to load nearest competitors:', {
+        error: error.message,
+        stack: error.stack,
+      })
     } finally {
       setLoading(false)
     }
@@ -69,7 +100,13 @@ export function DiscoverTab({ businessLocationId, businessName }: DiscoverTabPro
             ))}
           </div>
         ) : (
-          <div className="text-slate-500">No nearby competitors found.</div>
+          <div className="bg-white rounded-lg border border-slate-200 p-8 text-center">
+            <p className="text-slate-500 mb-2">No nearby competitors found.</p>
+            <p className="text-sm text-slate-400">
+              Competitors are discovered automatically when you connect your Google Business Profile. 
+              If you've already connected, try refreshing the page or check back later.
+            </p>
+          </div>
         )}
       </div>
     </div>

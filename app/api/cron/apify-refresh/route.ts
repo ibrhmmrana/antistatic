@@ -109,12 +109,87 @@ export async function GET(request: NextRequest) {
         console.log('[Apify Refresh Cron] Running Apify for', allPlaceIds.length, 'places')
         const apifyResult = await runApifyForPlaceIds(allPlaceIds, competitorDiscovery.anchor.placeId)
 
-        // Step 3: Store Apify raw payload in business_insights
+        // Step 3: Process Apify results into apify_competitors format
+        const places = apifyResult.places
+        const selfPlace = places.find(p => p.isSelf) || places.find(p => p.placeId === competitorDiscovery.anchor.placeId)
+        const otherPlaces = places.filter(p => !p.isSelf && p.placeId !== competitorDiscovery.anchor.placeId)
+
+        // Calculate averages (using all places)
+        const placesWithRating = places.filter(p => p.rating !== null && p.rating !== undefined)
+        const placesWithReviews = places.filter(p => p.reviewsCount !== null && p.reviewsCount !== undefined)
+
+        const localAverageRating = placesWithRating.length > 0
+          ? placesWithRating.reduce((sum, p) => sum + (p.rating || 0), 0) / placesWithRating.length
+          : null
+
+        const localAverageReviews = placesWithReviews.length > 0
+          ? placesWithReviews.reduce((sum, p) => sum + (p.reviewsCount || 0), 0) / placesWithReviews.length
+          : null
+
+        // Calculate percentiles (using others only for comparison)
+        let ratingPercentile: number | null = null
+        let reviewVolumePercentile: number | null = null
+
+        if (selfPlace && otherPlaces.length > 0) {
+          const selfRating = selfPlace.rating
+          const selfReviews = selfPlace.reviewsCount
+
+          if (selfRating !== null && selfRating !== undefined) {
+            const othersWithRating = otherPlaces.filter(p => p.rating !== null && p.rating !== undefined)
+            const betterOrEqual = othersWithRating.filter(p => (p.rating || 0) <= selfRating).length
+            ratingPercentile = othersWithRating.length > 0
+              ? Math.round((betterOrEqual / othersWithRating.length) * 100)
+              : null
+          }
+
+          if (selfReviews !== null && selfReviews !== undefined) {
+            const othersWithReviews = otherPlaces.filter(p => p.reviewsCount !== null && p.reviewsCount !== undefined)
+            const betterOrEqual = othersWithReviews.filter(p => (p.reviewsCount || 0) <= selfReviews).length
+            reviewVolumePercentile = othersWithReviews.length > 0
+              ? Math.round((betterOrEqual / othersWithReviews.length) * 100)
+              : null
+          }
+        }
+
+        // Build the apify_competitors JSON structure
+        const apifyCompetitorsData = {
+          places: places.map(p => ({
+            placeId: p.placeId,
+            name: p.name,
+            address: p.address,
+            categories: p.categories,
+            rating: p.rating,
+            reviewsCount: p.reviewsCount,
+            reviewsDistribution: p.reviewsDistribution,
+            reviews: p.reviews, // Include individual reviews
+            imageUrl: p.imageUrl,
+            isSelf: p.isSelf,
+          })),
+          comparison: {
+            sampleSize: places.length,
+            localAverageRating: localAverageRating ? Math.round(localAverageRating * 10) / 10 : null,
+            localAverageReviews: localAverageReviews ? Math.round(localAverageReviews) : null,
+            ratingPercentile,
+            reviewVolumePercentile,
+          },
+          primaryCategoryKeyword: competitorDiscovery.primaryCategoryKeyword || null,
+          scrapedAt: new Date().toISOString(),
+        }
+
+        console.log('[Apify Refresh Cron] Competitor comparison computed:', {
+          sampleSize: apifyCompetitorsData.comparison.sampleSize,
+          localAverageRating: apifyCompetitorsData.comparison.localAverageRating,
+          ratingPercentile: apifyCompetitorsData.comparison.ratingPercentile,
+          reviewVolumePercentile: apifyCompetitorsData.comparison.reviewVolumePercentile,
+        })
+
+        // Step 4: Store Apify data in business_insights
         const now = new Date().toISOString()
         const update: BusinessInsightsUpdate = {
           location_id: location.id,
           source: 'google',
           apify_raw_payload: apifyResult.rawItems || [],
+          apify_competitors: apifyCompetitorsData,
           last_scraped_at: now,
           scrape_status: 'success',
           scrape_error: null,

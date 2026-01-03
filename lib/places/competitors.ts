@@ -12,8 +12,8 @@ type BusinessLocationRow = Database['public']['Tables']['business_locations']['R
 
 // Constants
 const DEFAULT_SEARCH_RADIUS = 2500 // meters (2.5km)
-const MIN_REVIEWS_THRESHOLD = 20 // Minimum reviews to be considered a competitor
-const MAX_COMPETITORS = 8 // Maximum number of competitors to return
+const MIN_REVIEWS_THRESHOLD = 5 // Minimum reviews to be considered a competitor (lowered from 20 to find more competitors)
+const MAX_COMPETITORS = 20 // Maximum number of competitors to return (increased from 8)
 
 export interface CompetitorReview {
   reviewId?: string

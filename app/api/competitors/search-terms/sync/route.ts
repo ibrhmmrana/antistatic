@@ -57,19 +57,19 @@ export async function POST(request: NextRequest) {
       request.headers.get('origin') || undefined
     )
 
-    // Calculate date range (last 2 months)
-    // Use the same month for start and end to get current month's data
-    // Or use last 2 months as the user's example shows
+    // Calculate date range (past 18 months)
     const now = new Date()
     const endMonth = now.getMonth() + 1 // Current month (1-indexed, e.g., 12 for December)
     const endYear = now.getFullYear()
     
-    // Start from previous month
-    let startMonth = endMonth - 1
+    // Start from 18 months ago
+    let startMonth = endMonth - 18
     let startYear = endYear
-    if (startMonth <= 0) {
-      startMonth = 12
-      startYear = endYear - 1
+    
+    // Handle year rollover if we go back more than 12 months
+    while (startMonth <= 0) {
+      startMonth += 12
+      startYear -= 1
     }
 
     console.log('[Search Terms Sync] Date range:', {

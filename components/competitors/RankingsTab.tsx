@@ -534,6 +534,8 @@ export function RankingsTab({ businessLocationId }: RankingsTabProps) {
   const handleRefreshRankings = async () => {
     if (!selectedTerm) return
     setRefreshing(true)
+    let refreshError: string | null = null
+    
     try {
       const response = await fetch('/api/competitors/rankings/refresh', {
         method: 'POST',
@@ -544,17 +546,38 @@ export function RankingsTab({ businessLocationId }: RankingsTabProps) {
         }),
       })
       if (response.ok) {
-        await loadRankings(selectedTerm.id)
-        showToast('Rankings refreshed!', 'success')
+        const snapshot = await loadRankings(selectedTerm.id)
+        if (snapshot) {
+          showToast('Rankings refreshed!', 'success')
+        }
       } else {
         const error = await response.json()
-        showToast(`Failed to refresh: ${error.error || 'Unknown error'}`, 'error')
+        refreshError = error.error || 'Unknown error'
+        // Still try to load existing rankings even if refresh failed
+        console.warn('[Rankings] Refresh API failed, loading existing rankings:', refreshError)
       }
     } catch (error) {
       console.error('Failed to refresh rankings:', error)
-      showToast('Failed to refresh rankings', 'error')
+      refreshError = 'Network error'
     } finally {
+      // Always try to load rankings, even if refresh API failed
+      // This handles cases where rankings are still loading or cached
+      const snapshot = await loadRankings(selectedTerm.id)
+      
       setRefreshing(false)
+      
+      // Only show error if refresh failed AND no rankings are available
+      // If rankings loaded successfully, the refresh might have worked despite the error
+      if (refreshError && !snapshot) {
+        // Wait a bit to see if rankings are still loading in the background
+        setTimeout(async () => {
+          // Check again if rankings loaded in the meantime
+          const latestSnapshot = await loadRankings(selectedTerm.id)
+          if (!latestSnapshot) {
+            showToast(`Failed to refresh: ${refreshError}`, 'error')
+          }
+        }, 1000)
+      }
     }
   }
 

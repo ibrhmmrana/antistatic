@@ -44,18 +44,79 @@ export async function GET(request: NextRequest) {
       .eq('location_id', locationId)
       .maybeSingle()
 
-    if (!insights) {
-      return NextResponse.json({ competitors: [] })
+    let competitors: any[] = []
+
+    // If we have Apify data, use it
+    if (insights?.apify_competitors) {
+      const apifyData = insights.apify_competitors as any
+      
+      // Filter out self place - only include actual competitors
+      const allPlaces = apifyData.places || []
+      competitors = allPlaces.filter((p: any) => !p.isSelf && p.placeId !== locationData.place_id)
     }
 
-    const insightsData: { apify_competitors: any } = insights
-
-    if (!insightsData.apify_competitors) {
-      return NextResponse.json({ competitors: [] })
+    // If no Apify data, discover competitors using Google Places API
+    if (competitors.length === 0 && locationData.place_id) {
+      console.log('[Competitors API] No Apify data found, discovering competitors via Google Places API', {
+        locationId,
+        placeId: locationData.place_id,
+        userId: user.id,
+      })
+      
+      try {
+        // Use dynamic import to avoid issues with server/client boundaries
+        const competitorsModule = await import('@/lib/places/competitors')
+        const discovery = await competitorsModule.findCompetitorPlaceIdsForLocation(user.id, locationId)
+        
+        console.log('[Competitors API] Discovery result:', {
+          competitorsCount: discovery.competitors?.length || 0,
+          anchorPlaceId: discovery.anchor?.placeId,
+          competitors: discovery.competitors?.map(c => ({ placeId: c.placeId, name: c.name })) || [],
+        })
+        
+        // Use discovered competitor place IDs
+        const competitorPlaceIds = discovery.competitors
+          ?.map(c => c.placeId)
+          .filter((placeId): placeId is string => !!placeId && placeId !== locationData.place_id) || []
+        
+        console.log('[Competitors API] Discovered', competitorPlaceIds.length, 'competitors via Places API')
+        
+        if (competitorPlaceIds.length === 0) {
+          console.warn('[Competitors API] No competitors found after discovery. This may be because:')
+          console.warn('  - No nearby businesses in the same category')
+          console.warn('  - Business location category not recognized')
+          console.warn('  - Google Places API search returned no results')
+        }
+        
+        // Convert to the format expected by the rest of the function
+        competitors = competitorPlaceIds.map(placeId => ({ placeId }))
+      } catch (discoveryError: any) {
+        console.error('[Competitors API] Failed to discover competitors:', {
+          error: discoveryError.message,
+          stack: discoveryError.stack,
+          locationId,
+          placeId: locationData.place_id,
+        })
+        // If discovery fails and we have no competitors, return empty array
+        if (competitors.length === 0) {
+          return NextResponse.json({ 
+            competitors: [],
+            error: 'Failed to discover competitors',
+            details: discoveryError.message,
+          })
+        }
+      }
+    } else if (competitors.length === 0) {
+      console.warn('[Competitors API] No competitors found and cannot discover:', {
+        hasPlaceId: !!locationData.place_id,
+        placeId: locationData.place_id,
+        hasApifyData: !!insights?.apify_competitors,
+      })
     }
 
-    const apifyData = insightsData.apify_competitors as any
-    const competitors = apifyData.places || []
+    if (competitors.length === 0) {
+      return NextResponse.json({ competitors: [] })
+    }
 
     // Get Google Places API key
     const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY
@@ -167,12 +228,14 @@ export async function GET(request: NextRequest) {
       return null
     }
 
-    // Extract place IDs from Apify data (only use Apify for place_id)
+    // Extract place IDs from competitors data
+    // Support both Apify format (with placeId/cid/kgmid) and our discovery format (already has placeId)
     const competitorPlaceIds = competitors
       .map((place: any) => place.placeId || place.cid || place.kgmid)
       .filter((placeId: string | undefined): placeId is string => {
         return !!placeId && placeId !== locationData.place_id
       })
+      .slice(0, 20) // Limit to top 20 competitors to avoid API rate limits
 
     // Fetch all competitor details from Google Places API in parallel
     const nearestCompetitors = await Promise.all(
@@ -215,7 +278,17 @@ export async function GET(request: NextRequest) {
         return (b.reviewsCount || 0) - (a.reviewsCount || 0)
       })
 
-    return NextResponse.json({ competitors: nearestCompetitors })
+    console.log('[Competitors API] Returning competitors:', {
+      total: validCompetitors.length,
+      competitors: validCompetitors.slice(0, 5).map(c => ({
+        placeId: c.placeId,
+        title: c.title,
+        rating: c.totalScore,
+        reviews: c.reviewsCount,
+      })),
+    })
+
+    return NextResponse.json({ competitors: validCompetitors })
   } catch (error: any) {
     console.error('[Competitors API] Error fetching nearest competitors:', error)
     return NextResponse.json(
