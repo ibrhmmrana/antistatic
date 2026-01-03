@@ -29,8 +29,9 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get business_location_id from query params or use most recent location
+    // Get business_location_id and return_to from query params
     const businessLocationIdParam = requestUrl.searchParams.get('business_location_id')
+    const returnTo = requestUrl.searchParams.get('return_to')
     
     let businessLocationId: string
     if (businessLocationIdParam) {
@@ -121,6 +122,7 @@ export async function GET(request: NextRequest) {
         user_id: user.id,
         business_location_id: businessLocationId,
         expires_at: expiresAt.toISOString(),
+        return_to: returnTo || null, // Store return_to URL for redirect after reconnection
       } as any)
       .select()
 

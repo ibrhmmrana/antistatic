@@ -117,11 +117,11 @@ export async function GET(request: NextRequest) {
     // Verify and retrieve state from database
     const { data: stateRecord, error: stateError } = await supabase
       .from('instagram_oauth_states')
-      .select('user_id, business_location_id, expires_at')
+      .select('user_id, business_location_id, expires_at, return_to')
       .eq('state', state)
       .maybeSingle()
 
-    const typedStateRecord = stateRecord as { user_id: string; business_location_id: string; expires_at: string } | null
+    const typedStateRecord = stateRecord as { user_id: string; business_location_id: string; expires_at: string; return_to: string | null } | null
 
     if (stateError || !typedStateRecord) {
       console.error('[Instagram Callback] Invalid or expired state:', stateError)
@@ -162,6 +162,7 @@ export async function GET(request: NextRequest) {
     }
 
     const businessLocationId = typedStateRecord.business_location_id
+    const returnTo = typedStateRecord.return_to
 
     // Get Instagram OAuth configuration
     let config
@@ -368,6 +369,20 @@ export async function GET(request: NextRequest) {
       username: instagramUsername,
       hasUsername: !!instagramUsername,
     })
+
+    // If return_to was provided, redirect back to that URL after successful connection
+    if (returnTo) {
+      try {
+        // Validate return_to is a relative URL (security check)
+        const returnUrl = new URL(returnTo, requestUrl.origin)
+        if (returnUrl.origin === requestUrl.origin) {
+          console.log('[Instagram Callback] Redirecting back to:', returnTo)
+          return NextResponse.redirect(returnTo)
+        }
+      } catch (urlError) {
+        console.warn('[Instagram Callback] Invalid return_to URL, using default redirect:', returnTo)
+      }
+    }
 
     // Build redirect URL with success params
     // Include allowBack=true to prevent auto-redirect to analysis page

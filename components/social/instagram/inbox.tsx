@@ -76,15 +76,21 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
         
-        // Check for Instagram auth error
-        if (errorData.error?.type === 'instagram_auth') {
-          setAuthError({
-            code: errorData.error.code,
-            message: errorData.error.message,
-          })
-          setError(null)
+      // Check for Instagram auth error - automatically reconnect if expired
+      if (errorData.error?.type === 'instagram_auth') {
+        if (errorData.error.code === 'EXPIRED') {
+          console.log('[Instagram Inbox] Token expired, automatically reconnecting...')
+          // Automatically redirect to OAuth reconnection
+          window.location.href = `/api/integrations/instagram/connect?business_location_id=${locationId}&return_to=${encodeURIComponent(window.location.pathname + window.location.search)}`
           return
         }
+        setAuthError({
+          code: errorData.error.code,
+          message: errorData.error.message,
+        })
+        setError(null)
+        return
+      }
         
         throw new Error(errorData.error?.message || errorData.error || `HTTP ${response.status}`)
       }
@@ -102,8 +108,14 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
         hasError: !!data.error,
       })
       
-      // Check for auth error in response
+      // Check for auth error in response - automatically reconnect if expired
       if (data.error?.type === 'instagram_auth') {
+        if (data.error.code === 'EXPIRED') {
+          console.log('[Instagram Inbox] Token expired, automatically reconnecting...')
+          // Automatically redirect to OAuth reconnection
+          window.location.href = `/api/integrations/instagram/connect?business_location_id=${locationId}&return_to=${encodeURIComponent(window.location.pathname + window.location.search)}`
+          return
+        }
         setAuthError({
           code: data.error.code,
           message: data.error.message,
@@ -432,8 +444,15 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
         
-        // Check for Instagram auth error
+        // Check for Instagram auth error - automatically reconnect if expired
         if (errorData.error?.type === 'instagram_auth') {
+          if (errorData.error.code === 'EXPIRED') {
+            console.log('[Instagram Inbox] Token expired during send, automatically reconnecting...')
+            showToast('Instagram connection expired. Redirecting to reconnect...', 'info')
+            // Automatically redirect to OAuth reconnection
+            window.location.href = `/api/integrations/instagram/connect?business_location_id=${locationId}&return_to=${encodeURIComponent(window.location.pathname + window.location.search)}`
+            return
+          }
           setAuthError({
             code: errorData.error.code,
             message: errorData.error.message,
@@ -463,9 +482,16 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
 
       const data = await response.json()
       
-      // Check for error in response body
+      // Check for error in response body - automatically reconnect if expired
       if (data.error) {
         if (data.error.type === 'instagram_auth') {
+          if (data.error.code === 'EXPIRED') {
+            console.log('[Instagram Inbox] Token expired during send, automatically reconnecting...')
+            showToast('Instagram connection expired. Redirecting to reconnect...', 'info')
+            // Automatically redirect to OAuth reconnection
+            window.location.href = `/api/integrations/instagram/connect?business_location_id=${locationId}&return_to=${encodeURIComponent(window.location.pathname + window.location.search)}`
+            return
+          }
           setAuthError({
             code: data.error.code,
             message: data.error.message,
@@ -662,23 +688,38 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
     <div className="space-y-6">
       <ToastContainer toasts={toasts} onClose={removeToast} />
       
-      {/* Token Expiry Banner */}
-      {authError && (
+      {/* Token Expiry Banner - Only show for non-EXPIRED errors */}
+      {authError && authError.code !== 'EXPIRED' && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-start gap-3">
           <InfoIcon sx={{ fontSize: 20, color: '#d97706', flexShrink: 0, mt: 0.5 }} />
           <div className="flex-1">
             <p className="text-sm font-medium text-yellow-900 mb-1">
-              Instagram Connection Expired
+              Instagram Connection Issue
             </p>
             <p className="text-sm text-yellow-700 mb-2">
-              {authError.message || 'Your Instagram connection has expired. Please reconnect to see profile photos and reply to messages.'}
+              {authError.message || 'There was an issue with your Instagram connection.'}
             </p>
             <a
-              href="/social?tab=connect"
+              href={`/api/integrations/instagram/connect?business_location_id=${locationId}&return_to=${encodeURIComponent(window.location.pathname + window.location.search)}`}
               className="text-sm text-yellow-900 underline hover:text-yellow-800"
             >
-              Reconnect in Connect Channels → Instagram
+              Reconnect Instagram Account
             </a>
+          </div>
+        </div>
+      )}
+      
+      {/* Auto-reconnecting indicator */}
+      {authError && authError.code === 'EXPIRED' && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
+          <InfoIcon sx={{ fontSize: 20, color: '#2563eb', flexShrink: 0, mt: 0.5 }} />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-blue-900 mb-1">
+              Reconnecting Instagram Account
+            </p>
+            <p className="text-sm text-blue-700">
+              Your Instagram connection has expired. Redirecting to reconnect automatically...
+            </p>
           </div>
         </div>
       )}
