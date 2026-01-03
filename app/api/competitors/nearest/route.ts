@@ -47,8 +47,9 @@ export async function GET(request: NextRequest) {
     let competitors: any[] = []
 
     // If we have Apify data, use it
-    if (insights?.apify_competitors) {
-      const apifyData = insights.apify_competitors as any
+    const insightsData = insights as { apify_competitors: any } | null
+    if (insightsData?.apify_competitors) {
+      const apifyData = insightsData.apify_competitors as any
       
       // Filter out self place - only include actual competitors
       const allPlaces = apifyData.places || []
@@ -110,7 +111,7 @@ export async function GET(request: NextRequest) {
       console.warn('[Competitors API] No competitors found and cannot discover:', {
         hasPlaceId: !!locationData.place_id,
         placeId: locationData.place_id,
-        hasApifyData: !!insights?.apify_competitors,
+        hasApifyData: !!insightsData?.apify_competitors,
       })
     }
 
