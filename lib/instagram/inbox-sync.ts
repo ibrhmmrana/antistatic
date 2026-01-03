@@ -426,6 +426,20 @@ export async function syncInstagramInbox(
       updated_time: string
       last_message_at: string
       last_message_preview: string | null
+      messages?: Array<{
+        id: string
+        ig_account_id: string
+        conversation_id: string
+        direction: 'inbound' | 'outbound'
+        from_id: string
+        to_id: string | null
+        text: string | null
+        attachments: any
+        created_time: string
+        read_at: string | null
+        raw: any
+      }>
+      participantIgsid?: string
     }> = []
 
     for (const conversation of conversations) {
