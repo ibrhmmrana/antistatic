@@ -195,10 +195,17 @@ export async function getAiContext(businessLocationId: string): Promise<AiContex
   ).slice(0, 20)
 
   // 6. Connected accounts
-  const { data: connectedAccounts } = await supabase
+  const { data: connectedAccountsData } = await supabase
     .from('connected_accounts')
     .select('provider, display_name, avatar_url, status')
     .eq('business_location_id', businessLocationId)
+  
+  const connectedAccounts = connectedAccountsData as Array<{
+    provider?: string
+    display_name?: string
+    avatar_url?: string
+    status?: string
+  }> | null
 
   // 7. Instagram connection
   const { data: instagramConnectionData } = await supabase
