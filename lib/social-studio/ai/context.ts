@@ -227,8 +227,8 @@ export async function getAiContext(businessLocationId: string): Promise<AiContex
   }> | null
 
   // Dedupe search terms
-  const uniqueSearchTerms = Array.from(
-    new Set((searchTerms || []).map((st) => st.term).filter(Boolean))
+  const uniqueSearchTerms: string[] = Array.from(
+    new Set((searchTerms || []).map((st) => st.term).filter((term): term is string => Boolean(term)))
   ).slice(0, 20)
 
   // 6. Connected accounts
