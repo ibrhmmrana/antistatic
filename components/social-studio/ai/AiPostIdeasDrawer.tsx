@@ -312,7 +312,7 @@ export function AiPostIdeasDrawer({
 
   // Get other selected channels (excluding current platform)
   const otherSelectedChannels = selectedChannels.filter(
-    (ch) => ch !== platform && ch !== 'youtube'
+    (ch) => ch !== platform
   ) as Array<'instagram' | 'facebook' | 'google_business' | 'linkedin' | 'tiktok'>
 
   const getPlatformDisplayName = (p: string) => {
