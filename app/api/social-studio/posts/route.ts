@@ -160,20 +160,23 @@ export async function POST(request: NextRequest) {
     // Determine status based on scheduledAt
     const status = scheduledAt ? 'scheduled' : 'draft'
 
-    // Insert post
-    const { data: post, error } = await supabase
-      .from(POSTS_TABLE)
-      .insert({
-        business_location_id: businessLocationId,
-        status,
-        platforms,
-        topic: topic || null,
-        caption: caption || null,
-        media: media || [],
-        link_url: linkUrl || null,
-        utm: utm || null,
-        scheduled_at: scheduledAt || null,
-      })
+    // Insert post - use typed payload and escape hatch for strict mode
+    type PostsInsert = Database['public']['Tables'][typeof POSTS_TABLE]['Insert']
+    const insertPayload: PostsInsert = {
+      business_location_id: businessLocationId,
+      status,
+      platforms,
+      topic: topic || null,
+      caption: caption || null,
+      media: media || [],
+      link_url: linkUrl || null,
+      utm: utm || null,
+      scheduled_at: scheduledAt || null,
+    }
+    
+    const posts = supabase.from(POSTS_TABLE) as any
+    const { data: post, error } = await posts
+      .insert(insertPayload as any)
       .select()
       .single()
 
