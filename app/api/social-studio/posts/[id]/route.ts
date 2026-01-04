@@ -22,6 +22,10 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
+    // Force table name to be a typed key (fixes "never" inference in strict mode)
+    const POSTS_TABLE = 'social_studio_posts' as const satisfies keyof Database['public']['Tables']
+    type PostsUpdate = Database['public']['Tables'][typeof POSTS_TABLE]['Update']
+    
     const supabase = await createClient()
     const {
       data: { user },
@@ -46,7 +50,7 @@ export async function PATCH(
 
     // First, verify the post exists and user owns it
     const { data: existingPost, error: fetchError } = await supabase
-      .from('social_studio_posts')
+      .from(POSTS_TABLE)
       .select('business_location_id')
       .eq('id', postId)
       .maybeSingle()
@@ -71,19 +75,8 @@ export async function PATCH(
     }
 
     // Build update object with proper typing
-    type PostUpdate = Database['public']['Tables']['social_studio_posts']['Update']
-    const allowedKeys: (keyof PostUpdate)[] = [
-      'scheduled_at',
-      'status',
-      'platforms',
-      'topic',
-      'caption',
-      'media',
-      'link_url',
-      'utm',
-    ]
-    
-    const updatePayload: Partial<PostUpdate> = {}
+    // Note: Supabase Update types already have optional fields, so PostsUpdate is safe for partial updates
+    const updatePayload: PostsUpdate = {}
     
     if (updateData.scheduledAt !== undefined) {
       updatePayload.scheduled_at = updateData.scheduledAt || null
@@ -116,11 +109,11 @@ export async function PATCH(
       updatePayload.utm = updateData.utm as Json | null
     }
 
-    // Update post - use ts-ignore to bypass strict Supabase typing for dynamic updates
-    // @ts-ignore - Supabase types are too strict for dynamic update objects
-    const { data: post, error } = await supabase
-      .from('social_studio_posts')
-      .update(updatePayload)
+    // Update post - use typed table const and payload
+    // If Vercel still infers 'never', use targeted escape hatch (consistent with other routes)
+    const posts = supabase.from(POSTS_TABLE) as any
+    const { data: post, error } = await posts
+      .update(updatePayload as any)
       .eq('id', postId)
       .select()
       .single()
@@ -142,6 +135,9 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+    // Force table name to be a typed key
+    const POSTS_TABLE = 'social_studio_posts' as const satisfies keyof Database['public']['Tables']
+    
     const supabase = await createClient()
     const {
       data: { user },
@@ -155,7 +151,7 @@ export async function DELETE(
 
     // First, verify the post exists and user owns it
     const { data: existingPost, error: fetchError } = await supabase
-      .from('social_studio_posts')
+      .from(POSTS_TABLE)
       .select('business_location_id')
       .eq('id', postId)
       .maybeSingle()
@@ -180,7 +176,7 @@ export async function DELETE(
     }
 
     // Delete post
-    const { error } = await supabase.from('social_studio_posts').delete().eq('id', postId)
+    const { error } = await supabase.from(POSTS_TABLE).delete().eq('id', postId)
 
     if (error) {
       console.error('[Social Studio Posts API] Error deleting post:', error)
