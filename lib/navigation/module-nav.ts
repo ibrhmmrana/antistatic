@@ -71,7 +71,7 @@ export const NAV_ITEMS: NavItemConfig[] = [
   {
     key: 'social_studio',
     label: 'Social Studio',
-    href: '/social',
+    href: '/social-studio',
     iconName: 'CampaignOutlined',
     moduleKey: 'social_studio',
     description: getModuleDescription('social_studio'),
