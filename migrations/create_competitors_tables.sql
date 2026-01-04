@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS competitor_social_handles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   business_location_id UUID NOT NULL REFERENCES business_locations(id) ON DELETE CASCADE,
   competitor_id UUID NOT NULL REFERENCES competitors(id) ON DELETE CASCADE,
-  platform TEXT NOT NULL CHECK (platform IN ('instagram', 'facebook', 'tiktok', 'youtube', 'x')),
+  platform TEXT NOT NULL CHECK (platform IN ('instagram', 'facebook', 'tiktok', 'x')),
   handle TEXT NOT NULL,
   profile_url TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),

@@ -15,7 +15,7 @@ interface CreateTabProps {
 }
 
 interface ChannelOption {
-  id: Platform | 'youtube'
+  id: Platform
   name: string
   iconPath: string
   connected: boolean
@@ -68,12 +68,6 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
       connected: mockSocialAccounts.some(acc => acc.platform === 'linkedin' && acc.status === 'connected'),
     },
     {
-      id: 'youtube',
-      name: 'YouTube',
-      iconPath: '/1690643591twitter-x-logo-png.webp', // Placeholder - YouTube icon needed
-      connected: false,
-    },
-    {
       id: 'tiktok',
       name: 'TikTok',
       iconPath: '/tik-tok-logo_578229-290.avif',
@@ -87,16 +81,11 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
   // Initialize selected channels with connected ones
   useEffect(() => {
     const connected = connectedChannels
-      .filter(ch => ch.id !== 'youtube')
       .map(ch => ch.id as Platform)
     setSelectedChannels(connected)
   }, [connectedChannels])
 
   const handleChannelToggle = (channelId: string) => {
-    if (channelId === 'youtube') {
-      showToast('YouTube integration coming soon', 'info')
-      return
-    }
     const platformId = channelId as Platform
     if (!['instagram', 'facebook', 'linkedin', 'tiktok', 'google_business'].includes(platformId)) {
       return
@@ -690,7 +679,7 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
             ? (connectedChannels[0].id as 'instagram' | 'facebook' | 'google_business' | 'linkedin' | 'tiktok')
             : null
         }
-        selectedChannels={selectedChannels.filter((ch) => ch !== 'youtube') as Array<'instagram' | 'facebook' | 'google_business' | 'linkedin' | 'tiktok'>}
+        selectedChannels={selectedChannels as Array<'instagram' | 'facebook' | 'google_business' | 'linkedin' | 'tiktok'>}
         onInsert={(caption) => {
           setContent(caption)
         }}

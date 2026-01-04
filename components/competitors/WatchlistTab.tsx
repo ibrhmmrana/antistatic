@@ -219,7 +219,6 @@ function CompetitorDetail({ competitor, businessLocationId }: { competitor: any;
                 <option value="instagram">Instagram</option>
                 <option value="facebook">Facebook</option>
                 <option value="tiktok">TikTok</option>
-                <option value="youtube">YouTube</option>
                 <option value="x">X (Twitter)</option>
               </select>
               <input

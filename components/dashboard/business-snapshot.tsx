@@ -24,7 +24,6 @@ const CHANNEL_ICONS: Record<string, { icon: string; color: string }> = {
   facebook: { icon: 'f', color: '#1877F2' },
   instagram: { icon: '📷', color: '#E4405F' },
   linkedin: { icon: 'in', color: '#0077B5' },
-  youtube: { icon: '▶', color: '#FF0000' },
 }
 
 export function BusinessSnapshot({
@@ -37,7 +36,6 @@ export function BusinessSnapshot({
     { id: 'facebook', name: 'Facebook' },
     { id: 'instagram', name: 'Instagram' },
     { id: 'linkedin', name: 'LinkedIn' },
-    { id: 'youtube', name: 'YouTube' },
   ]
 
   return (
