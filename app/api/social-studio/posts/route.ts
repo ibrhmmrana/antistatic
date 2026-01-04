@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { Database } from '@/lib/supabase/database.types'
 import { z } from 'zod'
 
 export const runtime = 'nodejs'
@@ -13,6 +14,9 @@ const querySchema = z.object({
 
 export async function GET(request: NextRequest) {
   try {
+    // Force table name to be a typed key (fixes "never" inference in strict mode)
+    const POSTS_TABLE = 'social_studio_posts' as const satisfies keyof Database['public']['Tables']
+    
     const supabase = await createClient()
     const {
       data: { user },
@@ -52,7 +56,7 @@ export async function GET(request: NextRequest) {
 
     // Build query
     let query = supabase
-      .from('social_studio_posts')
+      .from(POSTS_TABLE)
       .select('*')
       .eq('business_location_id', businessLocationId)
       .order('scheduled_at', { ascending: true, nullsFirst: false })
@@ -72,8 +76,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch posts' }, { status: 500 })
     }
 
+    // Type assertion for query result (needed for strict mode type inference)
+    type PostRow = Database['public']['Tables'][typeof POSTS_TABLE]['Row']
+    const typedPosts = (posts || []) as PostRow[]
+
     // Transform posts into calendar event format
-    const events = (posts || []).map((post) => ({
+    const events = typedPosts.map((post) => ({
       id: post.id,
       title: post.topic || post.caption?.substring(0, 50) || 'Post',
       start: post.scheduled_at || post.created_at,
@@ -92,7 +100,7 @@ export async function GET(request: NextRequest) {
       textColor: '#ffffff',
     }))
 
-    return NextResponse.json({ events, posts: posts || [] })
+    return NextResponse.json({ events, posts: typedPosts })
   } catch (error: any) {
     console.error('[Social Studio Posts API] Error:', error)
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 })
@@ -112,6 +120,9 @@ const postSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
+    // Force table name to be a typed key (fixes "never" inference in strict mode)
+    const POSTS_TABLE = 'social_studio_posts' as const satisfies keyof Database['public']['Tables']
+    
     const supabase = await createClient()
     const {
       data: { user },
@@ -151,7 +162,7 @@ export async function POST(request: NextRequest) {
 
     // Insert post
     const { data: post, error } = await supabase
-      .from('social_studio_posts')
+      .from(POSTS_TABLE)
       .insert({
         business_location_id: businessLocationId,
         status,
