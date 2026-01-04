@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { Database, Json } from '@/lib/supabase/database.types'
 import { z } from 'zod'
 
 export const runtime = 'nodejs'
@@ -69,8 +70,21 @@ export async function PATCH(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
     }
 
-    // Build update object
-    const updatePayload: Record<string, any> = {}
+    // Build update object with proper typing
+    type PostUpdate = Database['public']['Tables']['social_studio_posts']['Update']
+    const allowedKeys: (keyof PostUpdate)[] = [
+      'scheduled_at',
+      'status',
+      'platforms',
+      'topic',
+      'caption',
+      'media',
+      'link_url',
+      'utm',
+    ]
+    
+    const updatePayload: Partial<PostUpdate> = {}
+    
     if (updateData.scheduledAt !== undefined) {
       updatePayload.scheduled_at = updateData.scheduledAt || null
       // Auto-update status if scheduledAt is set
@@ -93,17 +107,16 @@ export async function PATCH(
       updatePayload.caption = updateData.caption || null
     }
     if (updateData.media !== undefined) {
-      updatePayload.media = updateData.media
+      updatePayload.media = updateData.media as Json
     }
     if (updateData.linkUrl !== undefined) {
       updatePayload.link_url = updateData.linkUrl || null
     }
     if (updateData.utm !== undefined) {
-      updatePayload.utm = updateData.utm || null
+      updatePayload.utm = updateData.utm as Json | null
     }
 
-    // Update post - use ts-ignore to bypass strict Supabase typing
-    // @ts-ignore - Supabase types are too strict for dynamic updates
+    // Update post - now properly typed
     const { data: post, error } = await supabase
       .from('social_studio_posts')
       .update(updatePayload)

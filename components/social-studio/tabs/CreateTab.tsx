@@ -75,7 +75,8 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
 
     if (postIdParam) {
       setEditingPostId(postIdParam)
-      loadPost(postIdParam)
+      // TODO: Load post data when editing
+      // For now, just set the editing ID
     }
   }, [searchParams, businessLocationId])
 
@@ -133,6 +134,107 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
         ? prev.filter((id) => id !== platformId)
         : [...prev, platformId]
     )
+  }
+
+  const handleSave = async (shouldSchedule: boolean) => {
+    if (selectedChannels.length === 0) {
+      showToast('Please select at least one channel', 'error')
+      return
+    }
+
+    if (shouldSchedule && (!scheduledDate || !scheduledTime)) {
+      showToast('Please select a date and time to schedule', 'error')
+      return
+    }
+
+    setSaving(true)
+
+    try {
+      // Prepare media array
+      const mediaArray = uploadedMedia.map((m) => ({
+        url: m.url,
+        type: m.type || 'image',
+        filePath: m.filePath,
+      }))
+
+      // Determine scheduledAt
+      let scheduledAtValue: string | undefined = undefined
+      if (shouldSchedule && scheduledDate && scheduledTime) {
+        updateScheduledAt(scheduledDate, scheduledTime, timezone)
+        scheduledAtValue = scheduledAt || undefined
+      }
+
+      const payload: {
+        businessLocationId: string
+        platforms: string[]
+        topic?: string | null
+        caption?: string | null
+        media?: any[]
+        linkUrl?: string | null
+        utm?: any
+        scheduledAt?: string
+      } = {
+        businessLocationId,
+        platforms: selectedChannels,
+        caption: content || null,
+        media: mediaArray,
+      }
+
+      if (scheduledAtValue) {
+        payload.scheduledAt = scheduledAtValue
+      }
+
+      // Use PATCH if editing, POST if creating
+      const url = editingPostId
+        ? `/api/social-studio/posts/${editingPostId}`
+        : '/api/social-studio/posts'
+      const method = editingPostId ? 'PATCH' : 'POST'
+
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to save post')
+      }
+
+      const data = await response.json()
+      showToast(
+        shouldSchedule
+          ? 'Post scheduled successfully!'
+          : editingPostId
+          ? 'Post updated successfully!'
+          : 'Post saved as draft!',
+        'success'
+      )
+
+      // Reset form if creating new post
+      if (!editingPostId) {
+        setContent('')
+        setUploadedMedia([])
+        setScheduledAt(null)
+        setScheduledDate('')
+        setScheduledTime('09:00')
+        setEditingPostId(null)
+      }
+
+      // Navigate back to planner if scheduled
+      if (shouldSchedule) {
+        setTimeout(() => {
+          router.push('/social-studio?tab=planner')
+        }, 1000)
+      }
+    } catch (error: any) {
+      console.error('[CreateTab] Error saving post:', error)
+      showToast(error.message || 'Failed to save post', 'error')
+    } finally {
+      setSaving(false)
+    }
   }
 
   // Update scheduledAt from date, time, and timezone

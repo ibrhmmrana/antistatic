@@ -360,6 +360,53 @@ export interface Database {
           updated_at?: string
         }
       }
+      social_studio_posts: {
+        Row: {
+          id: string
+          business_location_id: string
+          status: string
+          platforms: string[]
+          topic: string | null
+          caption: string | null
+          media: Json
+          link_url: string | null
+          utm: Json | null
+          scheduled_at: string | null
+          published_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          business_location_id: string
+          status?: string
+          platforms?: string[]
+          topic?: string | null
+          caption?: string | null
+          media?: Json
+          link_url?: string | null
+          utm?: Json | null
+          scheduled_at?: string | null
+          published_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          business_location_id?: string
+          status?: string
+          platforms?: string[]
+          topic?: string | null
+          caption?: string | null
+          media?: Json
+          link_url?: string | null
+          utm?: Json | null
+          scheduled_at?: string | null
+          published_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
     }
   }
 }
