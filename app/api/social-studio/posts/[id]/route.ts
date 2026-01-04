@@ -102,10 +102,11 @@ export async function PATCH(
       updatePayload.utm = updateData.utm || null
     }
 
-    // Update post - cast to any to bypass strict Supabase typing
+    // Update post - use ts-expect-error to bypass strict Supabase typing
+    // @ts-expect-error - Supabase types are too strict for dynamic updates
     const { data: post, error } = await supabase
       .from('social_studio_posts')
-      .update(updatePayload as any)
+      .update(updatePayload)
       .eq('id', postId)
       .select()
       .single()
