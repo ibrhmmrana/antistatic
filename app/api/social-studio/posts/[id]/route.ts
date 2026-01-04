@@ -70,7 +70,7 @@ export async function PATCH(
     }
 
     // Build update object
-    const updatePayload: any = {}
+    const updatePayload: Record<string, any> = {}
     if (updateData.scheduledAt !== undefined) {
       updatePayload.scheduled_at = updateData.scheduledAt || null
       // Auto-update status if scheduledAt is set
@@ -102,10 +102,10 @@ export async function PATCH(
       updatePayload.utm = updateData.utm || null
     }
 
-    // Update post
+    // Update post - cast to any to bypass strict Supabase typing
     const { data: post, error } = await supabase
       .from('social_studio_posts')
-      .update(updatePayload)
+      .update(updatePayload as any)
       .eq('id', postId)
       .select()
       .single()
