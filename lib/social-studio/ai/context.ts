@@ -142,7 +142,7 @@ export async function getAiContext(businessLocationId: string): Promise<AiContex
   } | null
 
   // 3. Business insights (GBP + social data)
-  const { data: insights } = await supabase
+  const { data: insightsData } = await supabase
     .from('business_insights')
     .select(`
       gbp_primary_category,
@@ -172,26 +172,63 @@ export async function getAiContext(businessLocationId: string): Promise<AiContex
     .eq('location_id', businessLocationId)
     .eq('source', 'google')
     .maybeSingle()
+  
+  const insights = insightsData as {
+    gbp_primary_category?: string
+    gbp_website_url?: string
+    gbp_phone?: string
+    gbp_address?: string
+    gbp_avg_rating?: number
+    gbp_review_count?: number
+    gbp_last_review_at?: string
+    gbp_total_call_clicks?: number
+    gbp_total_website_clicks?: number
+    gbp_total_directions_requests?: number
+    review_sentiment_summary?: any
+    top_review_keywords?: string[]
+    apify_opening_hours?: any
+    apify_competitors?: any
+    gbp_ai_analysis?: any
+    instagram_ai_analysis?: any
+    instagram_username?: string
+    instagram_metrics?: any
+    instagram_raw_posts?: any[]
+    instagram_raw_comments?: any[]
+    facebook_ai_analysis?: any
+    facebook_metrics?: any
+    facebook_raw_posts?: any[]
+  } | null
 
   // 4. Recent reviews (last 10)
-  const { data: reviews } = await supabase
+  const { data: reviewsData } = await supabase
     .from('business_reviews')
     .select('rating, review_text, author_name, published_at')
     .eq('location_id', businessLocationId)
     .order('published_at', { ascending: false })
     .limit(10)
+  
+  const reviews = reviewsData as Array<{
+    rating?: number
+    review_text?: string
+    author_name?: string
+    published_at?: string
+  }> | null
 
   // 5. Search terms (last 20, dedupe)
-  const { data: searchTerms } = await supabase
+  const { data: searchTermsData } = await supabase
     .from('search_terms')
     .select('term')
     .eq('business_location_id', businessLocationId)
     .order('created_at', { ascending: false })
     .limit(50)
+  
+  const searchTerms = searchTermsData as Array<{
+    term?: string
+  }> | null
 
   // Dedupe search terms
   const uniqueSearchTerms = Array.from(
-    new Set((searchTerms || []).map((st: any) => st.term).filter(Boolean))
+    new Set((searchTerms || []).map((st) => st.term).filter(Boolean))
   ).slice(0, 20)
 
   // 6. Connected accounts
