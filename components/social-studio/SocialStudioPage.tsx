@@ -7,8 +7,6 @@ import { HomeTab } from './tabs/HomeTab'
 import { PlannerTab } from './tabs/PlannerTab'
 import { CreateTab } from './tabs/CreateTab'
 import { InsightsTab } from './tabs/InsightsTab'
-import { LibraryTab } from './tabs/LibraryTab'
-import { InboxTab } from './tabs/InboxTab'
 import { useToast, ToastContainer } from '@/components/ui/toast'
 import { getCadenceStatus, mockCadenceTargets } from '@/lib/social-studio/mock'
 
@@ -27,8 +25,14 @@ export function SocialStudioPage({ businessLocationId }: SocialStudioPageProps) 
   // Sync tab with URL query param
   useEffect(() => {
     const tabParam = searchParams.get('tab') as TabId | null
-    if (tabParam && ['home', 'planner', 'create', 'insights', 'library', 'inbox'].includes(tabParam)) {
+    if (tabParam && ['home', 'insights', 'planner', 'create'].includes(tabParam)) {
       setActiveTab(tabParam)
+    }
+    // If scheduledAt or postId params are present, ensure we're on create tab
+    const scheduledAt = searchParams.get('scheduledAt')
+    const postId = searchParams.get('postId')
+    if ((scheduledAt || postId) && tabParam !== 'create') {
+      setActiveTab('create')
     }
   }, [searchParams])
 
@@ -52,11 +56,9 @@ export function SocialStudioPage({ businessLocationId }: SocialStudioPageProps) 
 
   const tabs: { id: TabId; label: string; badge?: string }[] = [
     { id: 'home', label: 'Home' },
+    { id: 'insights', label: 'Insights' },
     { id: 'planner', label: 'Planner' },
     { id: 'create', label: 'Create' },
-    { id: 'insights', label: 'Insights' },
-    { id: 'library', label: 'Library' },
-    { id: 'inbox', label: 'Inbox', badge: 'Coming soon' },
   ]
 
   return (
@@ -242,13 +244,7 @@ export function SocialStudioPage({ businessLocationId }: SocialStudioPageProps) 
                   onClick={() => handleTabChange('create')}
                   className="px-4 py-2 text-sm font-medium text-white bg-[#1a73e8] rounded-md hover:bg-[#1557b0] transition-colors"
                 >
-                  New
-                </button>
-                <button
-                  onClick={() => showToast('Automation settings coming soon', 'info')}
-                  className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors"
-                >
-                  Automation
+                  Create post
                 </button>
               </div>
             </div>
@@ -258,20 +254,13 @@ export function SocialStudioPage({ businessLocationId }: SocialStudioPageProps) 
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
-                  onClick={() => {
-                    if (tab.id === 'inbox') {
-                      showToast('Inbox tab coming soon', 'info')
-                      return
-                    }
-                    handleTabChange(tab.id)
-                  }}
+                  onClick={() => handleTabChange(tab.id)}
                   className={`px-4 py-2 text-sm font-medium transition-colors relative ${
                     activeTab === tab.id
                       ? 'text-[#1a73e8] border-b-2 border-[#1a73e8]'
                       : 'text-slate-600 hover:text-slate-900'
-                  } ${tab.id === 'inbox' ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  }`}
                   style={{ fontFamily: 'var(--font-google-sans)' }}
-                  disabled={tab.id === 'inbox'}
                 >
                   {tab.label}
                   {tab.badge && (
@@ -289,11 +278,9 @@ export function SocialStudioPage({ businessLocationId }: SocialStudioPageProps) 
         <div className="flex-1 min-h-0 overflow-hidden bg-white">
           <div className="h-full max-w-7xl mx-auto px-4 sm:px-6 py-6 overflow-y-auto">
             {activeTab === 'home' && <HomeTab businessLocationId={businessLocationId} />}
+            {activeTab === 'insights' && <InsightsTab businessLocationId={businessLocationId} />}
             {activeTab === 'planner' && <PlannerTab businessLocationId={businessLocationId} />}
             {activeTab === 'create' && <CreateTab businessLocationId={businessLocationId} />}
-            {activeTab === 'insights' && <InsightsTab businessLocationId={businessLocationId} />}
-            {activeTab === 'library' && <LibraryTab businessLocationId={businessLocationId} />}
-            {activeTab === 'inbox' && <InboxTab businessLocationId={businessLocationId} />}
           </div>
         </div>
         <ToastContainer toasts={toasts} onClose={removeToast} />
