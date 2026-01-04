@@ -54,11 +54,14 @@ export async function PATCH(
       return NextResponse.json({ error: 'Post not found' }, { status: 404 })
     }
 
+    // Type assertion for Supabase query result
+    const postData = existingPost as { business_location_id: string }
+
     // Verify user owns the business location
     const { data: location } = await supabase
       .from('business_locations')
       .select('id')
-      .eq('id', existingPost.business_location_id)
+      .eq('id', postData.business_location_id)
       .eq('user_id', user.id)
       .maybeSingle()
 
@@ -146,11 +149,14 @@ export async function DELETE(
       return NextResponse.json({ error: 'Post not found' }, { status: 404 })
     }
 
+    // Type assertion for Supabase query result
+    const postData = existingPost as { business_location_id: string }
+
     // Verify user owns the business location
     const { data: location } = await supabase
       .from('business_locations')
       .select('id')
-      .eq('id', existingPost.business_location_id)
+      .eq('id', postData.business_location_id)
       .eq('user_id', user.id)
       .maybeSingle()
 
