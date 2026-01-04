@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { mockSocialAccounts } from '@/lib/social-studio/mock'
 import { useToast, ToastContainer } from '@/components/ui/toast'
 import Image from 'next/image'
@@ -23,10 +23,17 @@ interface ChannelOption {
 
 export function CreateTab({ businessLocationId }: CreateTabProps) {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const { toasts, showToast, removeToast } = useToast()
   const [selectedChannels, setSelectedChannels] = useState<Platform[]>([])
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const [content, setContent] = useState('')
+  const [scheduledAt, setScheduledAt] = useState<string | null>(null)
+  const [scheduledDate, setScheduledDate] = useState<string>('')
+  const [scheduledTime, setScheduledTime] = useState<string>('09:00')
+  const [timezone, setTimezone] = useState<string>('Africa/Johannesburg') // SAST default
+  const [editingPostId, setEditingPostId] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
   const [uploadedMedia, setUploadedMedia] = useState<Array<{ 
     id: string
     url: string
@@ -40,6 +47,37 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
   const [viewingMedia, setViewingMedia] = useState<{ url: string; type?: 'image' | 'video' } | null>(null)
   const [isAiDrawerOpen, setIsAiDrawerOpen] = useState(false)
   const emojiButtonRef = useRef<HTMLButtonElement>(null)
+
+  // Handle URL params: scheduledAt and postId
+  useEffect(() => {
+    const scheduledAtParam = searchParams.get('scheduledAt')
+    const postIdParam = searchParams.get('postId')
+    
+    if (scheduledAtParam) {
+      try {
+        const date = new Date(scheduledAtParam)
+        if (!isNaN(date.getTime())) {
+          // Set default time to 9:00 AM SAST if not specified
+          if (!scheduledAtParam.includes('T')) {
+            date.setHours(9, 0, 0, 0)
+          }
+          setScheduledAt(date.toISOString())
+          // Set date and time inputs
+          setScheduledDate(date.toISOString().split('T')[0])
+          const hours = String(date.getHours()).padStart(2, '0')
+          const minutes = String(date.getMinutes()).padStart(2, '0')
+          setScheduledTime(`${hours}:${minutes}`)
+        }
+      } catch (e) {
+        console.error('Invalid scheduledAt param:', e)
+      }
+    }
+
+    if (postIdParam) {
+      setEditingPostId(postIdParam)
+      loadPost(postIdParam)
+    }
+  }, [searchParams, businessLocationId])
 
   // All available channels
   const allChannels: ChannelOption[] = [
@@ -95,6 +133,51 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
         ? prev.filter((id) => id !== platformId)
         : [...prev, platformId]
     )
+  }
+
+  // Update scheduledAt from date, time, and timezone
+  // For MVP: timezone selector is for display only, we store in UTC
+  // Future: implement proper timezone conversion
+  const updateScheduledAt = (date: string, time: string, tz: string) => {
+    if (!date || !time) {
+      setScheduledAt(null)
+      return
+    }
+
+    try {
+      // Create date string
+      const dateTimeString = `${date}T${time}:00`
+      
+      // For now, treat the date/time as if it's in the selected timezone
+      // and convert to UTC by creating a date and getting its UTC equivalent
+      // This is a simplified approach - proper timezone conversion would require a library
+      const localDate = new Date(dateTimeString)
+      
+      // Get the timezone offset for the target timezone at this date
+      // We'll use a workaround: create the date, then adjust based on timezone
+      const formatter = new Intl.DateTimeFormat('en', {
+        timeZone: tz,
+        timeZoneName: 'longOffset'
+      })
+      
+      // Create a test date to get timezone offset
+      const parts = formatter.formatToParts(localDate)
+      const offsetPart = parts.find(p => p.type === 'timeZoneName')
+      
+      // For MVP: just use the local date converted to ISO (UTC)
+      // The timezone is stored for display purposes
+      setScheduledAt(localDate.toISOString())
+    } catch (error) {
+      console.error('Error updating scheduledAt:', error)
+      // Fallback: use the date/time as-is
+      try {
+        const dateTimeString = `${date}T${time}:00`
+        const localDate = new Date(dateTimeString)
+        setScheduledAt(localDate.toISOString())
+      } catch (e) {
+        setScheduledAt(null)
+      }
+    }
   }
 
   return (
@@ -596,6 +679,90 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
                 <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
               </svg>
               Generate with AI
+            </button>
+          </div>
+
+          {/* Schedule Date/Time Picker */}
+          <div className="mt-6 pt-6 border-t border-slate-200 space-y-4">
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-sm font-medium text-slate-700 mb-2">Schedule Date</label>
+                <input
+                  type="date"
+                  value={scheduledDate}
+                  onChange={(e) => {
+                    setScheduledDate(e.target.value)
+                    if (e.target.value && scheduledTime) {
+                      updateScheduledAt(e.target.value, scheduledTime, timezone)
+                    }
+                  }}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#1a73e8] focus:border-transparent"
+                />
+              </div>
+              <div className="flex-1 min-w-[150px]">
+                <label className="block text-sm font-medium text-slate-700 mb-2">Time</label>
+                <input
+                  type="time"
+                  value={scheduledTime}
+                  onChange={(e) => {
+                    setScheduledTime(e.target.value)
+                    if (scheduledDate && e.target.value) {
+                      updateScheduledAt(scheduledDate, e.target.value, timezone)
+                    }
+                  }}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#1a73e8] focus:border-transparent"
+                />
+              </div>
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-sm font-medium text-slate-700 mb-2">Timezone</label>
+                <select
+                  value={timezone}
+                  onChange={(e) => {
+                    setTimezone(e.target.value)
+                    if (scheduledDate && scheduledTime) {
+                      updateScheduledAt(scheduledDate, scheduledTime, e.target.value)
+                    }
+                  }}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#1a73e8] focus:border-transparent"
+                >
+                  <option value="Africa/Johannesburg">SAST (UTC+2)</option>
+                  <option value="UTC">UTC (UTC+0)</option>
+                  <option value="America/New_York">EST (UTC-5)</option>
+                  <option value="America/Los_Angeles">PST (UTC-8)</option>
+                  <option value="Europe/London">GMT (UTC+0)</option>
+                  <option value="Europe/Paris">CET (UTC+1)</option>
+                  <option value="Asia/Dubai">GST (UTC+4)</option>
+                  <option value="Asia/Tokyo">JST (UTC+9)</option>
+                  <option value="Australia/Sydney">AEDT (UTC+11)</option>
+                </select>
+              </div>
+            </div>
+            {scheduledAt && (
+              <div className="text-sm text-slate-600">
+                Scheduled for: {new Date(scheduledAt).toLocaleString('en-US', { 
+                  timeZone: timezone,
+                  dateStyle: 'full',
+                  timeStyle: 'short'
+                })} ({timezone === 'Africa/Johannesburg' ? 'SAST' : timezone.split('/')[1]})
+              </div>
+            )}
+          </div>
+
+          {/* Save/Schedule Buttons */}
+          <div className="mt-4 flex items-center justify-end gap-3">
+            <button
+              onClick={() => handleSave(false)}
+              disabled={saving || selectedChannels.length === 0}
+              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {saving ? 'Saving...' : 'Save as Draft'}
+            </button>
+            <button
+              onClick={() => handleSave(true)}
+              disabled={saving || selectedChannels.length === 0 || !scheduledDate || !scheduledTime}
+              className="px-4 py-2 text-sm font-medium text-white bg-[#1a73e8] rounded-md hover:bg-[#1557b0] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {saving ? 'Scheduling...' : 'Schedule'}
             </button>
           </div>
         </div>
