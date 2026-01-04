@@ -201,11 +201,16 @@ export async function getAiContext(businessLocationId: string): Promise<AiContex
     .eq('business_location_id', businessLocationId)
 
   // 7. Instagram connection
-  const { data: instagramConnection } = await supabase
+  const { data: instagramConnectionData } = await supabase
     .from('instagram_connections')
     .select('instagram_user_id, instagram_username')
     .eq('business_location_id', businessLocationId)
     .maybeSingle()
+  
+  const instagramConnection = instagramConnectionData as {
+    instagram_user_id?: string
+    instagram_username?: string
+  } | null
 
   // Build channels array
   const channels: AiContextPayload['channels'] = []
