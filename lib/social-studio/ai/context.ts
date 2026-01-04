@@ -120,11 +120,26 @@ export async function getAiContext(businessLocationId: string): Promise<AiContex
   const businessContext = await getBusinessContext(businessLocationId)
 
   // 2. Business location data
-  const { data: location } = await supabase
+  const { data: locationData } = await supabase
     .from('business_locations')
-    .select('name, formatted_address, phone_number, website, category, categories, instagram_username, facebook_username, linkedin_username, x_username, tiktok_username')
+    .select('name, formatted_address, phone_number, website, category, categories, instagram_username, facebook_username, linkedin_username, x_username, tiktok_username, place_id')
     .eq('id', businessLocationId)
     .maybeSingle()
+  
+  const location = locationData as {
+    name?: string
+    formatted_address?: string
+    phone_number?: string
+    website?: string
+    category?: string
+    categories?: string[]
+    instagram_username?: string
+    facebook_username?: string
+    linkedin_username?: string
+    x_username?: string
+    tiktok_username?: string
+    place_id?: string
+  } | null
 
   // 3. Business insights (GBP + social data)
   const { data: insights } = await supabase
@@ -236,7 +251,7 @@ export async function getAiContext(businessLocationId: string): Promise<AiContex
   const gbpAccount = connectedAccounts?.find((acc: any) => acc.provider === 'google_gbp')
   channels.push({
     platform: 'google_business',
-    username: location?.google_location_name || null,
+    username: location?.name || null,
     connected: !!gbpAccount,
     status: gbpAccount?.status || 'not_connected',
   })
