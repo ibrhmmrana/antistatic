@@ -34,15 +34,22 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify business location belongs to user
-    const { data: location, error: locationError } = await supabase
+    const { data: locationData, error: locationError } = await supabase
       .from('business_locations')
       .select('id, user_id, google_location_name')
       .eq('id', businessLocationId)
       .eq('user_id', user.id)
       .maybeSingle()
 
-    if (locationError || !location) {
+    if (locationError || !locationData) {
       return NextResponse.json({ error: 'Business location not found' }, { status: 404 })
+    }
+
+    // Type assertion for location with selected fields
+    const location = locationData as {
+      id: string
+      user_id: string
+      google_location_name: string | null
     }
 
     // Check if GBP is connected
