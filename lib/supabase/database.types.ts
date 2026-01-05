@@ -366,13 +366,19 @@ export interface Database {
           business_location_id: string
           status: string
           platforms: string[]
+          platform: string | null
           topic: string | null
           caption: string | null
           media: Json
+          media_url: string | null
+          cta: Json | null
           link_url: string | null
           utm: Json | null
           scheduled_at: string | null
           published_at: string | null
+          gbp_local_post_name: string | null
+          gbp_search_url: string | null
+          platform_meta: Json | null
           created_at: string
           updated_at: string
         }
@@ -381,13 +387,19 @@ export interface Database {
           business_location_id: string
           status?: string
           platforms?: string[]
+          platform?: string | null
           topic?: string | null
           caption?: string | null
           media?: Json
+          media_url?: string | null
+          cta?: Json | null
           link_url?: string | null
           utm?: Json | null
           scheduled_at?: string | null
           published_at?: string | null
+          gbp_local_post_name?: string | null
+          gbp_search_url?: string | null
+          platform_meta?: Json | null
           created_at?: string
           updated_at?: string
         }
@@ -396,13 +408,19 @@ export interface Database {
           business_location_id?: string
           status?: string
           platforms?: string[]
+          platform?: string | null
           topic?: string | null
           caption?: string | null
           media?: Json
+          media_url?: string | null
+          cta?: Json | null
           link_url?: string | null
           utm?: Json | null
           scheduled_at?: string | null
           published_at?: string | null
+          gbp_local_post_name?: string | null
+          gbp_search_url?: string | null
+          platform_meta?: Json | null
           created_at?: string
           updated_at?: string
         }

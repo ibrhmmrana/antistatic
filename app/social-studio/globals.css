@@ -1,0 +1,27 @@
+/* Custom styles for Social Studio calendar events */
+.fc-event.custom-calendar-event {
+  border: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 2px 0 !important;
+  box-shadow: none !important;
+}
+
+.fc-event.custom-calendar-event .fc-event-main {
+  padding: 0 !important;
+}
+
+.fc-daygrid-event {
+  margin: 2px 0 !important;
+}
+
+.fc-daygrid-day-events {
+  margin: 0 !important;
+}
+
+/* Ensure event content is clickable */
+.fc-event.custom-calendar-event .fc-event-main-frame {
+  cursor: pointer;
+}
+
+

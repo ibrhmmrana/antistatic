@@ -3,6 +3,10 @@
 @tailwind components;
 @tailwind utilities;
 
+/* FullCalendar CSS - Required for calendar to render and function properly */
+/* FullCalendar v6 CSS must be imported in the component file, not here */
+/* CSS will be imported directly in PlannerTab.tsx */
+
 /* ============================================
    Product Sans / Google Sans @font-face rules
    ============================================ */

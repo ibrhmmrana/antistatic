@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { mockSocialAccounts } from '@/lib/social-studio/mock'
 import { useToast, ToastContainer } from '@/components/ui/toast'
 import Image from 'next/image'
 import type { Platform } from '@/lib/social-studio/mock'
@@ -19,6 +18,11 @@ interface ChannelOption {
   name: string
   iconPath: string
   connected: boolean
+  canSelect: boolean
+  needsReconnect: boolean
+  displayName?: string | null
+  avatarUrl?: string | null
+  username?: string | null
 }
 
 export function CreateTab({ businessLocationId }: CreateTabProps) {
@@ -34,6 +38,11 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
   const [timezone, setTimezone] = useState<string>('Africa/Johannesburg') // SAST default
   const [editingPostId, setEditingPostId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [showScheduleForm, setShowScheduleForm] = useState(false) // Only show when Schedule button is clicked or scheduledAt param exists
+  const [channels, setChannels] = useState<ChannelOption[]>([])
+  const [channelsLoading, setChannelsLoading] = useState(true)
+  const [channelsError, setChannelsError] = useState<string | null>(null)
+  const didInitSelectionRef = useRef(false)
   const [uploadedMedia, setUploadedMedia] = useState<Array<{ 
     id: string
     url: string
@@ -48,12 +57,28 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
   const [isAiDrawerOpen, setIsAiDrawerOpen] = useState(false)
   const emojiButtonRef = useRef<HTMLButtonElement>(null)
 
-  // Handle URL params: scheduledAt and postId
+  // Handle URL params: date, scheduledAt, and postId
   useEffect(() => {
+    const dateParam = searchParams.get('date') // YYYY-MM-DD format
     const scheduledAtParam = searchParams.get('scheduledAt')
     const postIdParam = searchParams.get('postId')
     
-    if (scheduledAtParam) {
+    if (dateParam) {
+      // Handle YYYY-MM-DD format from Planner date click
+      try {
+        const [year, month, day] = dateParam.split('-').map(Number)
+        const date = new Date(year, month - 1, day, 9, 0, 0) // Default to 9:00 AM
+        if (!isNaN(date.getTime())) {
+          setScheduledDate(dateParam)
+          setScheduledTime('09:00')
+          // Don't auto-show schedule form - user needs to click Schedule button
+          setShowScheduleForm(false)
+        }
+      } catch (e) {
+        console.error('Invalid date param:', e)
+      }
+    } else if (scheduledAtParam) {
+      // Handle full ISO datetime format
       try {
         const date = new Date(scheduledAtParam)
         if (!isNaN(date.getTime())) {
@@ -67,68 +92,165 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
           const hours = String(date.getHours()).padStart(2, '0')
           const minutes = String(date.getMinutes()).padStart(2, '0')
           setScheduledTime(`${hours}:${minutes}`)
+          // Show schedule form when scheduledAt param is present
+          setShowScheduleForm(true)
         }
       } catch (e) {
         console.error('Invalid scheduledAt param:', e)
       }
+    } else {
+      // If no date params, hide schedule form (user came directly to Create tab)
+      setShowScheduleForm(false)
     }
 
     if (postIdParam) {
       setEditingPostId(postIdParam)
-      // TODO: Load post data when editing
-      // For now, just set the editing ID
     }
   }, [searchParams, businessLocationId])
 
-  // All available channels
-  const allChannels: ChannelOption[] = [
-    {
-      id: 'facebook',
-      name: 'Facebook',
-      iconPath: '/Facebook_f_logo_(2019).svg',
-      connected: mockSocialAccounts.some(acc => acc.platform === 'facebook' && acc.status === 'connected'),
-    },
-    {
-      id: 'instagram',
-      name: 'Instagram',
-      iconPath: '/Instagram_logo_2022.svg',
-      connected: mockSocialAccounts.some(acc => acc.platform === 'instagram' && acc.status === 'connected'),
-    },
-    {
-      id: 'google_business',
-      name: 'Google',
-      iconPath: '/Google__G__logo.svg',
-      connected: mockSocialAccounts.some(acc => acc.platform === 'google_business' && acc.status === 'connected'),
-    },
-    {
-      id: 'linkedin',
-      name: 'LinkedIn',
-      iconPath: '/LinkedIn_logo_initials.png.webp',
-      connected: mockSocialAccounts.some(acc => acc.platform === 'linkedin' && acc.status === 'connected'),
-    },
-    {
-      id: 'tiktok',
-      name: 'TikTok',
-      iconPath: '/tik-tok-logo_578229-290.avif',
-      connected: false,
-    },
-  ]
+  // Load post data when editingPostId changes
+  useEffect(() => {
+    const loadPost = async () => {
+      if (!editingPostId) return
+
+      try {
+        const response = await fetch(`/api/social-studio/posts?businessLocationId=${businessLocationId}`)
+        if (!response.ok) {
+          throw new Error('Failed to fetch posts')
+        }
+
+        const data = await response.json()
+        const post = data.posts?.find((p: any) => p.id === editingPostId)
+
+        if (!post) {
+          showToast('Post not found', 'error')
+          setEditingPostId(null)
+          return
+        }
+
+        // Load post data into form
+        setContent(post.caption || '')
+        setSelectedChannels((post.platforms || []) as Platform[])
+
+        // Load media
+        if (post.media && Array.isArray(post.media) && post.media.length > 0) {
+          const mediaItems = post.media.map((m: any) => ({
+            id: Math.random().toString(36).substring(7),
+            url: m.url || (post as any).media_url || '',
+            filePath: m.filePath,
+            type: m.type || 'image',
+          }))
+          setUploadedMedia(mediaItems)
+        } else if ((post as any).media_url) {
+          // Fallback: use media_url if media array is empty
+          setUploadedMedia([{
+            id: Math.random().toString(36).substring(7),
+            url: (post as any).media_url,
+            type: 'image',
+          }])
+        }
+
+        // Load scheduled date/time if scheduled
+        if (post.scheduled_at) {
+          const scheduledDate = new Date(post.scheduled_at)
+          setScheduledAt(post.scheduled_at)
+          setScheduledDate(scheduledDate.toISOString().split('T')[0])
+          const hours = String(scheduledDate.getHours()).padStart(2, '0')
+          const minutes = String(scheduledDate.getMinutes()).padStart(2, '0')
+          setScheduledTime(`${hours}:${minutes}`)
+          setShowScheduleForm(true)
+        } else if (post.published_at) {
+          // For published posts, show the published date but don't enable scheduling
+          const publishedDate = new Date(post.published_at)
+          setScheduledDate(publishedDate.toISOString().split('T')[0])
+          setScheduledTime(`${String(publishedDate.getHours()).padStart(2, '0')}:${String(publishedDate.getMinutes()).padStart(2, '0')}`)
+          setShowScheduleForm(false)
+        }
+
+        showToast('Post loaded for editing', 'success')
+      } catch (error: any) {
+        console.error('[CreateTab] Error loading post:', error)
+        showToast(error.message || 'Failed to load post for editing', 'error')
+        setEditingPostId(null)
+      }
+    }
+
+    loadPost()
+  }, [editingPostId, businessLocationId, showToast])
+
+  // Fetch real connected channels
+  useEffect(() => {
+    const fetchChannels = async () => {
+      setChannelsLoading(true)
+      setChannelsError(null)
+      try {
+        const response = await fetch(
+          `/api/social-studio/connections?businessLocationId=${businessLocationId}`
+        )
+        if (!response.ok) {
+          const error = await response.json()
+          throw new Error(error.error || 'Failed to fetch channels')
+        }
+        const data = await response.json()
+        setChannels(data.channels || [])
+      } catch (error: any) {
+        console.error('[CreateTab] Error fetching channels:', error)
+        setChannelsError(error.message || 'Failed to load channels')
+        showToast('Failed to load connected channels', 'error')
+      } finally {
+        setChannelsLoading(false)
+      }
+    }
+
+    fetchChannels()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [businessLocationId]) // Only depend on businessLocationId, showToast is stable from useToast hook
 
   // Get connected channels for preview
-  const connectedChannels = useMemo(() => allChannels.filter(ch => ch.connected), [])
+  const connectedChannels = useMemo(() => channels.filter(ch => ch.connected && ch.canSelect), [channels])
   
-  // Initialize selected channels with connected ones
+  // Initialize selected channels with connected ones (only once, on first load, and only if not editing)
   useEffect(() => {
-    const connected = connectedChannels
-      .map(ch => ch.id as Platform)
-    setSelectedChannels(connected)
-  }, [connectedChannels])
+    if (!channelsLoading && !didInitSelectionRef.current && channels.length > 0 && !editingPostId) {
+      const defaults = channels
+        .filter(ch => ch.connected && ch.canSelect)
+        .map(ch => ch.id as Platform)
+      if (defaults.length > 0) {
+        setSelectedChannels(defaults)
+        didInitSelectionRef.current = true
+      }
+    }
+  }, [channelsLoading, channels, editingPostId])
 
   const handleChannelToggle = (channelId: string) => {
     const platformId = channelId as Platform
     if (!['instagram', 'facebook', 'linkedin', 'tiktok', 'google_business'].includes(platformId)) {
       return
     }
+    const channel = channels.find(ch => ch.id === platformId)
+    if (!channel) return
+
+    // If channel is not connected, prompt to connect
+    if (!channel.connected) {
+      showToast(`${channel.name} is not connected. Please connect it first.`, 'info')
+      router.push('/onboarding/connect')
+      setIsDropdownOpen(false)
+      return
+    }
+
+    // If channel needs reconnection, prompt to fix
+    if (channel.needsReconnect) {
+      showToast('This channel needs to be reconnected', 'error')
+      router.push('/onboarding/connect')
+      setIsDropdownOpen(false)
+      return
+    }
+
+    // Only allow toggling if channel is selectable
+    if (!channel.canSelect) {
+      return
+    }
+
     setSelectedChannels((prev) =>
       prev.includes(platformId)
         ? prev.filter((id) => id !== platformId)
@@ -136,13 +258,13 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
     )
   }
 
-  const handleSave = async (shouldSchedule: boolean) => {
+  const handleSave = async (action: 'draft' | 'schedule' | 'post') => {
     if (selectedChannels.length === 0) {
       showToast('Please select at least one channel', 'error')
       return
     }
 
-    if (shouldSchedule && (!scheduledDate || !scheduledTime)) {
+    if (action === 'schedule' && (!scheduledDate || !scheduledTime)) {
       showToast('Please select a date and time to schedule', 'error')
       return
     }
@@ -157,31 +279,224 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
         filePath: m.filePath,
       }))
 
-      // Determine scheduledAt
+      // Determine scheduledAt and status
       let scheduledAtValue: string | undefined = undefined
-      if (shouldSchedule && scheduledDate && scheduledTime) {
+      let postStatus: 'draft' | 'scheduled' | 'published' = 'draft'
+      
+      if (action === 'schedule' && scheduledDate && scheduledTime) {
         updateScheduledAt(scheduledDate, scheduledTime, timezone)
         scheduledAtValue = scheduledAt || undefined
+        postStatus = 'scheduled'
+      } else if (action === 'post') {
+        // Post immediately - publish to selected platforms
+        postStatus = 'published'
+      } else {
+        // Save as draft
+        postStatus = 'draft'
       }
 
+      // If posting, publish to each selected platform
+      let gbpMetadata: { localPostName?: string; searchUrl?: string } | null = null
+      let instagramMetadata: { mediaId?: string; permalink?: string } | null = null
+      
+      if (action === 'post') {
+        const publishResults: Array<{ platform: string; success: boolean; error?: string; gbpMetadata?: { localPostName?: string; searchUrl?: string }; instagramMetadata?: { mediaId?: string; permalink?: string } }> = []
+        
+        for (const platform of selectedChannels) {
+          try {
+            if (platform === 'google_business') {
+              // Publish to Google Business Profile
+              const gbpPayload: {
+                businessLocationId: string
+                summary: string
+                languageCode?: string
+                media?: { sourceUrl: string }
+              } = {
+                businessLocationId,
+                summary: content || '',
+                languageCode: 'en',
+              }
+
+              // Add media if available (use first image)
+              if (mediaArray.length > 0 && mediaArray[0].url) {
+                gbpPayload.media = { sourceUrl: mediaArray[0].url }
+              }
+
+              const gbpResponse = await fetch('/api/social-studio/publish/gbp', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(gbpPayload),
+              })
+
+              const gbpData = await gbpResponse.json()
+
+              if (!gbpResponse.ok || !gbpData.ok) {
+                throw new Error(gbpData.error || 'Failed to publish to Google Business Profile')
+              }
+
+              // Store GBP metadata for saving to database
+              gbpMetadata = {
+                localPostName: gbpData.localPostName,
+                searchUrl: gbpData.searchUrl,
+              }
+              
+              publishResults.push({ 
+                platform: 'Google Business Profile', 
+                success: true,
+                gbpMetadata
+              })
+            } else if (platform === 'instagram') {
+              // Publish to Instagram
+              // Instagram requires media, so check if we have it
+              if (mediaArray.length === 0 || !mediaArray[0].url) {
+                throw new Error('Instagram posts require media (image or video)')
+              }
+
+              const instagramPayload: {
+                businessLocationId: string
+                caption?: string
+                media: { sourceUrl: string; type?: string }
+              } = {
+                businessLocationId,
+                caption: content || undefined,
+                media: {
+                  sourceUrl: mediaArray[0].url,
+                  type: mediaArray[0].type || (mediaArray[0].url.match(/\.(mp4|webm|ogg|mov|avi|mkv)(\?|$)/i) ? 'video' : 'image'),
+                },
+              }
+
+              const instagramResponse = await fetch('/api/social-studio/publish/instagram', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(instagramPayload),
+              })
+
+              const instagramData = await instagramResponse.json()
+
+              if (!instagramResponse.ok || !instagramData.ok) {
+                // Check for reauth requirement
+                if (instagramData.needs_reauth) {
+                  throw new Error('Instagram connection expired. Please reconnect your account.')
+                }
+                throw new Error(instagramData.error || 'Failed to publish to Instagram')
+              }
+
+              // Store Instagram metadata for saving to database
+              instagramMetadata = {
+                mediaId: instagramData.mediaId,
+                permalink: instagramData.permalink,
+              }
+              
+              publishResults.push({ 
+                platform: 'Instagram', 
+                success: true,
+                instagramMetadata
+              })
+            } else {
+              // Other platforms not yet supported
+              publishResults.push({ platform, success: false, error: 'Publishing not yet implemented for this platform' })
+            }
+          } catch (error: any) {
+            console.error(`[CreateTab] Error publishing to ${platform}:`, error)
+            publishResults.push({ 
+              platform: platform === 'google_business' ? 'Google Business Profile' : platform === 'instagram' ? 'Instagram' : platform,
+              success: false,
+              error: error.message || 'Publishing failed'
+            })
+          }
+        }
+
+        // Show results
+        const successful = publishResults.filter(r => r.success)
+        const failed = publishResults.filter(r => !r.success)
+
+        if (successful.length > 0) {
+          showToast(
+            `Posted to ${successful.map(r => r.platform).join(', ')}${failed.length > 0 ? ` (${failed.length} failed)` : ''}`,
+            failed.length > 0 ? 'error' : 'success'
+          )
+        }
+
+        if (failed.length > 0) {
+          failed.forEach(result => {
+            showToast(`${result.platform}: ${result.error}`, 'error')
+          })
+        }
+
+        // If all failed, don't save to database
+        if (failed.length === publishResults.length) {
+          throw new Error('Failed to publish to all selected platforms')
+        }
+      }
+
+      // Save post to database (for all actions: draft, schedule, or post)
       const payload: {
         businessLocationId: string
         platforms: string[]
+        platform?: string
         topic?: string | null
         caption?: string | null
         media?: any[]
+        mediaUrl?: string | null
+        cta?: any
         linkUrl?: string | null
         utm?: any
         scheduledAt?: string
+        status?: string
+        publishedAt?: string
+        gbpLocalPostName?: string | null
+        gbpSearchUrl?: string | null
+        platformMeta?: any
       } = {
         businessLocationId,
         platforms: selectedChannels,
         caption: content || null,
         media: mediaArray,
+        status: postStatus,
+      }
+
+      // Set primary platform (prioritize GBP, then Instagram, then first selected)
+      if (selectedChannels.includes('google_business')) {
+        payload.platform = 'google_business'
+      } else if (selectedChannels.includes('instagram')) {
+        payload.platform = 'instagram'
+      } else if (selectedChannels.length > 0) {
+        payload.platform = selectedChannels[0]
       }
 
       if (scheduledAtValue) {
         payload.scheduledAt = scheduledAtValue
+      }
+      
+      if (action === 'post') {
+        // Set published_at to now for immediate posting
+        payload.publishedAt = new Date().toISOString()
+        
+        // Add GBP-specific metadata if available
+        if (gbpMetadata) {
+          payload.gbpLocalPostName = gbpMetadata.localPostName || null
+          payload.gbpSearchUrl = gbpMetadata.searchUrl || null
+        }
+        
+        // Add Instagram-specific metadata if available
+        if (instagramMetadata) {
+          payload.platformMeta = {
+            ...(payload.platformMeta || {}),
+            instagram: {
+              mediaId: instagramMetadata.mediaId,
+              permalink: instagramMetadata.permalink,
+            },
+          }
+        }
+        
+        // Add media URL (use first media item's URL)
+        if (mediaArray.length > 0 && mediaArray[0].url) {
+          payload.mediaUrl = mediaArray[0].url
+        }
       }
 
       // Use PATCH if editing, POST if creating
@@ -204,14 +519,19 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
       }
 
       const data = await response.json()
-      showToast(
-        shouldSchedule
-          ? 'Post scheduled successfully!'
-          : editingPostId
-          ? 'Post updated successfully!'
-          : 'Post saved as draft!',
-        'success'
-      )
+      let successMessage = ''
+      if (action === 'post') {
+        // Message already shown above for publishing
+        successMessage = 'Post saved successfully!'
+      } else if (action === 'schedule') {
+        successMessage = 'Post scheduled successfully!'
+      } else {
+        successMessage = editingPostId ? 'Post updated successfully!' : 'Post saved as draft!'
+      }
+      
+      if (action !== 'post' || successMessage) {
+        showToast(successMessage, 'success')
+      }
 
       // Reset form if creating new post
       if (!editingPostId) {
@@ -223,8 +543,8 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
         setEditingPostId(null)
       }
 
-      // Navigate back to planner if scheduled
-      if (shouldSchedule) {
+      // Navigate back to planner if scheduled or posted
+      if (action === 'schedule' || action === 'post') {
         setTimeout(() => {
           router.push('/social-studio?tab=planner')
         }, 1000)
@@ -292,92 +612,156 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
           {/* Channel Selector */}
           <div className="mb-6">
             <label className="block text-sm font-medium text-slate-700 mb-2">Select channels</label>
-            <div className="relative">
-              {/* Preview: Selected Channels */}
-              <div className="flex items-center gap-2 flex-wrap">
-                {selectedChannels.map((channelId) => {
-                  const channel = allChannels.find(ch => ch.id === channelId)
-                  if (!channel) return null
-                  return (
-                    <div
-                      key={channelId}
-                      className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg"
-                    >
-                      <Image
-                        src={channel.iconPath}
-                        alt={channel.name}
-                        width={20}
-                        height={20}
-                        className="object-contain"
-                      />
-                      <span className="text-sm font-medium text-slate-700">{channel.name}</span>
-                      <button
-                        onClick={() => handleChannelToggle(channelId)}
-                        className="ml-1 text-slate-400 hover:text-slate-600"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    </div>
-                  )
-                })}
-                {/* Dropdown Button */}
+            {channelsLoading ? (
+              <div className="flex items-center gap-2 text-sm text-slate-500">
+                <div className="w-4 h-4 border-2 border-slate-300 border-t-[#1a73e8] rounded-full animate-spin"></div>
+                Loading channels...
+              </div>
+            ) : channelsError ? (
+              <div className="text-sm text-red-600">{channelsError}</div>
+            ) : channels.length === 0 ? (
+              <div className="flex items-center gap-3 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-slate-900">No channels connected</p>
+                  <p className="text-xs text-slate-500 mt-1">Connect a channel to get started</p>
+                </div>
                 <button
-                  onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                  className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+                  onClick={() => router.push('/onboarding/connect')}
+                  className="px-3 py-1.5 text-xs font-medium text-white bg-[#1a73e8] rounded-md hover:bg-[#1557b0] transition-colors"
                 >
-                  <svg className="w-4 h-4 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
+                  Connect
                 </button>
               </div>
-
-              {/* Dropdown Menu */}
-              {isDropdownOpen && (
-                <>
-                  <div
-                    className="fixed inset-0 z-10"
-                    onClick={() => setIsDropdownOpen(false)}
-                  />
-                  <div className="absolute top-full left-0 mt-2 w-64 bg-white border border-slate-200 rounded-lg shadow-lg z-20 max-h-80 overflow-y-auto">
-                    {allChannels.map((channel) => {
-                      const isSelected = selectedChannels.includes(channel.id as Platform)
-                      return (
+            ) : (
+              <div className="relative">
+                {/* Preview: Selected Channels */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {selectedChannels.map((channelId) => {
+                    const channel = channels.find(ch => ch.id === channelId)
+                    if (!channel) return null
+                    return (
+                      <div
+                        key={channelId}
+                        className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg"
+                      >
+                        <Image
+                          src={channel.iconPath}
+                          alt={channel.name}
+                          width={20}
+                          height={20}
+                          className="object-contain"
+                        />
+                        <span className="text-sm font-medium text-slate-700">{channel.name}</span>
                         <button
-                          key={channel.id}
-                          onClick={() => handleChannelToggle(channel.id)}
-                          className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors ${
-                            isSelected ? 'bg-blue-50' : ''
-                          }`}
+                          onClick={() => handleChannelToggle(channelId)}
+                          className="ml-1 text-slate-400 hover:text-slate-600"
                         >
-                          <div className="relative w-8 h-8 flex-shrink-0">
-                            <Image
-                              src={channel.iconPath}
-                              alt={channel.name}
-                              fill
-                              className="object-contain"
-                              sizes="32px"
-                            />
-                          </div>
-                          <div className="flex-1 text-left">
-                            <div className="text-sm font-medium text-slate-900">{channel.name}</div>
-                            {!channel.connected && (
-                              <div className="text-xs text-slate-500">Not connected</div>
-                            )}
-                          </div>
-                          {isSelected && (
-                            <svg className="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                            </svg>
-                          )}
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
                         </button>
-                      )
-                    })}
-                  </div>
-                </>
-              )}
-            </div>
+                      </div>
+                    )
+                  })}
+                  {/* Dropdown Button */}
+                  <button
+                    onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                    className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+                  >
+                    <svg className="w-4 h-4 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                </div>
+
+                {/* Dropdown Menu */}
+                {isDropdownOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={() => setIsDropdownOpen(false)}
+                    />
+                    <div className="absolute top-full left-0 mt-2 w-64 bg-white border border-slate-200 rounded-lg shadow-lg z-20 max-h-80 overflow-y-auto">
+                      {channels.map((channel) => {
+                        const isSelected = selectedChannels.includes(channel.id as Platform)
+                        const isNotConnected = !channel.connected
+                        const isDisabled = !channel.canSelect && channel.connected
+                        return (
+                          <button
+                            key={channel.id}
+                            onClick={() => {
+                              // Allow clicking on unconnected channels to prompt connection
+                              handleChannelToggle(channel.id)
+                            }}
+                            className={`w-full flex items-center gap-3 px-4 py-3 transition-colors ${
+                              isDisabled
+                                ? 'opacity-50 cursor-not-allowed bg-slate-50'
+                                : isSelected
+                                ? 'bg-blue-50 hover:bg-blue-100'
+                                : isNotConnected
+                                ? 'hover:bg-slate-50 opacity-75'
+                                : 'hover:bg-slate-50'
+                            }`}
+                            title={
+                              isNotConnected
+                                ? `Click to connect ${channel.name}`
+                                : isDisabled
+                                ? channel.needsReconnect
+                                  ? 'Connection expired or needs reconnection. Click to fix.'
+                                  : 'Not available'
+                                : undefined
+                            }
+                          >
+                            <div className="relative w-8 h-8 flex-shrink-0">
+                              <Image
+                                src={channel.iconPath}
+                                alt={channel.name}
+                                fill
+                                className="object-contain"
+                                sizes="32px"
+                              />
+                            </div>
+                            <div className="flex-1 text-left">
+                              <div className="text-sm font-medium text-slate-900">{channel.name}</div>
+                              {channel.displayName || channel.username ? (
+                                <div className="text-xs text-slate-500">
+                                  {channel.displayName || channel.username}
+                                </div>
+                              ) : !channel.connected ? (
+                                <div className="text-xs text-slate-500">Not connected</div>
+                              ) : channel.needsReconnect ? (
+                                <div className="text-xs text-amber-600">Needs reconnection</div>
+                              ) : null}
+                            </div>
+                            {isSelected && channel.canSelect && (
+                              <svg className="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                              </svg>
+                            )}
+                            {isNotConnected && (
+                              <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                              </svg>
+                            )}
+                            {isDisabled && channel.needsReconnect && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  router.push('/onboarding/connect')
+                                }}
+                                className="text-xs text-[#1a73e8] hover:text-[#1557b0] font-medium"
+                              >
+                                Fix
+                              </button>
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Initial Content Tab */}
@@ -784,87 +1168,113 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
             </button>
           </div>
 
-          {/* Schedule Date/Time Picker */}
-          <div className="mt-6 pt-6 border-t border-slate-200 space-y-4">
-            <div className="flex items-center gap-4 flex-wrap">
-              <div className="flex-1 min-w-[200px]">
-                <label className="block text-sm font-medium text-slate-700 mb-2">Schedule Date</label>
-                <input
-                  type="date"
-                  value={scheduledDate}
-                  onChange={(e) => {
-                    setScheduledDate(e.target.value)
-                    if (e.target.value && scheduledTime) {
-                      updateScheduledAt(e.target.value, scheduledTime, timezone)
-                    }
-                  }}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#1a73e8] focus:border-transparent"
-                />
+          {/* Schedule Date/Time Picker - Only show when Schedule button is clicked or scheduledAt param exists */}
+          {showScheduleForm && (
+            <div className="mt-6 pt-6 border-t border-slate-200 space-y-4">
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex-1 min-w-[200px]">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Schedule Date</label>
+                  <input
+                    type="date"
+                    value={scheduledDate}
+                    onChange={(e) => {
+                      setScheduledDate(e.target.value)
+                      if (e.target.value && scheduledTime) {
+                        updateScheduledAt(e.target.value, scheduledTime, timezone)
+                      }
+                    }}
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#1a73e8] focus:border-transparent"
+                  />
+                </div>
+                <div className="flex-1 min-w-[150px]">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Time</label>
+                  <input
+                    type="time"
+                    value={scheduledTime}
+                    onChange={(e) => {
+                      setScheduledTime(e.target.value)
+                      if (scheduledDate && e.target.value) {
+                        updateScheduledAt(scheduledDate, e.target.value, timezone)
+                      }
+                    }}
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#1a73e8] focus:border-transparent"
+                  />
+                </div>
+                <div className="flex-1 min-w-[200px]">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Timezone</label>
+                  <select
+                    value={timezone}
+                    onChange={(e) => {
+                      setTimezone(e.target.value)
+                      if (scheduledDate && scheduledTime) {
+                        updateScheduledAt(scheduledDate, scheduledTime, e.target.value)
+                      }
+                    }}
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#1a73e8] focus:border-transparent"
+                  >
+                    <option value="Africa/Johannesburg">SAST (UTC+2)</option>
+                    <option value="UTC">UTC (UTC+0)</option>
+                    <option value="America/New_York">EST (UTC-5)</option>
+                    <option value="America/Los_Angeles">PST (UTC-8)</option>
+                    <option value="Europe/London">GMT (UTC+0)</option>
+                    <option value="Europe/Paris">CET (UTC+1)</option>
+                    <option value="Asia/Dubai">GST (UTC+4)</option>
+                    <option value="Asia/Tokyo">JST (UTC+9)</option>
+                    <option value="Australia/Sydney">AEDT (UTC+11)</option>
+                  </select>
+                </div>
               </div>
-              <div className="flex-1 min-w-[150px]">
-                <label className="block text-sm font-medium text-slate-700 mb-2">Time</label>
-                <input
-                  type="time"
-                  value={scheduledTime}
-                  onChange={(e) => {
-                    setScheduledTime(e.target.value)
-                    if (scheduledDate && e.target.value) {
-                      updateScheduledAt(scheduledDate, e.target.value, timezone)
-                    }
-                  }}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#1a73e8] focus:border-transparent"
-                />
-              </div>
-              <div className="flex-1 min-w-[200px]">
-                <label className="block text-sm font-medium text-slate-700 mb-2">Timezone</label>
-                <select
-                  value={timezone}
-                  onChange={(e) => {
-                    setTimezone(e.target.value)
-                    if (scheduledDate && scheduledTime) {
-                      updateScheduledAt(scheduledDate, scheduledTime, e.target.value)
-                    }
-                  }}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#1a73e8] focus:border-transparent"
-                >
-                  <option value="Africa/Johannesburg">SAST (UTC+2)</option>
-                  <option value="UTC">UTC (UTC+0)</option>
-                  <option value="America/New_York">EST (UTC-5)</option>
-                  <option value="America/Los_Angeles">PST (UTC-8)</option>
-                  <option value="Europe/London">GMT (UTC+0)</option>
-                  <option value="Europe/Paris">CET (UTC+1)</option>
-                  <option value="Asia/Dubai">GST (UTC+4)</option>
-                  <option value="Asia/Tokyo">JST (UTC+9)</option>
-                  <option value="Australia/Sydney">AEDT (UTC+11)</option>
-                </select>
-              </div>
+              {scheduledAt && (
+                <div className="text-sm text-slate-600">
+                  Scheduled for: {new Date(scheduledAt).toLocaleString('en-US', { 
+                    timeZone: timezone,
+                    dateStyle: 'full',
+                    timeStyle: 'short'
+                  })} ({timezone === 'Africa/Johannesburg' ? 'SAST' : timezone.split('/')[1]})
+                </div>
+              )}
             </div>
-            {scheduledAt && (
-              <div className="text-sm text-slate-600">
-                Scheduled for: {new Date(scheduledAt).toLocaleString('en-US', { 
-                  timeZone: timezone,
-                  dateStyle: 'full',
-                  timeStyle: 'short'
-                })} ({timezone === 'Africa/Johannesburg' ? 'SAST' : timezone.split('/')[1]})
-              </div>
-            )}
-          </div>
+          )}
 
-          {/* Save/Schedule Buttons */}
+          {/* Action Buttons: Post, Schedule, Save Draft */}
           <div className="mt-4 flex items-center justify-end gap-3">
             <button
-              onClick={() => handleSave(false)}
+              onClick={() => handleSave('draft')}
               disabled={saving || selectedChannels.length === 0}
               className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {saving ? 'Saving...' : 'Save as Draft'}
+              {saving ? 'Saving...' : 'Save Draft'}
             </button>
             <button
-              onClick={() => handleSave(true)}
-              disabled={saving || selectedChannels.length === 0 || !scheduledDate || !scheduledTime}
-              className="px-4 py-2 text-sm font-medium text-white bg-[#1a73e8] rounded-md hover:bg-[#1557b0] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => {
+                setShowScheduleForm(true)
+                // If schedule form is now visible and no date/time set, set defaults
+                if (!scheduledDate) {
+                  const tomorrow = new Date()
+                  tomorrow.setDate(tomorrow.getDate() + 1)
+                  setScheduledDate(tomorrow.toISOString().split('T')[0])
+                }
+              }}
+              disabled={saving || selectedChannels.length === 0}
+              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {saving ? 'Scheduling...' : 'Schedule'}
+              Schedule
+            </button>
+            {showScheduleForm && (
+              <button
+                onClick={() => handleSave('schedule')}
+                disabled={saving || selectedChannels.length === 0 || !scheduledDate || !scheduledTime}
+                className="px-4 py-2 text-sm font-medium text-white bg-[#1a73e8] rounded-md hover:bg-[#1557b0] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {saving ? 'Scheduling...' : 'Confirm Schedule'}
+              </button>
+            )}
+            <button
+              onClick={() => handleSave('post')}
+              disabled={saving || selectedChannels.length === 0}
+              className="px-4 py-2 text-sm font-medium text-white bg-[#10b981] rounded-md hover:bg-[#059669] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {saving ? 'Publishing...' : 'Post'}
             </button>
           </div>
         </div>
@@ -877,8 +1287,14 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
           {selectedChannels.length > 0 ? (
             <div className="space-y-4">
               {selectedChannels.map((channelId) => {
-                const channel = allChannels.find(ch => ch.id === channelId)
+                const channel = channels.find(ch => ch.id === channelId)
                 if (!channel) return null
+                
+                // Get first image for preview (GBP supports single image)
+                const previewImage = uploadedMedia.length > 0 && uploadedMedia[0].type === 'image' && !uploadedMedia[0].isUploading
+                  ? uploadedMedia[0].url
+                  : null
+                
                 return (
                   <div key={channelId} className="border border-slate-200 rounded-lg p-4">
                     <div className="flex items-center gap-2 mb-3">
@@ -892,13 +1308,21 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
                       <span className="text-sm font-medium text-slate-700">{channel.name}</span>
                     </div>
                     <div className="bg-slate-50 rounded-lg p-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className="w-8 h-8 bg-slate-300 rounded-full"></div>
-                        <div className="flex-1">
-                          <div className="h-3 bg-slate-300 rounded w-24 mb-1"></div>
-                          <div className="h-2 bg-slate-200 rounded w-16"></div>
+                      {/* Image Preview */}
+                      {previewImage ? (
+                        <div className="relative w-full h-48 rounded-lg overflow-hidden mb-3 bg-slate-200">
+                          <Image
+                            src={previewImage}
+                            alt="Post preview"
+                            fill
+                            className="object-cover"
+                            sizes="100%"
+                            unoptimized
+                          />
                         </div>
-                      </div>
+                      ) : null}
+                      
+                      {/* Content */}
                       {content ? (
                         <p className="text-sm text-slate-700 whitespace-pre-wrap">{content}</p>
                       ) : (
@@ -952,9 +1376,9 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
         onInsert={(caption) => {
           setContent(caption)
         }}
-        connectedChannels={allChannels
+        connectedChannels={channels
           .filter((ch) => selectedChannels.includes(ch.id as Platform))
-          .map((ch) => ({ platform: ch.id, connected: ch.connected }))}
+          .map((ch) => ({ platform: ch.id, connected: ch.connected && ch.canSelect }))}
       />
     </div>
   )

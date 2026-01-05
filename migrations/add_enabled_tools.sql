@@ -20,3 +20,5 @@ COMMENT ON COLUMN business_locations.enabled_tools IS 'Array of enabled tool IDs
 
 
 
+
+

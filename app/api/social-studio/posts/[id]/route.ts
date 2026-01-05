@@ -175,13 +175,23 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
     }
 
-    // Delete post
-    const { error } = await supabase.from(POSTS_TABLE).delete().eq('id', postId)
+    // Delete post - use same pattern as other routes for consistency
+    const posts = supabase.from(POSTS_TABLE) as any
+    const { data: deletedPost, error } = await posts
+      .delete()
+      .eq('id', postId)
+      .select()
+      .maybeSingle()
 
     if (error) {
       console.error('[Social Studio Posts API] Error deleting post:', error)
       return NextResponse.json({ error: 'Failed to delete post' }, { status: 500 })
     }
+
+    console.log('[Social Studio Posts API] Successfully deleted post:', {
+      postId,
+      deletedPost: deletedPost ? 'found and deleted' : 'not found (may have been already deleted)',
+    })
 
     return NextResponse.json({ success: true })
   } catch (error: any) {
