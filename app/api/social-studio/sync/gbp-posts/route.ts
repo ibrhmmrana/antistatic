@@ -271,8 +271,8 @@ export async function POST(request: NextRequest) {
             updatePayload.status = existingPost.status as any
           }
           
-          const { error: updateError } = await supabase
-            .from(POSTS_TABLE)
+          const posts = supabase.from(POSTS_TABLE) as any
+          const { error: updateError } = await posts
             .update(updatePayload as any)
             .eq('id', existingPost.id)
 
@@ -322,8 +322,8 @@ export async function POST(request: NextRequest) {
         if (gbpName && !syncedPostNames.has(gbpName)) {
           // This post exists in our DB but not in GBP (was deleted on GBP)
           // Mark it as deleted
-          const { error: deleteError } = await supabase
-            .from(POSTS_TABLE)
+          const postsUpdate = supabase.from(POSTS_TABLE) as any
+          const { error: deleteError } = await postsUpdate
             .update({ status: 'deleted', updated_at: new Date().toISOString() })
             .eq('id', localPost.id)
           
