@@ -102,8 +102,8 @@ export async function POST(request: NextRequest) {
         console.log('[GBP Publish] Constructed full location path:', parent)
         
         // Update database with full path
-        await supabase
-          .from('business_locations')
+        const locations = supabase.from('business_locations') as any
+        await locations
           .update({ google_location_name: parent })
           .eq('id', businessLocationId)
           .eq('user_id', user.id)
@@ -131,8 +131,8 @@ export async function POST(request: NextRequest) {
           console.log('[GBP Publish] Resolved location name:', parent)
 
           // Update database with full path
-          await supabase
-            .from('business_locations')
+          const locationsUpdate = supabase.from('business_locations') as any
+          await locationsUpdate
             .update({ google_location_name: parent })
             .eq('id', businessLocationId)
             .eq('user_id', user.id)
