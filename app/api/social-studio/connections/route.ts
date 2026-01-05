@@ -143,15 +143,24 @@ export async function GET(request: NextRequest) {
     }
 
     // Verify business location belongs to user
-    const { data: location, error: locationError } = await supabase
+    const { data: locationData, error: locationError } = await supabase
       .from('business_locations')
       .select('id, instagram_username, facebook_username, linkedin_username, tiktok_username')
       .eq('id', businessLocationId)
       .eq('user_id', user.id)
       .maybeSingle()
 
-    if (locationError || !location) {
+    if (locationError || !locationData) {
       return NextResponse.json({ error: 'Business location not found' }, { status: 404 })
+    }
+
+    // Type assertion for location with selected fields
+    const location = locationData as {
+      id: string
+      instagram_username: string | null
+      facebook_username: string | null
+      linkedin_username: string | null
+      tiktok_username: string | null
     }
 
     // Fetch connected accounts

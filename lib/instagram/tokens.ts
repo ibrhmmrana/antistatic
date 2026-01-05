@@ -221,8 +221,8 @@ export async function getInstagramAccessTokenForLocation(
       
       // Update database with new token
       const newExpiresAt = new Date(Date.now() + refreshed.expires_in * 1000).toISOString()
-      const { error: updateError } = await supabase
-        .from('instagram_connections')
+      const { error: updateError } = await (supabase
+        .from('instagram_connections' as any) as any)
         .update({
           access_token: refreshed.access_token,
           token_expires_at: newExpiresAt,
