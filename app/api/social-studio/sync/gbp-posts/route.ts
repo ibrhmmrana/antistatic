@@ -243,11 +243,17 @@ export async function POST(request: NextRequest) {
 
         // Upsert using gbp_local_post_name as unique key
         // First check if post exists
-        const { data: existingPost } = await supabase
+        const { data: existingPostData } = await supabase
           .from(POSTS_TABLE)
           .select('id, status')
           .eq('gbp_local_post_name', localPostName)
           .maybeSingle()
+
+        // Type assertion for existingPost with selected fields
+        const existingPost = existingPostData as {
+          id: string
+          status: string
+        } | null
 
         if (existingPost) {
           // If post was deleted, don't restore it (preserve deleted status)
