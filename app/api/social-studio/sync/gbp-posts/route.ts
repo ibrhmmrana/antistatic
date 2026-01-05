@@ -317,8 +317,14 @@ export async function POST(request: NextRequest) {
     
     let deletedCount = 0
     if (allLocalGBPPosts) {
-      for (const localPost of allLocalGBPPosts) {
-        const gbpName = (localPost as any).gbp_local_post_name
+      for (const localPostData of allLocalGBPPosts) {
+        // Type assertion for localPost with selected fields
+        const localPost = localPostData as {
+          id: string
+          gbp_local_post_name: string | null
+          status: string
+        }
+        const gbpName = localPost.gbp_local_post_name
         if (gbpName && !syncedPostNames.has(gbpName)) {
           // This post exists in our DB but not in GBP (was deleted on GBP)
           // Mark it as deleted
