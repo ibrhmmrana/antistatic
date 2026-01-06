@@ -70,10 +70,10 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Fetch conversations
+    // Fetch conversations (include is_group and participant_count for group chat support)
     let conversationsQuery = (supabase
       .from('instagram_conversations') as any)
-      .select('id, participant_igsid, updated_time, last_message_preview, last_message_at, unread_count')
+      .select('id, participant_igsid, is_group, participant_count, updated_time, last_message_preview, last_message_at, unread_count')
       .eq('ig_account_id', igAccountId)
       .order('last_message_at', { ascending: false })
 
@@ -82,6 +82,10 @@ export async function GET(request: NextRequest) {
     }
 
     const { data: conversations, error: convError } = await conversationsQuery
+
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox/route.ts:84',message:'Conversations query result',data:{igAccountId,conversationCount:conversations?.length||0,participant_igsids:(conversations||[]).map((c:any)=>c.participant_igsid),uniqueParticipantIds:Array.from(new Set((conversations||[]).map((c:any)=>c.participant_igsid).filter(Boolean)))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
 
     if (convError) {
       console.error('[Instagram Inbox API] Error fetching conversations:', convError)
@@ -106,10 +110,10 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Fetch user cache for all participants (exclude UNKNOWN_ placeholders)
+    // Fetch user cache for all participants (exclude UNKNOWN_ placeholders and GROUP: synthetic values)
     const participantIds = (conversations || [])
       .map((c: any) => c.participant_igsid)
-      .filter((id: string | null) => id && !id.startsWith('UNKNOWN_'))
+      .filter((id: string | null) => id && !id.startsWith('UNKNOWN_') && !id.startsWith('GROUP:'))
     const userCacheMap: Record<string, any> = {}
 
     if (participantIds.length > 0) {
@@ -118,14 +122,17 @@ export async function GET(request: NextRequest) {
         igAccountId,
       })
 
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox/route.ts:121',message:'Before cache query',data:{participantIds,igAccountId,participantIdsCount:participantIds.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
       const { data: userCache, error: cacheError } = await (supabase
         .from('instagram_user_cache') as any)
-        .select('ig_user_id, username, name, profile_pic')
+        .select('ig_user_id, username, name, profile_pic, profile_pic_url')
         .eq('ig_account_id', igAccountId)
         .in('ig_user_id', participantIds)
 
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox/route.ts:104',message:'User cache lookup',data:{participantIds,igAccountId,cacheCount:userCache?.length||0,hasError:!!cacheError},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'F'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox/route.ts:127',message:'Cache query result',data:{participantIds,igAccountId,cacheCount:userCache?.length||0,hasError:!!cacheError,cacheEntries:userCache?.map((c:any)=>({ig_user_id:c.ig_user_id,username:c.username}))||[]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
       // #endregion
 
       if (cacheError) {
@@ -142,9 +149,15 @@ export async function GET(request: NextRequest) {
         })
 
         if (userCache) {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox/route.ts:144',message:'Building userCacheMap',data:{cacheEntries:userCache.map((c:any)=>({ig_user_id:c.ig_user_id,username:c.username})),mapKeys:Object.keys(userCacheMap)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+          // #endregion
           userCache.forEach((cache: any) => {
             userCacheMap[cache.ig_user_id] = cache
           })
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox/route.ts:149',message:'After building userCacheMap',data:{mapKeys:Object.keys(userCacheMap),mapEntries:Object.entries(userCacheMap).map(([k,v]:[string,any])=>({key:k,username:v.username}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+          // #endregion
         }
       }
     } else {
@@ -186,42 +199,94 @@ export async function GET(request: NextRequest) {
       messagesByConversation: Object.keys(messagesByConversation).length,
     })
 
+    // Fetch user cache for all message senders (for group chats)
+    const senderIds = new Set<string>()
+    ;(messages || []).forEach((msg: any) => {
+      if (msg.from_id) senderIds.add(msg.from_id)
+    })
+    const senderCacheMap: Record<string, any> = {}
+    if (senderIds.size > 0) {
+      const { data: senderCache } = await (supabase
+        .from('instagram_user_cache') as any)
+        .select('ig_user_id, username, name, profile_pic, profile_pic_url')
+        .eq('ig_account_id', igAccountId)
+        .in('ig_user_id', Array.from(senderIds))
+      
+      if (senderCache) {
+        senderCache.forEach((cache: any) => {
+          senderCacheMap[cache.ig_user_id] = cache
+        })
+      }
+    }
+
     // Format response
     const formattedConversations = (conversations || []).map((conv: any) => {
-      const participantCache = userCacheMap[conv.participant_igsid] || {}
+      const isGroup = conv.is_group || false
+      const participantCount = conv.participant_count || 2
       
-      console.log('[Instagram Inbox API] Formatting conversation:', {
-        conversationId: conv.id,
-        participantIgsid: conv.participant_igsid,
-        hasCache: !!participantCache.username || !!participantCache.name,
-        cacheData: participantCache,
-      })
-      
-      // Prefer username, then name, then fallback
+      // For group chats, show "Group chat (N)" label
+      // For 1:1 chats, show participant username/name
       let displayName: string
-      if (participantCache.username) {
-        displayName = `@${participantCache.username}`
-      } else if (participantCache.name) {
-        displayName = participantCache.name
-      } else if (conv.participant_igsid && !conv.participant_igsid.startsWith('UNKNOWN_')) {
-        displayName = `user_${conv.participant_igsid.slice(-6)}`
+      let avatarUrl: string | null = null
+      
+      if (isGroup) {
+        displayName = `Group chat (${participantCount})`
+        // Group chats don't have a single avatar - use sender avatars in thread
       } else {
-        displayName = 'Unknown User'
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox/route.ts:223',message:'Before cache lookup',data:{conversationId:conv.id,participant_igsid:conv.participant_igsid,userCacheMapKeys:Object.keys(userCacheMap),hasKey:conv.participant_igsid in userCacheMap},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+        // #endregion
+        const participantCache = userCacheMap[conv.participant_igsid] || {}
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox/route.ts:228',message:'Cache lookup result',data:{conversationId:conv.id,participant_igsid:conv.participant_igsid,foundCache:!!participantCache.username,cacheUsername:participantCache.username,cacheName:participantCache.name},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+        // #endregion
+        
+        console.log('[Instagram Inbox API] Formatting conversation:', {
+          conversationId: conv.id,
+          participantIgsid: conv.participant_igsid,
+          hasCache: !!participantCache.username || !!participantCache.name,
+          cacheData: participantCache,
+        })
+        
+        // Prefer username, then name, then fallback
+        if (participantCache.username) {
+          displayName = `@${participantCache.username}`
+        } else if (participantCache.name) {
+          displayName = participantCache.name
+        } else if (conv.participant_igsid && !conv.participant_igsid.startsWith('UNKNOWN_') && !conv.participant_igsid.startsWith('GROUP:')) {
+          displayName = `user_${conv.participant_igsid.slice(-6)}`
+        } else {
+          displayName = 'Unknown User'
+        }
+        // Normalize profile pic: prefer profile_pic_url, fallback to profile_pic
+        avatarUrl = participantCache.profile_pic_url || participantCache.profile_pic || null
+        
+        // Step 1: Debug log to verify if URLs exist but aren't rendering
+        console.log('[Instagram Inbox API] Participant profile pic debug:', {
+          participantIgsid: conv.participant_igsid,
+          username: participantCache.username,
+          profile_pic: participantCache.profile_pic,
+          profile_pic_url: participantCache.profile_pic_url,
+          avatarUrl,
+          hasProfilePic: !!avatarUrl,
+        })
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox/route.ts:197',message:'Formatted conversation',data:{conversationId:conv.id,participantIgsid:conv.participant_igsid,displayName,avatarUrl,hasUsername:!!participantCache.username,hasName:!!participantCache.name,hasProfilePic:!!participantCache.profile_pic,cacheKeys:Object.keys(participantCache)},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'F'})}).catch(()=>{});
+        // #endregion
       }
-      const avatarUrl = participantCache.profile_pic || null
-
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox/route.ts:197',message:'Formatted conversation',data:{conversationId:conv.id,participantIgsid:conv.participant_igsid,displayName,avatarUrl,hasUsername:!!participantCache.username,hasName:!!participantCache.name,hasProfilePic:!!participantCache.profile_pic,cacheKeys:Object.keys(participantCache)},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'F'})}).catch(()=>{});
-      // #endregion
 
       const conversationMessages = messagesByConversation[conv.id] || []
 
       return {
         id: conv.id,
         participantIgsid: conv.participant_igsid,
+        isGroup,
+        participantCount,
         displayName,
         avatarUrl,
-        username: participantCache.username || null,
+        username: isGroup ? null : (userCacheMap[conv.participant_igsid]?.username || null),
         lastMessagePreview: conv.last_message_preview,
         lastMessageAt: conv.last_message_at,
         unreadCount: conv.unread_count || 0,
@@ -233,9 +298,11 @@ export async function GET(request: NextRequest) {
             (businessAccountIgsid && msg.from_id === businessAccountIgsid) ||
             (!businessAccountIgsid && msg.from_id === igAccountId) // Fallback for old messages
           
-          const senderCache = userCacheMap[msg.from_id] || {}
+          // For group chats, use sender cache; for 1:1, use participant cache
+          const senderCache = isGroup ? senderCacheMap[msg.from_id] : userCacheMap[msg.from_id] || {}
+          
           // Prefer username, then name, then fallback
-          // For outbound messages, we'll show "You" in the UI, but keep the display name for reference
+          // For outbound messages, we'll show "You" in the UI
           const senderDisplayName = isOutbound
             ? 'You'
             : senderCache.username 
@@ -243,6 +310,7 @@ export async function GET(request: NextRequest) {
             : senderCache.name 
             ? senderCache.name
             : `user_${msg.from_id.slice(-6)}`
+          
           return {
             id: msg.id,
             direction: isOutbound ? 'outbound' : 'inbound', // Ensure direction is correct
@@ -253,7 +321,7 @@ export async function GET(request: NextRequest) {
             createdTime: msg.created_time,
             readAt: msg.read_at,
             displayName: senderDisplayName,
-            avatarUrl: isOutbound ? null : (senderCache.profile_pic || null), // Don't show avatar for outbound
+            avatarUrl: isOutbound ? null : (senderCache.profile_pic_url || senderCache.profile_pic || null), // Don't show avatar for outbound, use sender avatar for inbound
           }
         }),
       }
