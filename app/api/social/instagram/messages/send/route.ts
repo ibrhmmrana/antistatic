@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
 
     const igAccountId = connection.instagram_user_id
     
-    // Get the business account's IGSID from user cache (we need this for from_id)
+    // Get the business account's IGSID from user cache (we need this for from_id and validation)
     // The business account IGSID is stored in instagram_user_cache with username matching
     let businessAccountIgsid: string | null = null
     if (connection.instagram_username) {
@@ -78,12 +78,21 @@ export async function POST(request: NextRequest) {
         businessAccountIgsid = businessAccountCache.ig_user_id
       }
     }
+    
+    // Define selfId as the business account's IGSID (or fallback to igAccountId)
+    const selfId = businessAccountIgsid || igAccountId
 
     // Step 3: Get valid access token using centralized helper (needed for API calls)
     let accessToken: string
     try {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messages/send/route.ts:85',message:'Getting access token',data:{locationId,igAccountId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
       const tokenResult = await getInstagramAccessTokenForLocation(locationId)
       accessToken = tokenResult.access_token
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messages/send/route.ts:87',message:'Access token retrieved',data:{hasToken:!!accessToken,tokenLength:accessToken?.length,tokenPrefix:accessToken?.substring(0,20),expiresAt:tokenResult.expires_at},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
     } catch (error: any) {
       if (error instanceof InstagramAuthError) {
         return NextResponse.json(
@@ -136,52 +145,51 @@ export async function POST(request: NextRequest) {
       // For now, if conversationId is provided but not found, we'll need participant_igsid from request
       // This is a fallback - ideally the UI should always provide valid conversationId
       
-      // If the request includes participant_igsid, use it directly
+      // If the request includes participant_igsid, try to fetch conversation from API
+      // DO NOT lookup by participant - always use API conversation ID
       if (body.participant_igsid) {
         recipientIgsid = body.participant_igsid
         
-        // Try to find existing conversation by participant
-        const { data: existingConv } = await (supabase
-          .from('instagram_conversations') as any)
-          .select('id, participant_igsid')
-          .eq('ig_account_id', igAccountId)
-          .eq('participant_igsid', recipientIgsid)
-          .maybeSingle()
-        
-        if (existingConv) {
-          finalConversationId = existingConv.id
-          console.log('[Instagram Send Message] Found conversation by participant:', finalConversationId)
-        } else {
-          // Try to fetch conversation from Instagram API
-          try {
-            const apiVersion = 'v24.0'
-            const convUrl = `https://graph.instagram.com/${apiVersion}/me/conversations?platform=instagram&user_id=${recipientIgsid}&access_token=${accessToken}`
-            
-            const convResponse = await fetch(convUrl)
-            if (convResponse.ok) {
-              const convData = await convResponse.json()
-              if (convData.data && convData.data.length > 0) {
-                const apiConversation = convData.data[0]
-                finalConversationId = apiConversation.id
-                
-                // Upsert conversation into DB
-                await (supabase
-                  .from('instagram_conversations') as any)
-                  .upsert({
-                    id: apiConversation.id,
-                    ig_account_id: igAccountId,
-                    participant_igsid: recipientIgsid,
-                    updated_time: apiConversation.updated_time || new Date().toISOString(),
-                    last_message_at: apiConversation.updated_time || new Date().toISOString(),
-                    unread_count: 0,
-                  }, { onConflict: 'id' })
-                
-                console.log('[Instagram Send Message] Fetched conversation from API:', finalConversationId)
-              }
+        // Try to fetch conversation from Instagram API using participant
+        // This gives us the real API conversation ID
+        try {
+          const apiVersion = 'v24.0'
+          const convUrl = `https://graph.instagram.com/${apiVersion}/me/conversations?platform=instagram&user_id=${recipientIgsid}&access_token=${accessToken}`
+          
+          const convResponse = await fetch(convUrl)
+          if (convResponse.ok) {
+            const convData = await convResponse.json()
+            if (convData.data && convData.data.length > 0) {
+              const apiConversation = convData.data[0]
+              finalConversationId = apiConversation.id
+              
+              // Upsert conversation using API conversation ID (primary key)
+              await (supabase
+                .from('instagram_conversations') as any)
+                .upsert({
+                  id: apiConversation.id, // API conversation ID - primary key
+                  ig_account_id: igAccountId,
+                  participant_igsid: recipientIgsid, // Metadata only
+                  updated_time: apiConversation.updated_time || new Date().toISOString(),
+                  last_message_at: apiConversation.updated_time || new Date().toISOString(),
+                  unread_count: 0,
+                }, { 
+                  onConflict: 'id', // ONLY conflict on id, never on participant
+                })
+              
+              console.log('[Instagram Send Message] Fetched conversation from API:', finalConversationId)
+            } else {
+              console.warn('[Instagram Send Message] No conversation found in API for participant:', recipientIgsid)
             }
-          } catch (apiError: any) {
-            console.warn('[Instagram Send Message] Failed to fetch conversation from API:', apiError.message)
+          } else {
+            const errorData = await convResponse.json().catch(() => ({}))
+            console.warn('[Instagram Send Message] Failed to fetch conversation from API:', {
+              status: convResponse.status,
+              error: errorData,
+            })
           }
+        } catch (apiError: any) {
+          console.warn('[Instagram Send Message] Failed to fetch conversation from API:', apiError.message)
         }
       } else {
         return NextResponse.json(
@@ -197,6 +205,10 @@ export async function POST(request: NextRequest) {
     } else {
       recipientIgsid = conversation.participant_igsid
     }
+    
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messages/send/route.ts:199',message:'Recipient IGSID determined',data:{recipientIgsid,recipientIgsidLength:recipientIgsid?.length,recipientIgsidFormat:recipientIgsid?.substring(0,20),isUnknown:recipientIgsid?.startsWith('UNKNOWN_'),conversationId:finalConversationId,hasConversation:!!conversation},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
 
     if (!recipientIgsid || recipientIgsid.startsWith('UNKNOWN_')) {
       console.error('[Instagram Send Message] Missing or invalid participant_igsid:', {
@@ -214,72 +226,97 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+    
+    // Guard: Validate that recipient is NOT the business account (selfId)
+    if (recipientIgsid === selfId || recipientIgsid === businessAccountIgsid || recipientIgsid === igAccountId) {
+      console.error('[Instagram Send Message] Invalid recipient - cannot send to self:', {
+        conversationId,
+        recipientIgsid,
+        selfId,
+        businessAccountIgsid,
+        igAccountId,
+      })
+      return NextResponse.json(
+        { 
+          error: { 
+            type: 'validation', 
+            message: 'Cannot send message to yourself. The conversation participant ID is incorrect. Please refresh the inbox and try again.' 
+          } 
+        },
+        { status: 400 }
+      )
+    }
 
     // Step 6: Call Instagram Graph API
-    // According to Instagram docs: Use JSON format with Authorization header
-    // Endpoint: /<IG_ID>/messages or /me/messages
+    // According to Instagram Messaging API docs, use form-urlencoded format with access_token in query params
+    // Endpoint: /<IG_ID>/messages
     const apiVersion = 'v24.0'
     
-    // Try /me/messages first (standard Graph API pattern)
-    let apiUrl = `https://graph.instagram.com/${apiVersion}/me/messages`
-    const apiPayload = {
-      recipient: { id: recipientIgsid },
-      message: { text: text.trim() },
-    }
+    // Use account ID endpoint directly (skip /me as it doesn't work for Instagram Business accounts)
+    const apiUrl = new URL(`https://graph.instagram.com/${apiVersion}/${igAccountId}/messages`)
+    apiUrl.searchParams.set('access_token', accessToken)
+    
+    // Use form-urlencoded format (Instagram Messaging API expects this format)
+    const formBody = new URLSearchParams()
+    formBody.append('recipient', JSON.stringify({ id: recipientIgsid }))
+    formBody.append('message', JSON.stringify({ text: text.trim() }))
+
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messages/send/route.ts:224',message:'Preparing Instagram API call',data:{apiUrl:apiUrl.toString(),recipientIgsid,recipientIgsidLength:recipientIgsid?.length,recipientIgsidFormat:recipientIgsid?.substring(0,10),textLength:text.length,textPreview:text.substring(0,50),igAccountId,apiVersion,hasAccessToken:!!accessToken,accessTokenLength:accessToken?.length,accessTokenPrefix:accessToken?.substring(0,20),format:'form-urlencoded'},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
 
     console.log('[Instagram Send Message] Calling Instagram API:', {
-      url: apiUrl,
+      url: apiUrl.toString(),
       recipientId: recipientIgsid,
       textLength: text.length,
-      format: 'json',
+      format: 'form-urlencoded',
     })
 
-    let response = await fetch(apiUrl, {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messages/send/route.ts:237',message:'Calling Instagram API with form-urlencoded',data:{url:apiUrl.toString(),recipientIgsid,messageText:text.trim(),headers:{contentType:'application/x-www-form-urlencoded',hasAccessTokenInQuery:true}},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
+
+    const response = await fetch(apiUrl.toString(), {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: JSON.stringify(apiPayload),
+      body: formBody.toString(),
     })
-
-    // If /me/messages fails, try with account ID
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
-      const errorCode = errorData.error?.code
-      
-      // If it's not a clear "me doesn't exist" error, try the account ID endpoint
-      if (errorCode !== 2500 && errorCode !== 803) {
-        console.log('[Instagram Send Message] /me/messages failed, trying with account ID:', {
-          errorCode,
-          errorMessage: errorData.error?.message,
-        })
-        
-        apiUrl = `https://graph.instagram.com/${apiVersion}/${igAccountId}/messages`
-        
-        response = await fetch(apiUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(apiPayload),
-        })
-      }
-    }
+    
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messages/send/route.ts:245',message:'Instagram API response',data:{status:response.status,ok:response.ok,statusText:response.statusText,headers:Object.fromEntries(response.headers.entries())},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
 
     const responseData = await response.json().catch(() => ({}))
+    
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messages/send/route.ts:271',message:'Instagram API response data',data:{responseOk:response.ok,responseStatus:response.status,responseData,hasError:!!responseData.error,errorCode:responseData.error?.code,errorType:responseData.error?.type,errorMessage:responseData.error?.message,errorSubcode:responseData.error?.error_subcode,fullError:responseData.error},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
 
     if (!response.ok) {
       const error = responseData.error || {}
+      
+      // Log full error response (without tokens) for debugging
       console.error('[Instagram Send Message] Graph API error:', {
         status: response.status,
         code: error.code,
         message: error.message,
         type: error.type,
+        error_subcode: error.error_subcode,
+        fbtrace_id: error.fbtrace_id,
+        error_user_title: error.error_user_title,
+        error_user_msg: error.error_user_msg,
         conversationId,
         recipientIgsid,
+        igAccountId,
+        apiUrl: apiUrl.toString().replace(accessToken, 'REDACTED'),
+        fullError: JSON.stringify(error),
       })
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messages/send/route.ts:275',message:'Instagram API error details',data:{status:response.status,code:error.code,message:error.message,type:error.type,errorSubcode:error.error_subcode,fbtraceId:error.fbtrace_id,errorUserTitle:error.error_user_title,errorUserMsg:error.error_user_msg,fullError:error,conversationId,recipientIgsid,apiUrl},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
 
       // Check for token expiry (code 190)
       if (isTokenExpiredError(error) || error.code === 190) {
@@ -295,12 +332,17 @@ export async function POST(request: NextRequest) {
         )
       }
 
+      // Return detailed error to client
       return NextResponse.json(
         {
           error: {
             type: 'instagram_api',
-            message: error.message || 'Instagram API error',
+            message: error.message || error.error_user_msg || 'An unexpected error has occurred. Please retry your request later.',
             code: error.code,
+            error_subcode: error.error_subcode,
+            fbtrace_id: error.fbtrace_id,
+            error_user_title: error.error_user_title,
+            error_user_msg: error.error_user_msg,
           },
         },
         { status: response.status }

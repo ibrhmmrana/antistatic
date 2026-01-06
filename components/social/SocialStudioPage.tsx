@@ -54,19 +54,42 @@ export function SocialStudioPage({ locationId, connectedAccounts, instagramConne
 
   // Auto-sync Instagram when Instagram tab becomes active
   useEffect(() => {
-    if (!instagramConnection || activeTab !== 'instagram') return
-    if (syncInProgressRef.current) return
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SocialStudioPage.tsx:56',message:'Instagram sync useEffect triggered',data:{activeTab,hasConnection:!!instagramConnection,syncInProgress:syncInProgressRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+    // #endregion
+    
+    if (!instagramConnection || activeTab !== 'instagram') {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SocialStudioPage.tsx:58',message:'Instagram sync: conditions not met',data:{activeTab,hasConnection:!!instagramConnection},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+      // #endregion
+      return
+    }
+    if (syncInProgressRef.current) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SocialStudioPage.tsx:59',message:'Instagram sync: already in progress',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+      // #endregion
+      return
+    }
 
     const performSync = async () => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SocialStudioPage.tsx:61',message:'Instagram sync: starting performSync',data:{locationId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+      // #endregion
       syncInProgressRef.current = true
       setSyncing(true)
 
       try {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SocialStudioPage.tsx:65',message:'Instagram sync: calling API',data:{locationId,url:'/api/social/instagram/sync'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+        // #endregion
         const response = await fetch('/api/social/instagram/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ locationId }),
         })
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SocialStudioPage.tsx:72',message:'Instagram sync: API response',data:{status:response.status,ok:response.ok},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+        // #endregion
 
         // Safe JSON parsing
         const contentType = response.headers.get('content-type') || ''

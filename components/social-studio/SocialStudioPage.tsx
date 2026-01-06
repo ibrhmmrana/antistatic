@@ -7,6 +7,7 @@ import { HomeTab } from './tabs/HomeTab'
 import { PlannerTab } from './tabs/PlannerTab'
 import { CreateTab } from './tabs/CreateTab'
 import { InsightsTab } from './tabs/InsightsTab'
+import { InboxTab } from './tabs/InboxTab'
 import { useToast, ToastContainer } from '@/components/ui/toast'
 import { getCadenceStatus, mockCadenceTargets } from '@/lib/social-studio/mock'
 
@@ -25,7 +26,7 @@ export function SocialStudioPage({ businessLocationId }: SocialStudioPageProps) 
   // Sync tab with URL query param
   useEffect(() => {
     const tabParam = searchParams.get('tab') as TabId | null
-    if (tabParam && ['home', 'insights', 'planner', 'create'].includes(tabParam)) {
+    if (tabParam && ['home', 'insights', 'planner', 'create', 'inbox'].includes(tabParam)) {
       setActiveTab(tabParam)
     }
     // If scheduledAt or postId params are present, ensure we're on create tab
@@ -59,6 +60,7 @@ export function SocialStudioPage({ businessLocationId }: SocialStudioPageProps) 
     { id: 'insights', label: 'Insights' },
     { id: 'planner', label: 'Planner' },
     { id: 'create', label: 'Create' },
+    { id: 'inbox', label: 'Inbox' },
   ]
 
   return (
@@ -281,6 +283,7 @@ export function SocialStudioPage({ businessLocationId }: SocialStudioPageProps) 
             {activeTab === 'insights' && <InsightsTab businessLocationId={businessLocationId} />}
             {activeTab === 'planner' && <PlannerTab businessLocationId={businessLocationId} />}
             {activeTab === 'create' && <CreateTab businessLocationId={businessLocationId} />}
+            {activeTab === 'inbox' && <InboxTab businessLocationId={businessLocationId} />}
           </div>
         </div>
         <ToastContainer toasts={toasts} onClose={removeToast} />

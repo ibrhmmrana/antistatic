@@ -718,8 +718,21 @@ async function handleMessageEvent(
     // - Insert message
     // - Update unread count
     // - Resolve participant identity
+    // Try to get access token for API lookup if conversation ID not in event
+    let accessToken: string | null = null
     try {
-      await handleWebhookMessage(business_location_id, igAccountId, event)
+      const { data: connection } = await (supabase
+        .from('instagram_connections') as any)
+        .select('access_token')
+        .eq('instagram_user_id', igAccountId)
+        .maybeSingle()
+      accessToken = connection?.access_token || null
+    } catch (tokenError: any) {
+      console.warn('[Meta Webhook] Could not fetch access token for API lookup:', tokenError.message)
+    }
+    
+    try {
+      await handleWebhookMessage(business_location_id, igAccountId, event, accessToken)
       console.log('[Meta Webhook] Message handled successfully using new schema')
     } catch (webhookError: any) {
       console.error('[Meta Webhook] Error handling message with new schema:', {

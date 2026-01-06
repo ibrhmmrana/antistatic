@@ -370,25 +370,10 @@ export async function GET(request: NextRequest) {
       hasUsername: !!instagramUsername,
     })
 
-    // If return_to was provided, redirect back to that URL after successful connection
-    if (returnTo) {
-      try {
-        // Validate return_to is a relative URL (security check)
-        const returnUrl = new URL(returnTo, requestUrl.origin)
-        if (returnUrl.origin === requestUrl.origin) {
-          console.log('[Instagram Callback] Redirecting back to:', returnTo)
-          return NextResponse.redirect(returnTo)
-        }
-      } catch (urlError) {
-        console.warn('[Instagram Callback] Invalid return_to URL, using default redirect:', returnTo)
-      }
-    }
-
     // Build redirect URL with success params
-    // Include allowBack=true to prevent auto-redirect to analysis page
     const successParams: Record<string, string> = {
       ig: 'connected',
-      allowBack: 'true',
+      connected: '1',
     }
     if (instagramUserId) {
       successParams.ig_user_id = instagramUserId
@@ -397,8 +382,27 @@ export async function GET(request: NextRequest) {
       successParams.ig_username = instagramUsername
     }
 
-    // Redirect to onboarding connect page with success
-    // allowBack=true prevents server-side redirect to analysis page
+    // If return_to was provided, redirect back to that URL after successful connection
+    if (returnTo) {
+      try {
+        // Validate return_to is a relative URL (security check)
+        const returnUrl = new URL(returnTo, requestUrl.origin)
+        if (returnUrl.origin === requestUrl.origin) {
+          // Append success params to the return URL
+          Object.entries(successParams).forEach(([key, value]) => {
+            returnUrl.searchParams.set(key, value)
+          })
+          console.log('[Instagram Callback] Redirecting back to:', returnUrl.toString())
+          return NextResponse.redirect(returnUrl)
+        }
+      } catch (urlError) {
+        console.warn('[Instagram Callback] Invalid return_to URL, using default redirect:', returnTo)
+      }
+    }
+
+    // Default redirect to onboarding connect page with success
+    // Include allowBack=true to prevent auto-redirect to analysis page
+    successParams.allowBack = 'true'
     return NextResponse.redirect(buildRedirectUrl('/onboarding/connect', successParams))
   } catch (error: any) {
     console.error('[Instagram Callback] Unexpected error:', {

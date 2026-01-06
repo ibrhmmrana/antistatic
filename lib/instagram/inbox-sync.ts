@@ -8,6 +8,7 @@
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { Database } from '@/lib/supabase/database.types'
 import { resolveMessagingUserProfile } from './messaging-user-profile'
+import { normalizeProfilePicUrl } from './normalize-profile-pic'
 
 const API_BASE = 'https://graph.instagram.com'
 const API_BASE_FACEBOOK = 'https://graph.facebook.com' // Fallback for conversations endpoint
@@ -238,6 +239,211 @@ async function fetchConversations(
 }
 
 /**
+ * Discover and persist self_scoped_id from conversation participants
+ * 
+ * Finds the participant where participant.username === instagram_connections.instagram_username
+ * and stores that participant's id as self_scoped_id in instagram_connections.
+ * 
+ * @param supabase - Supabase client
+ * @param igAccountId - Instagram professional account ID
+ * @param participants - Array of participants from conversation API
+ * @param businessAccountUsername - Our Instagram username from instagram_connections
+ * @returns The self_scoped_id (or null if not found)
+ */
+async function discoverAndPersistSelfScopedId(
+  supabase: any,
+  igAccountId: string,
+  participants: Array<{ id: string; username?: string }>,
+  businessAccountUsername: string | null,
+  accessToken?: string
+): Promise<string | null> {
+  // Helper function to persist self_scoped_id
+  const persistSelfScopedId = async (selfScopedId: string) => {
+    const { data: existingConnection } = await (supabase
+      .from('instagram_connections') as any)
+      .select('self_scoped_id')
+      .eq('instagram_user_id', igAccountId)
+      .maybeSingle()
+
+    // If not stored or different, update it
+    if (!existingConnection?.self_scoped_id || existingConnection.self_scoped_id !== selfScopedId) {
+      const { error } = await (supabase
+        .from('instagram_connections') as any)
+        .update({ self_scoped_id: selfScopedId })
+        .eq('instagram_user_id', igAccountId)
+
+      if (error) {
+        console.error('[Instagram Inbox Sync] Failed to persist self_scoped_id:', {
+          igAccountId,
+          selfScopedId,
+          error: error.message,
+        })
+      } else {
+        console.log('[Instagram Inbox Sync] Discovered and persisted self_scoped_id:', {
+          igAccountId,
+          selfScopedId,
+          username: businessAccountUsername,
+          wasNew: !existingConnection?.self_scoped_id,
+        })
+      }
+    }
+  }
+
+  // Strategy 1: Match by username if available
+  if (businessAccountUsername) {
+    const selfParticipant = participants.find((p: any) => p.username === businessAccountUsername)
+    if (selfParticipant) {
+      const selfScopedId = selfParticipant.id
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:263',message:'Discovered self_scoped_id by username',data:{igAccountId,selfScopedId,businessAccountUsername,method:'username_match'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
+      await persistSelfScopedId(selfScopedId)
+      return selfScopedId
+    }
+  }
+
+  // Strategy 2: If username match failed, try GET /me to get our account info
+  if (accessToken && participants.length > 0) {
+    try {
+      const API_BASE = 'https://graph.instagram.com'
+      const API_VERSION = 'v24.0'
+      const meUrl = `${API_BASE}/${API_VERSION}/me?fields=id,username&access_token=${accessToken}`
+      const meRes = await fetch(meUrl)
+      
+      if (meRes.ok) {
+        const meData = await meRes.json()
+        // meData.id is the professional account ID (igAccountId), not the scoped ID
+        // But we can try to match by username from GET /me
+        if (meData.username) {
+          const selfParticipant = participants.find((p: any) => p.username === meData.username)
+          if (selfParticipant) {
+            const selfScopedId = selfParticipant.id
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:295',message:'Discovered self_scoped_id by GET /me',data:{igAccountId,selfScopedId,meUsername:meData.username,method:'get_me'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+            
+            // Persist it
+            await persistSelfScopedId(selfScopedId)
+            console.log('[Instagram Inbox Sync] Discovered self_scoped_id via GET /me:', {
+              igAccountId,
+              selfScopedId,
+              meUsername: meData.username,
+            })
+            
+            return selfScopedId
+          }
+        }
+      }
+    } catch (meError: any) {
+      console.warn('[Instagram Inbox Sync] Failed to use GET /me for self_scoped_id discovery:', meError.message)
+    }
+  }
+
+  return null
+}
+
+/**
+ * Upsert participant identity into instagram_user_cache from API response data
+ * 
+ * @param supabase - Supabase client
+ * @param igAccountId - Instagram account ID (ALWAYS required, NOT NULL)
+ * @param participantId - Participant IGSID
+ * @param participantData - Participant data from API (username, name, profile_pic)
+ * @param selfScopedId - Business account scoped ID (to guard against storing self)
+ */
+async function upsertParticipantIdentityFromApi(
+  supabase: any,
+  igAccountId: string,
+  participantId: string,
+  participantData: {
+    id: string
+    username?: string | null
+    name?: string | null
+    profile_pic?: string | null
+  },
+  selfScopedId: string | null = null
+): Promise<void> {
+  // Guard: Never store selfScopedId as participant identity
+  if (selfScopedId && participantId === selfScopedId) {
+    console.warn('[Instagram Inbox Sync] Skipping identity cache for selfScopedId:', {
+      participantId,
+      igAccountId,
+    })
+    return
+  }
+
+  // Guard: ig_account_id must always be set
+  if (!igAccountId) {
+    console.error('[Instagram Inbox Sync] Cannot cache identity without ig_account_id:', {
+      participantId,
+    })
+    return
+  }
+
+  // Log raw participant object once when username is missing (for debugging)
+  if (!participantData.username) {
+    console.warn('[Instagram Inbox Sync] Participant missing username - logging raw object:', {
+      participantId,
+      igAccountId,
+      rawParticipant: JSON.stringify(participantData),
+    })
+  }
+
+  // Normalize profile pic URL from participant data
+  const normalizedProfilePic = normalizeProfilePicUrl(participantData)
+  
+  // Check existing cache to avoid overwriting non-null profile pic with null
+  const { data: existingCache } = await (supabase
+    .from('instagram_user_cache') as any)
+    .select('profile_pic, profile_pic_url')
+    .eq('ig_account_id', igAccountId)
+    .eq('ig_user_id', participantId)
+    .maybeSingle()
+  
+  // Use COALESCE behavior: prefer new value if non-null, otherwise keep existing
+  const finalProfilePic = normalizedProfilePic || existingCache?.profile_pic_url || existingCache?.profile_pic || null
+  
+  // Upsert into cache
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:397',message:'Cache upsert payload',data:{igAccountId,ig_user_id:participantId,username:participantData.username,name:participantData.name,hasNewProfilePic:!!normalizedProfilePic,hasExistingProfilePic:!!(existingCache?.profile_pic_url||existingCache?.profile_pic),finalProfilePic:!!finalProfilePic,profilePicHostname:finalProfilePic?new URL(finalProfilePic).hostname:null,selfScopedId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+  // #endregion
+  const { error } = await (supabase
+    .from('instagram_user_cache') as any)
+    .upsert({
+      ig_account_id: igAccountId, // ALWAYS set (NOT NULL)
+      ig_user_id: participantId,
+      username: participantData.username || null,
+      name: participantData.name || null,
+      profile_pic: finalProfilePic, // Store with COALESCE behavior
+      profile_pic_url: finalProfilePic, // Also store as profile_pic_url for backward compatibility
+      last_fetched_at: new Date().toISOString(),
+    }, {
+      onConflict: 'ig_account_id,ig_user_id', // Unique index ensures no cross-account overwrites
+    })
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:301',message:'Cache upsert result',data:{igAccountId,ig_user_id:participantId,username:participantData.username,error:error?.message,success:!error},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+  // #endregion
+
+  if (error) {
+    console.error('[Instagram Inbox Sync] Failed to upsert participant identity:', {
+      participantId,
+      igAccountId,
+      error: error.message,
+    })
+  } else {
+    console.log('[Instagram Inbox Sync] Cached participant identity:', {
+      participantId,
+      igAccountId,
+      username: participantData.username,
+      hasProfilePic: !!finalProfilePic,
+      profilePicHostname: finalProfilePic ? new URL(finalProfilePic).hostname : null,
+      wasEnriched: !!normalizedProfilePic,
+      preservedExisting: !normalizedProfilePic && !!(existingCache?.profile_pic_url || existingCache?.profile_pic),
+    })
+  }
+}
+
+/**
  * Fetch conversation detail with participants and messages
  * 
  * Uses the correct fields syntax: ?fields=participants{username,id,profile_pic},messages{from,to,message,created_time,id,attachments}
@@ -246,7 +452,7 @@ async function fetchConversationDetail(
   conversationId: string,
   accessToken: string
 ): Promise<{
-  participants?: { data: Array<{ id: string; username?: string; profile_pic?: string }> }
+  participants?: { data: Array<{ id: string; username?: string; name?: string; profile_pic?: string }> }
   messages?: { data: Array<{
     id: string
     created_time: string
@@ -258,8 +464,9 @@ async function fetchConversationDetail(
 }> {
   try {
     // Fetch participants AND messages in one call
-    // Format: fields=participants{username,id,profile_pic},messages{from,to,message,created_time,id,attachments}
-    const fields = 'participants{username,id,profile_pic},messages{from,to,message,created_time,id,attachments}'
+    // Format: fields=participants{username,id,profile_pic,name},messages{from,to,message,created_time,id,attachments}
+    // Note: Added 'name' field to participants for better identity caching
+    const fields = 'participants{username,id,profile_pic,name},messages{from,to,message,created_time,id,attachments}'
     const url = `${API_BASE}/${API_VERSION}/${conversationId}?fields=${fields}&access_token=${accessToken}`
     
     if (process.env.NODE_ENV !== 'production') {
@@ -359,18 +566,26 @@ export async function syncInstagramInbox(
   const identitiesResolved = new Set<string>()
 
   try {
-    // Step 0: Get the business account's username and IGSID to identify which participant is "us"
+    // Step 0: Get connection data including self_scoped_id
     const { data: connection } = await (supabase
       .from('instagram_connections') as any)
-      .select('instagram_username, instagram_user_id')
+      .select('instagram_username, instagram_user_id, self_scoped_id')
       .eq('instagram_user_id', igAccountId)
       .maybeSingle()
     
     const businessAccountUsername = connection?.instagram_username || null
+    let selfScopedId: string | null = connection?.self_scoped_id || null
     
-    // We'll determine the business account's IGSID from the first conversation's participants
-    // This will be set when we process conversations
-    let businessAccountIgsid: string | null = null
+    // DEBUG: Log identity setup
+    const DEBUG = process.env.DEBUG_INSTAGRAM_INBOX === 'true'
+    if (DEBUG) {
+      console.log('[Instagram Inbox Sync] Identity setup:', {
+        ig_account_id: igAccountId,
+        instagram_username: businessAccountUsername,
+        self_scoped_id: selfScopedId,
+        self_scoped_id_source: selfScopedId ? 'stored' : 'needs_discovery',
+      })
+    }
     
     // #region agent log
     fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:365',message:'Business account info',data:{igAccountId,businessAccountUsername,hasConnection:!!connection},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'H'})}).catch(()=>{});
@@ -423,6 +638,8 @@ export async function syncInstagramInbox(
       id: string
       ig_account_id: string
       participant_igsid: string | null
+      is_group: boolean
+      participant_count: number
       updated_time: string
       last_message_at: string
       last_message_preview: string | null
@@ -461,100 +678,181 @@ export async function syncInstagramInbox(
 
         const participants = conversationDetail.participants?.data || []
         const messages = conversationDetail.messages?.data || []
+        const participantCount = participants.length
 
         // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:431',message:'Extracting participant',data:{conversationId:conversation.id,participantsCount:participants.length,participantIds:participants.map((p:any)=>p.id),igAccountId,messagesCount:messages.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'G'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:614',message:'Conversation participants from API',data:{conversationId:conversation.id,participantCount,participants:participants.map((p:any)=>({id:p.id,username:p.username,name:p.name})),businessAccountUsername,selfScopedId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
         // #endregion
 
-        // Step 2b: Extract participant IGSID - explicitly pick the OTHER participant (not our business account)
-        function getConversationParticipantId(
-          detail: { participants?: { data?: Array<{ id: string; username?: string }> } },
-          igAccountId: string,
-          businessAccountUsername: string | null
-        ): string | null {
-          const participants = detail.participants?.data ?? []
-          
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:450',message:'getConversationParticipantId input',data:{participants:participants.map((p:any)=>({id:p.id,username:p.username})),igAccountId,businessAccountUsername,participantsCount:participants.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'H'})}).catch(()=>{});
-          // #endregion
-          
-          // Identify the business account participant by username (if available) or by checking if ID matches igAccountId
-          // Since participants are IGSIDs and igAccountId is a business account ID, we can't compare directly
-          // So we use username matching as the primary method
-          const businessParticipant = businessAccountUsername
-            ? participants.find((p: any) => p.username === businessAccountUsername)
-            : null
-          
-          // Find the OTHER participant (not the business account)
-          const other = participants.find((p: any) => {
-            // Skip if this is the business account participant (by username)
-            if (businessParticipant && p.id === businessParticipant.id) {
-              return false
-            }
-            // Skip if this matches igAccountId (shouldn't happen, but just in case)
-            if (p.id === igAccountId) {
-              return false
-            }
-            return true
-          }) ?? (participants.length > 1 ? participants[1] : participants[0])
-          
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:470',message:'getConversationParticipantId result',data:{participants:participants.map((p:any)=>p.id),igAccountId,businessAccountUsername,businessParticipantId:businessParticipant?.id,otherId:other?.id,otherUsername:other?.username},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'H'})}).catch(()=>{});
-          // #endregion
-          
-          return other?.id ?? null
-        }
-
-        let participantIgsid = getConversationParticipantId(conversationDetail, igAccountId, businessAccountUsername)
-        
-        // Identify the business account's IGSID from participants (for direction detection)
-        const businessParticipant = businessAccountUsername
-          ? participants.find((p: any) => p.username === businessAccountUsername)
-          : null
-        if (businessParticipant && !businessAccountIgsid) {
-          businessAccountIgsid = businessParticipant.id
-          console.log('[Instagram Inbox Sync] Identified business account IGSID:', businessAccountIgsid)
-        }
-
-        // Fallback: derive from messages if participants list doesn't have the other user
-        if (!participantIgsid && messages.length > 0) {
-          const allIds = new Set<string>()
-          for (const msg of messages) {
-            if (msg.from?.id) allIds.add(msg.from.id)
-            // Handle both to.id (single) and to.data (array) formats
-            if (msg.to?.id) allIds.add(msg.to.id)
-            if (msg.to?.data) {
-              for (const toItem of msg.to.data) {
-                if (toItem.id) allIds.add(toItem.id)
-              }
-            }
-          }
-          // Remove business account IGSID if we've identified it
-          if (businessAccountIgsid) {
-            allIds.delete(businessAccountIgsid)
-          }
-          // Also remove business account ID (won't match, but keep for safety)
-          allIds.delete(igAccountId)
-          const otherParticipantFromMessages = Array.from(allIds)[0]
-          if (otherParticipantFromMessages) {
-            participantIgsid = otherParticipantFromMessages
-            console.log('[Instagram Inbox Sync] Derived participant from messages:', participantIgsid)
-          }
-        }
-
-        // Final fallback - use deterministic placeholder
-        if (!participantIgsid) {
-          participantIgsid = `UNKNOWN_${conversation.id.slice(-20)}`
-          console.warn('[Instagram Inbox Sync] Skipping conversation with no participant', {
+        // Step 2b: Discover and persist self_scoped_id if not already stored
+        if (!selfScopedId) {
+          const discoveredSelfScopedId = await discoverAndPersistSelfScopedId(
+            supabase,
             igAccountId,
-            conversationId: conversation.id,
-            participants: conversationDetail.participants?.data,
-          })
-          // Skip this conversation - don't upsert it
-          continue
+            participants,
+            businessAccountUsername,
+            accessToken
+          )
+          if (discoveredSelfScopedId) {
+            selfScopedId = discoveredSelfScopedId
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:636',message:'Discovered self_scoped_id',data:{conversationId:conversation.id,selfScopedId:discoveredSelfScopedId,businessAccountUsername},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+          }
         }
 
-        // Step 2c: Process messages (store them to insert after conversation is upserted)
+        // DEBUG: Log conversation details
+        const DEBUG = process.env.DEBUG_INSTAGRAM_INBOX === 'true'
+        if (DEBUG) {
+          console.log('[Instagram Inbox Sync] Conversation detail:', {
+            conversationId: conversation.id,
+            ig_account_id: igAccountId,
+            instagram_username: businessAccountUsername,
+            self_scoped_id: selfScopedId,
+            participant_count: participantCount,
+            participant_ids: participants.map((p: any) => p.id),
+            participants: participants.map((p: any) => ({
+              id: p.id,
+              username: p.username,
+              is_self: selfScopedId ? p.id === selfScopedId : p.username === businessAccountUsername,
+            })),
+            first3Messages: messages.slice(0, 3).map((m: any) => ({
+              id: m.id,
+              fromId: m.from?.id,
+              toId: m.to?.id || m.to?.data?.[0]?.id,
+              createdTime: m.created_time,
+              text: m.message?.substring(0, 50),
+            })),
+          })
+        }
+
+        // Step 2c: Determine if this is a group chat and select participant
+        const isGroup = participantCount > 2
+        let participantIgsid: string | null = null
+
+        if (isGroup) {
+          // For group chats, set participant_igsid to NULL or synthetic value
+          // We'll use a synthetic value: GROUP:<conversation_id> for easier querying
+          participantIgsid = `GROUP:${conversation.id}`
+          
+          if (DEBUG) {
+            console.log('[Instagram Inbox Sync] Group chat detected:', {
+              conversationId: conversation.id,
+              participantCount,
+              syntheticParticipantIgsid: participantIgsid,
+            })
+          }
+        } else {
+          // For 1:1 chats, find the OTHER participant (not self)
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:675',message:'1:1 chat participant selection',data:{conversationId:conversation.id,selfScopedId,businessAccountUsername,participantCount,participants:participants.map((p:any)=>({id:p.id,username:p.username}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
+          if (!selfScopedId) {
+            console.warn('[Instagram Inbox Sync] Cannot determine participant without self_scoped_id:', {
+              conversationId: conversation.id,
+              participants: participants.map((p: any) => ({ id: p.id, username: p.username })),
+            })
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:681',message:'Skipping conversation - no self_scoped_id',data:{conversationId:conversation.id,participants:participants.map((p:any)=>({id:p.id,username:p.username}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+            continue
+          }
+
+          // Find participant that is NOT self_scoped_id
+          const otherParticipant = participants.find((p: any) => p.id !== selfScopedId)
+          
+          if (!otherParticipant) {
+            console.warn('[Instagram Inbox Sync] Cannot find other participant in 1:1 chat:', {
+              conversationId: conversation.id,
+              selfScopedId,
+              participants: participants.map((p: any) => ({ id: p.id, username: p.username })),
+            })
+            continue
+          }
+
+          participantIgsid = otherParticipant.id
+
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:696',message:'Participant selected',data:{conversationId:conversation.id,participantIgsid,selfScopedId,otherParticipantId:otherParticipant.id,otherParticipantUsername:otherParticipant.username,businessAccountUsername},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
+
+          // Guard: Never store self_scoped_id as participant_igsid
+          if (participantIgsid === selfScopedId) {
+            console.error('[Instagram Inbox Sync] CRITICAL: participant_igsid matches self_scoped_id!', {
+              conversationId: conversation.id,
+              participantIgsid,
+              selfScopedId,
+            })
+            continue
+          }
+
+          // Step 2d: Fetch full participant profile (including profile pic) and cache it
+          try {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:710',message:'Before fetching participant profile',data:{igAccountId,participantIgsid,participantUsername:otherParticipant.username,participantName:otherParticipant.name,selfScopedId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+            // #endregion
+            
+            // First, try to fetch full profile including profile pic
+            let enrichedProfilePic: string | null = null
+            try {
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:798',message:'Calling resolveMessagingUserProfile',data:{businessLocationId,igAccountId,participantIgsid},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+              // #endregion
+              const profileResult = await resolveMessagingUserProfile(
+                businessLocationId,
+                igAccountId,
+                participantIgsid
+              )
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:805',message:'resolveMessagingUserProfile returned',data:{igAccountId,participantIgsid,hasResult:!!profileResult,hasProfilePicUrl:!!profileResult?.profile_pic_url,hasProfilePic:!!profileResult?.profile_pic,username:profileResult?.username,profilePicUrl:profileResult?.profile_pic_url,profilePic:profileResult?.profile_pic},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+              // #endregion
+              if (profileResult?.profile_pic_url || profileResult?.profile_pic) {
+                enrichedProfilePic = profileResult.profile_pic_url || profileResult.profile_pic
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:809',message:'Fetched participant profile with pic',data:{igAccountId,participantIgsid,hasProfilePic:!!enrichedProfilePic,profilePicHostname:enrichedProfilePic?new URL(enrichedProfilePic).hostname:null,enrichedProfilePic},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+                // #endregion
+              } else {
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:813',message:'Profile result has no pic',data:{igAccountId,participantIgsid,hasResult:!!profileResult,resultKeys:profileResult?Object.keys(profileResult):[]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+                // #endregion
+              }
+            } catch (profileError: any) {
+              // Non-blocking - log but continue with basic identity
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:818',message:'Profile fetch error',data:{igAccountId,participantIgsid,error:profileError?.message,errorName:profileError?.name,errorStack:profileError?.stack?.substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+              // #endregion
+              console.warn('[Instagram Inbox Sync] Failed to fetch participant profile (non-blocking):', {
+                participantIgsid,
+                error: profileError.message,
+              })
+            }
+            
+            // Upsert with enriched data (use profile pic from API if available, otherwise keep existing)
+            await upsertParticipantIdentityFromApi(
+              supabase,
+              igAccountId,
+              participantIgsid,
+              {
+                id: otherParticipant.id,
+                username: otherParticipant.username,
+                name: otherParticipant.name,
+                profile_pic: enrichedProfilePic || otherParticipant.profile_pic, // Prefer enriched profile pic
+              },
+              selfScopedId
+            )
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:735',message:'After cache upsert',data:{igAccountId,participantIgsid,participantUsername:otherParticipant.username,hasProfilePic:!!enrichedProfilePic},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+            // #endregion
+          } catch (identityError: any) {
+            // Non-blocking - log but continue
+            console.warn('[Instagram Inbox Sync] Failed to cache participant identity from API:', {
+              participantIgsid,
+              error: identityError.message,
+            })
+          }
+        }
+
+        // Step 2d: Process messages (store them to insert after conversation is upserted)
         let lastMessageText: string | null = null
         let lastMessageTime: string = conversation.updated_time
         const messagesToInsert: Array<{
@@ -592,21 +890,39 @@ export async function syncInstagramInbox(
 
         for (const message of messages) {
           try {
-            // Determine direction by comparing with business account IGSID (not business account ID)
-            // If we haven't identified the business account IGSID yet, use a fallback
+            // Determine direction using self_scoped_id (NOT ig_account_id)
+            // Message is outbound if from_id === self_scoped_id, inbound otherwise
             let direction: 'inbound' | 'outbound' = 'inbound'
-            if (businessAccountIgsid && message.from.id === businessAccountIgsid) {
+            
+            if (selfScopedId && message.from.id === selfScopedId) {
               direction = 'outbound'
-            } else if (!businessAccountIgsid) {
-              // Fallback: if business account username matches, assume it's us
+            } else if (!selfScopedId && businessAccountUsername) {
+              // Fallback: check by username if self_scoped_id not available
               const fromParticipant = participants.find((p: any) => p.id === message.from.id)
-              if (fromParticipant && businessAccountUsername && fromParticipant.username === businessAccountUsername) {
+              if (fromParticipant && fromParticipant.username === businessAccountUsername) {
                 direction = 'outbound'
-                // Store this as the business account IGSID for future messages
-                if (!businessAccountIgsid) {
-                  businessAccountIgsid = message.from.id
+                // Discover and persist self_scoped_id from this message
+                if (fromParticipant.id) {
+                  await discoverAndPersistSelfScopedId(
+                    supabase,
+                    igAccountId,
+                    participants,
+                    businessAccountUsername
+                  )
+                  selfScopedId = fromParticipant.id
                 }
               }
+            }
+
+            // DEBUG: Log direction decision for sample messages
+            if (DEBUG && messages.indexOf(message) < 3) {
+              console.log('[Instagram Inbox Sync] Message direction:', {
+                messageId: message.id,
+                fromId: message.from.id,
+                selfScopedId,
+                direction,
+                decision: selfScopedId ? (message.from.id === selfScopedId ? 'outbound (from === self)' : 'inbound (from !== self)') : 'fallback_username_check',
+              })
             }
 
             // Extract to_id - handle both formats
@@ -637,16 +953,20 @@ export async function syncInstagramInbox(
           }
         }
 
-        // Step 2d: Prepare conversation for upsert (with messages attached)
+        // Step 2e: Prepare conversation for upsert (with messages attached)
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:862',message:'Preparing conversation for upsert',data:{conversationId:conversation.id,participantIgsid,isGroup,participantCount,selfScopedId,allParticipantIds:participants.map((p:any)=>p.id),allParticipantUsernames:participants.map((p:any)=>p.username)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
         conversationsToUpsert.push({
           id: conversation.id,
           ig_account_id: igAccountId,
           participant_igsid: participantIgsid,
+          is_group: isGroup,
+          participant_count: participantCount,
           updated_time: conversation.updated_time,
           last_message_at: lastMessageTime,
           last_message_preview: lastMessageText ? lastMessageText.substring(0, 100) : null,
           messages: messagesToInsert, // Attach messages to conversation
-          participantIgsid, // Store for identity resolution
         })
 
       } catch (convError: any) {
@@ -673,103 +993,76 @@ export async function syncInstagramInbox(
         fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:520',message:'Upserting conversation',data:{conversationId:conv.id,participantIgsid:conv.participant_igsid,igAccountId:conv.ig_account_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'F'})}).catch(()=>{});
         // #endregion
 
-        // First, check if a conversation with the same (ig_account_id, participant_igsid) already exists
-        // If it does, we'll update that one instead of creating a new one
-        const { data: existingConv } = await (supabase
+        // CRITICAL: Use API conversation ID as primary key, NEVER lookup by participant
+        // The conversation.id from the API is the canonical identifier
+        // participant_igsid is metadata only, not used for uniqueness
+        const { error: convError } = await (supabase
           .from('instagram_conversations') as any)
-          .select('id')
-          .eq('ig_account_id', conv.ig_account_id)
-          .eq('participant_igsid', conv.participant_igsid)
-          .maybeSingle()
+          .upsert({
+            id: conv.id, // API conversation/thread ID - this is the primary key
+            ig_account_id: conv.ig_account_id,
+            participant_igsid: conv.participant_igsid, // Metadata only, not used for uniqueness
+            is_group: conv.is_group,
+            participant_count: conv.participant_count,
+            updated_time: conv.updated_time,
+            last_message_at: conv.last_message_at,
+            last_message_preview: conv.last_message_preview,
+            unread_count: 0, // Will be updated by webhook or manual sync
+          }, {
+            onConflict: 'id', // ONLY conflict on id (API conversation ID), never on participant
+          })
 
-        let finalConversationId = conv.id
-
-        if (existingConv) {
-          // Update existing conversation
-          const { error: updateError } = await (supabase
-            .from('instagram_conversations') as any)
-            .update({
-              updated_time: conv.updated_time,
-              last_message_at: conv.last_message_at,
-              last_message_preview: conv.last_message_preview,
-            })
-            .eq('id', existingConv.id)
-
-          if (updateError) {
-            errors.push(`Failed to update conversation ${existingConv.id}: ${updateError.message}`)
-            continue
-          }
-
-          conversationsUpserted++
-          finalConversationId = existingConv.id
-          // Update the conversation ID in our list so messages reference the correct ID
-          conv.id = existingConv.id
-        } else {
-          // Insert new conversation using upsert on primary key only
-          const { error: convError } = await (supabase
-            .from('instagram_conversations') as any)
-            .upsert({
-              id: conv.id,
-              ig_account_id: conv.ig_account_id,
-              participant_igsid: conv.participant_igsid,
-              updated_time: conv.updated_time,
-              last_message_at: conv.last_message_at,
-              last_message_preview: conv.last_message_preview,
-              unread_count: 0, // Will be updated by webhook or manual sync
-            }, {
-              onConflict: 'id',
-            })
-
-          if (convError) {
-            // If it's a unique constraint violation on (ig_account_id, participant_igsid), find and update
-            if (convError.code === '23505' || convError.message?.includes('unique constraint')) {
-              const { data: existing } = await (supabase
-                .from('instagram_conversations') as any)
-                .select('id')
-                .eq('ig_account_id', conv.ig_account_id)
-                .eq('participant_igsid', conv.participant_igsid)
-                .maybeSingle()
-
-              if (existing) {
-                const { error: updateError } = await (supabase
-                  .from('instagram_conversations') as any)
-                  .update({
-                    updated_time: conv.updated_time,
-                    last_message_at: conv.last_message_at,
-                    last_message_preview: conv.last_message_preview,
-                  })
-                  .eq('id', existing.id)
-
-                if (!updateError) {
-                  conversationsUpserted++
-                  finalConversationId = existing.id
-                  conv.id = existing.id
-                } else {
-                  errors.push(`Failed to update conversation ${existing.id}: ${updateError.message}`)
-                  continue
-                }
-              } else {
-                errors.push(`Failed to upsert conversation ${conv.id}: ${convError.message}`)
-                continue
-              }
-            } else {
-              errors.push(`Failed to upsert conversation ${conv.id}: ${convError.message}`)
-              continue
-            }
-          } else {
-            conversationsUpserted++
-          }
+        if (convError) {
+          errors.push(`Failed to upsert conversation ${conv.id}: ${convError.message}`)
+          console.error('[Instagram Inbox Sync] Conversation upsert error:', {
+            conversationId: conv.id,
+            error: convError,
+          })
+          continue
         }
 
+        conversationsUpserted++
+        const finalConversationId = conv.id // Always use the API conversation ID
+
         // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:600',message:'Conversation upsert complete',data:{conversationId:finalConversationId,originalId:conv.id,wasUpdated:!!existingConv},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'F'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync.ts:600',message:'Conversation upsert complete',data:{conversationId:finalConversationId,originalId:conv.id,participantIgsid:conv.participant_igsid},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'F'})}).catch(()=>{});
         // #endregion
 
         // Step 4: Insert messages for this conversation (only if conversation was successfully upserted)
         if (conv.messages && conv.messages.length > 0) {
+          // DIAGNOSTIC: Check for multi-sender conversations (only warn if NOT a group chat)
+          if (!conv.is_group) {
+            const inboundSenders = new Set<string>()
+            for (const msg of conv.messages) {
+              if (msg.direction === 'inbound' && msg.from_id) {
+                inboundSenders.add(msg.from_id)
+              }
+            }
+            
+            if (inboundSenders.size > 1) {
+              console.error('[Instagram Inbox Sync] ⚠️⚠️⚠️ MULTI-SENDER DETECTED IN 1:1 CHAT ⚠️⚠️⚠️', {
+                conversationId: conv.id,
+                participantIgsid: conv.participant_igsid,
+                inboundSenderIds: Array.from(inboundSenders),
+                senderCount: inboundSenders.size,
+                message: 'Multiple different senders found in same conversation_id - this should NEVER happen in 1:1 chats!',
+              })
+            }
+          }
+          
           for (const msg of conv.messages) {
             try {
-              // Update conversation_id in case it changed due to conflict resolution
+              // CRITICAL: conversation_id must be the API conversation ID, never a derived/generated ID
+              if (!msg.conversation_id || msg.conversation_id.trim() === '') {
+                console.error('[Instagram Inbox Sync] Message missing conversation_id - skipping:', {
+                  messageId: msg.id,
+                  conversationId: conv.id,
+                })
+                errors.push(`Message ${msg.id} missing conversation_id`)
+                continue
+              }
+              
+              // Ensure message uses the API conversation ID (not a generated one)
               msg.conversation_id = conv.id
 
               const { error: msgError } = await (supabase

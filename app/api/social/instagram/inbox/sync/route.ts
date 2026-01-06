@@ -12,11 +12,22 @@ export const runtime = 'nodejs'
  * Sync Instagram inbox (conversations and messages) from the API
  */
 export async function POST(request: NextRequest) {
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync/route.ts:14',message:'Sync API POST entry',data:{url:request.url},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+  // #endregion
+  
   try {
     const requestUrl = new URL(request.url)
     const locationId = requestUrl.searchParams.get('locationId')
+    
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync/route.ts:18',message:'Sync API: locationId extracted',data:{locationId,hasLocationId:!!locationId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
 
     if (!locationId) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync/route.ts:21',message:'Sync API: missing locationId',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
       return NextResponse.json({ error: 'locationId is required' }, { status: 400 })
     }
 
@@ -57,6 +68,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Sync inbox
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync/route.ts:59',message:'Calling syncInstagramInbox',data:{locationId,igUserId:connection.instagram_user_id,hasToken:!!connection.access_token},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
     const result = await syncInstagramInbox(
       locationId,
       connection.instagram_user_id,
@@ -64,7 +78,7 @@ export async function POST(request: NextRequest) {
     )
 
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync/route.ts:60',message:'Sync completed',data:{conversationsFound:result.conversationsFound,conversationsUpserted:result.conversationsUpserted,messagesUpserted:result.messagesUpserted,errors:result.errors},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox-sync/route.ts:66',message:'Sync completed',data:{conversationsFound:result.conversationsFound,conversationsUpserted:result.conversationsUpserted,messagesUpserted:result.messagesUpserted,errors:result.errors,hasErrors:!!result.errors},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
     // #endregion
 
     return NextResponse.json({

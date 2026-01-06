@@ -47,6 +47,10 @@ interface Message {
 }
 
 export function InstagramInbox({ locationId, instagramConnection }: InstagramInboxProps) {
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:49',message:'InstagramInbox component render',data:{locationId,hasConnection:!!instagramConnection,igUserId:instagramConnection?.instagram_user_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
+  
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -61,16 +65,38 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
   const { toasts, showToast, removeToast } = useToast()
   const supabaseRef = useRef(createClient())
   const realtimeSubscriptionRef = useRef<any>(null)
+  
+  // Track component mount/unmount
+  useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:65',message:'InstagramInbox component mounted',data:{locationId,hasConnection:!!instagramConnection},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    return () => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:68',message:'InstagramInbox component unmounting',data:{locationId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
+    }
+  }, [])
 
   // Fetch conversations and messages
   const fetchInbox = async () => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:66',message:'fetchInbox called',data:{locationId,hasConnection:!!instagramConnection},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+    // #endregion
+    
     if (!instagramConnection) {
       setLoading(false)
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:69',message:'fetchInbox: no connection',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
       return
     }
 
     try {
       setLoading(true)
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:74',message:'fetchInbox: calling API',data:{url:`/api/social/instagram/inbox?locationId=${locationId}`},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
       const response = await fetch(`/api/social/instagram/inbox?locationId=${locationId}`)
       
       if (!response.ok) {
@@ -155,35 +181,70 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
 
   // Initial fetch and automatic sync
   useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:157',message:'Sync useEffect triggered',data:{hasConnection:!!instagramConnection,locationId,igUserId:instagramConnection?.instagram_user_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    
     if (!instagramConnection) {
       setLoading(false)
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:160',message:'No connection, exiting',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       return
     }
 
     // Fetch inbox immediately
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:164',message:'Calling fetchInbox',data:{locationId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     fetchInbox()
 
     // Auto-sync inbox from Instagram API periodically (every 30 seconds)
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:167',message:'Setting up auto-sync interval',data:{intervalMs:30000},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
     const autoSyncInterval = setInterval(async () => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:168',message:'Auto-sync interval triggered',data:{locationId,currentTime:Date.now()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
       console.log('[Instagram Inbox] Auto-syncing inbox from Instagram API...')
       try {
         setSyncing(true)
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:171',message:'Calling sync API',data:{locationId,url:`/api/social/instagram/inbox/sync?locationId=${locationId}`},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
         const response = await fetch(`/api/social/instagram/inbox/sync?locationId=${locationId}`, {
           method: 'POST',
         })
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:174',message:'Sync API response received',data:{status:response.status,ok:response.ok,statusText:response.statusText},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
         if (response.ok) {
           const data = await response.json()
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:177',message:'Sync API success',data:{conversationsFound:data.conversationsFound,conversationsUpserted:data.conversationsUpserted,messagesUpserted:data.messagesUpserted,success:data.success},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
           console.log('[Instagram Inbox] Auto-sync completed:', {
             conversationsFound: data.conversationsFound,
             conversationsUpserted: data.conversationsUpserted,
             messagesUpserted: data.messagesUpserted,
           })
           // Refresh inbox after sync
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:182',message:'Refreshing inbox after sync',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
           await fetchInbox()
         } else {
+          const errorData = await response.json().catch(() => ({}))
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:184',message:'Sync API failed',data:{status:response.status,error:errorData.error||errorData,statusText:response.statusText},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+          // #endregion
           console.error('[Instagram Inbox] Auto-sync failed:', response.status)
         }
-      } catch (err) {
+      } catch (err: any) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:187',message:'Sync API exception',data:{error:err.message,errorType:err.constructor.name,stack:err.stack?.substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
         console.error('[Instagram Inbox] Auto-sync error:', err)
       } finally {
         setSyncing(false)
@@ -191,6 +252,9 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
     }, 30000) // Sync every 30 seconds
 
     return () => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:195',message:'Cleaning up sync interval',data:{locationId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       clearInterval(autoSyncInterval)
     }
   }, [locationId, instagramConnection])
@@ -431,6 +495,10 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
       }
       setMessages(prev => [...prev, optimisticMessage])
 
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:498',message:'Sending message request',data:{locationId,conversationId:selectedConversationId,textLength:text.length,textPreview:text.substring(0,50),hasConnection:!!instagramConnection},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
+      
       const response = await fetch('/api/social/instagram/messages/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -440,9 +508,17 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
           text,
         }),
       })
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:508',message:'Send message response received',data:{status:response.status,ok:response.ok,statusText:response.statusText},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:509',message:'Send message error response',data:{status:response.status,errorData,errorType:errorData.error?.type,errorCode:errorData.error?.code,errorMessage:errorData.error?.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
         
         // Check for Instagram auth error - automatically reconnect if expired
         if (errorData.error?.type === 'instagram_auth') {
@@ -469,7 +545,23 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
         
         // Check for Instagram API error
         if (errorData.error?.type === 'instagram_api') {
-          const errorMsg = errorData.error.message || 'Instagram API error'
+          // Build detailed error message with code and subcode if available
+          let errorMsg = errorData.error.message || errorData.error.error_user_msg || 'Instagram API error'
+          if (errorData.error.code) {
+            errorMsg += ` (Code: ${errorData.error.code}`
+            if (errorData.error.error_subcode) {
+              errorMsg += `, Subcode: ${errorData.error.error_subcode}`
+            }
+            errorMsg += ')'
+          }
+          console.error('[Instagram Inbox] Send message API error:', {
+            code: errorData.error.code,
+            error_subcode: errorData.error.error_subcode,
+            fbtrace_id: errorData.error.fbtrace_id,
+            message: errorData.error.message,
+            error_user_msg: errorData.error.error_user_msg,
+            fullError: errorData.error,
+          })
           showToast(`Failed to send message: ${errorMsg}`, 'error')
           throw new Error(errorMsg)
         }
@@ -799,6 +891,7 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
                             src={conv.avatarUrl}
                             alt={conv.displayName}
                             className="w-10 h-10 rounded-full object-cover"
+                            referrerPolicy="no-referrer"
                             onError={(e) => {
                               const target = e.target as HTMLImageElement
                               target.style.display = 'none'
@@ -854,12 +947,19 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
                             src={conv.avatarUrl}
                             alt={conv.displayName}
                             className="w-10 h-10 rounded-full object-cover"
+                            referrerPolicy="no-referrer"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement
+                              target.style.display = 'none'
+                              if (target.nextElementSibling) {
+                                (target.nextElementSibling as HTMLElement).style.display = 'flex'
+                              }
+                            }}
                           />
-                        ) : (
-                          <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-xs text-slate-600">
-                            {conv.displayName.charAt(0)?.toUpperCase() || '?'}
-                          </div>
-                        )}
+                        ) : null}
+                        <div className={`w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-xs text-slate-600 ${conv.avatarUrl ? 'hidden' : ''}`}>
+                          {conv.displayName.charAt(0)?.toUpperCase() || '?'}
+                        </div>
                         <div>
                           <p className="text-sm font-semibold text-slate-900">
                             {conv.username ? `@${conv.username}` : conv.displayName}
@@ -907,12 +1007,19 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
                                   src={message.avatarUrl}
                                   alt={message.displayName}
                                   className="w-8 h-8 rounded-full object-cover"
+                                  referrerPolicy="no-referrer"
+                                  onError={(e) => {
+                                    const target = e.target as HTMLImageElement
+                                    target.style.display = 'none'
+                                    if (target.nextElementSibling) {
+                                      (target.nextElementSibling as HTMLElement).style.display = 'flex'
+                                    }
+                                  }}
                                 />
-                              ) : (
-                                <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs text-slate-600">
-                                  {message.displayName.charAt(0)?.toUpperCase() || '?'}
-                                </div>
-                              )}
+                              ) : null}
+                              <div className={`w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs text-slate-600 ${message.avatarUrl ? 'hidden' : ''}`}>
+                                {message.displayName.charAt(0)?.toUpperCase() || '?'}
+                              </div>
                               
                               <div className={`flex-1 ${isOutbound ? 'text-right' : ''}`}>
                                 <div className={`flex items-center gap-2 mb-1 ${isOutbound ? 'justify-end' : ''}`}>
