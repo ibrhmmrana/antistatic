@@ -32,8 +32,8 @@ export async function GET(
     }
 
     // Verify location belongs to user and get enabled_tools
-    const { data: location, error } = await supabase
-      .from('business_locations')
+    const { data: location, error } = await (supabase
+      .from('business_locations') as any)
       .select('id, user_id, enabled_tools')
       .eq('id', locationId)
       .eq('user_id', user.id)
@@ -55,7 +55,7 @@ export async function GET(
     }
 
     return NextResponse.json({
-      enabled_tools: location.enabled_tools || [],
+      enabled_tools: (location as any).enabled_tools || [],
     })
   } catch (error) {
     console.error('[enabled-tools] Unexpected error:', error)

@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
       const tokenResult = await getInstagramAccessTokenForLocation(locationId)
       accessToken = tokenResult.access_token
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messages/send/route.ts:87',message:'Access token retrieved',data:{hasToken:!!accessToken,tokenLength:accessToken?.length,tokenPrefix:accessToken?.substring(0,20),expiresAt:tokenResult.expires_at},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messages/send/route.ts:87',message:'Access token retrieved',data:{hasToken:!!accessToken,tokenLength:accessToken?.length,tokenPrefix:accessToken?.substring(0,20),igAccountId:tokenResult.ig_account_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
       // #endregion
     } catch (error: any) {
       if (error instanceof InstagramAuthError) {
