@@ -164,6 +164,19 @@ export async function GET(request: NextRequest) {
     // https://www.instagram.com/oauth/authorize?force_reauth=true&client_id=...&redirect_uri=...&response_type=code&scope=...
     const scopes = INSTAGRAM_REQUIRED_SCOPES.join(',') // Comma-separated, no spaces
     
+    // Verify instagram_business_basic is in the scopes
+    const hasBasicScope = INSTAGRAM_REQUIRED_SCOPES.includes('instagram_business_basic')
+    console.log('[Instagram Connect] OAuth scopes being requested:', {
+      scopes,
+      scopesArray: INSTAGRAM_REQUIRED_SCOPES,
+      hasBasicScope,
+      basicScopeIndex: INSTAGRAM_REQUIRED_SCOPES.indexOf('instagram_business_basic'),
+    })
+    
+    if (!hasBasicScope) {
+      console.error('[Instagram Connect] CRITICAL: instagram_business_basic is missing from INSTAGRAM_REQUIRED_SCOPES!')
+    }
+    
     // Build params in the exact order specified by Meta embed URL format
     const params = new URLSearchParams({
       force_reauth: 'true',
@@ -179,12 +192,13 @@ export async function GET(request: NextRequest) {
     const authUrl = `https://www.instagram.com/oauth/authorize?${params.toString()}`
 
     // Log the full auth URL (no secrets, just the URL - safe to log)
-    console.log('[Instagram Connect] Generated OAuth URL:', authUrl)
+    console.log('[Instagram Connect] Generated OAuth URL:', authUrl.replace(/client_id=[^&]+/, 'client_id=***'))
     console.log('[Instagram Connect] OAuth URL details:', {
       baseUrl: 'https://www.instagram.com/oauth/authorize',
       clientId: config.appId,
       redirectUri: config.redirectUri,
       scopes,
+      scopeIncludesBasic: scopes.includes('instagram_business_basic'),
       stateLength: state.length,
       hasState: !!state,
     })

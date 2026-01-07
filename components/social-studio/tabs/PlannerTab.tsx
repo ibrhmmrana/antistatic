@@ -56,6 +56,8 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
   const [isInspectorOpen, setIsInspectorOpen] = useState(false)
   const [plugins, setPlugins] = useState<any[]>([])
   const lastFetchedDateRef = useRef<string | null>(null)
+  const instagramRetryCount = useRef<number>(0)
+  const MAX_INSTAGRAM_RETRIES = 3
   const [isEditing, setIsEditing] = useState(false)
   const [editCaption, setEditCaption] = useState('')
   const [editScheduledDate, setEditScheduledDate] = useState('')
@@ -63,6 +65,41 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
   const [isSaving, setIsSaving] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [postToDelete, setPostToDelete] = useState<Post | null>(null)
+  const [instagramInsights, setInstagramInsights] = useState<{ impressions?: number; reach?: number; engagement?: number; saved?: number } | null>(null)
+  const [loadingInsights, setLoadingInsights] = useState(false)
+
+  // Fetch Instagram insights for a media item (on-demand, only when post is selected)
+  const fetchInstagramInsights = async (mediaId: string, businessLocationId: string) => {
+    if (!mediaId || !businessLocationId) return
+    
+    setLoadingInsights(true)
+    setInstagramInsights(null)
+    
+    try {
+      const response = await fetch(
+        `/api/social-studio/instagram/media-insights?mediaId=${encodeURIComponent(mediaId)}&businessLocationId=${encodeURIComponent(businessLocationId)}`
+      )
+      
+      const data = await response.json()
+      
+      if (data.ok && data.metrics) {
+        setInstagramInsights(data.metrics)
+        console.log('[PlannerTab] Instagram insights loaded:', data.metrics)
+      } else if (data.ok && data.metrics === null) {
+        // Insights unavailable (graceful handling)
+        setInstagramInsights(null)
+        console.log('[PlannerTab] Instagram insights unavailable:', data.note || data.reason)
+      } else {
+        console.warn('[PlannerTab] Failed to fetch Instagram insights:', data.error)
+        setInstagramInsights(null)
+      }
+    } catch (error: any) {
+      console.error('[PlannerTab] Error fetching Instagram insights:', error)
+      setInstagramInsights(null)
+    } finally {
+      setLoadingInsights(false)
+    }
+  }
 
   // Load FullCalendar CSS from CDN (only once)
   useEffect(() => {
@@ -87,45 +124,12 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
     }
   }, [])
 
-  // Sync GBP posts on mount and when businessLocationId changes
-  const syncGBPPosts = async () => {
-    if (!businessLocationId) return
-    
-    try {
-      console.log('[PlannerTab] Auto-syncing GBP posts...')
-      const response = await fetch('/api/social-studio/sync/gbp-posts', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          businessLocationId,
-          lookbackDays: 365,
-        }),
-      })
-
-      const data = await response.json()
-
-      if (response.ok && data.success) {
-        console.log(`[PlannerTab] Auto-synced ${data.synced} GBP posts`)
-      } else {
-        // Don't show error toast for auto-sync failures (might be expected if no GBP connection)
-        console.warn('[PlannerTab] Auto-sync failed (non-critical):', data.error || 'Unknown error')
-      }
-    } catch (error: any) {
-      // Don't show error toast for auto-sync failures (non-critical)
-      console.warn('[PlannerTab] Auto-sync error (non-critical):', error)
-    }
-  }
-
-  // Load FullCalendar plugins, fetch posts, and sync GBP posts in parallel
+  // Load FullCalendar plugins and fetch posts
+  // Note: GBP posts are now fetched live from Google API (no sync needed)
   useEffect(() => {
     if (!businessLocationId) return
 
-    // Start auto-syncing GBP posts in the background (don't wait for it)
-    syncGBPPosts()
-    
-    // Start fetching posts immediately (don't wait for plugins or sync)
+    // Start fetching posts immediately (includes live GBP data)
     fetchPosts()
 
     // Load plugins in parallel
@@ -144,19 +148,59 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
       setPlugins([dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin])
     }
     loadPlugins()
+    
+    // Cleanup: clear timeout on unmount
+    return () => {
+      if (fetchPostsRef.current.timeoutId) {
+        clearTimeout(fetchPostsRef.current.timeoutId)
+        fetchPostsRef.current.timeoutId = undefined
+      }
+      fetchPostsRef.current.fetching = false
+    }
   }, [businessLocationId])
 
-  const fetchPostsRef = useRef<boolean>(false)
+  // Cleanup: reset retry counter when component unmounts
+  useEffect(() => {
+    return () => {
+      instagramRetryCount.current = 0
+      console.log('[PlannerTab] Component unmounting - reset Instagram retry counter')
+    }
+  }, [])
+
+  const fetchPostsRef = useRef<{ fetching: boolean; timeoutId?: NodeJS.Timeout }>({ 
+    fetching: false 
+  })
   
-  const fetchPosts = async () => {
+  const fetchPosts = async (retryCount = 0) => {
     // Prevent multiple simultaneous calls using ref instead of state
-    if (fetchPostsRef.current) {
+    if (fetchPostsRef.current.fetching) {
       console.log('[PlannerTab] Already fetching posts, skipping...')
       return
     }
     
-    fetchPostsRef.current = true
+    // Reset Instagram retry counter on manual refresh
+    // (Don't reset if this is an auto-retry - counter will be > 0)
+    if (instagramRetryCount.current === 0 || instagramRetryCount.current >= MAX_INSTAGRAM_RETRIES) {
+      instagramRetryCount.current = 0
+      console.log('[PlannerTab] Reset Instagram retry counter (manual refresh or max retries reached)')
+    }
+    
+    fetchPostsRef.current.fetching = true
+    
+    // Clear any existing timeout
+    if (fetchPostsRef.current.timeoutId) {
+      clearTimeout(fetchPostsRef.current.timeoutId)
+    }
+    
+    // Safety timeout: reset ref after 30 seconds
+    fetchPostsRef.current.timeoutId = setTimeout(() => {
+      console.warn('[PlannerTab] Fetch timeout - resetting ref')
+      fetchPostsRef.current.fetching = false
+    }, 30000)
+    
     setLoading(true)
+    setEvents([])  // Clear stale events immediately
+    console.log('[PlannerTab] Starting fetchPosts - cleared events state')
     try {
       // Fetch a wide date range to avoid refetching on navigation
       // Fetch 6 months back and 12 months forward
@@ -170,34 +214,245 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
       to.setDate(0) // Last day of that month
       to.setHours(23, 59, 59, 999)
 
-      const response = await fetch(
-        `/api/social-studio/posts?businessLocationId=${businessLocationId}&from=${from.toISOString()}&to=${to.toISOString()}`
-      )
+      const dateRange = `start=${from.toISOString()}&end=${to.toISOString()}`
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlannerTab.tsx:140',message:'Fetching posts - date range',data:{from:from.toISOString(),to:to.toISOString(),dateRange,businessLocationId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
 
-      if (!response.ok) {
-        if (response.status === 401) {
-          // Don't show error for auth issues - might be session expired
-          console.warn('[PlannerTab] Unauthorized - session may have expired')
-          setEvents([])
-          return
-        }
-        throw new Error(`Failed to fetch posts: ${response.status}`)
+      // Fetch posts from all sources in parallel
+      // 1. Non-GBP, non-Instagram posts from database (other platforms)
+      // 2. GBP posts directly from Google API (live data)
+      // 3. Instagram posts directly from Instagram API (live data)
+      const igUrl = `/api/social-studio/instagram/media?businessLocationId=${businessLocationId}&${dateRange}`
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlannerTab.tsx:149',message:'Instagram API URL',data:{igUrl},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
+      const [dbPostsResponse, gbpPostsResponse, igPostsResponse] = await Promise.allSettled([
+        fetch(`/api/social-studio/posts?businessLocationId=${businessLocationId}&from=${from.toISOString()}&to=${to.toISOString()}`),
+        fetch(`/api/social-studio/posts/gbp?businessLocationId=${businessLocationId}&from=${from.toISOString()}&to=${to.toISOString()}`),
+        fetch(igUrl),
+      ])
+
+      // Process database posts (non-GBP, non-Instagram)
+      let dbEvents: EventInput[] = []
+      if (dbPostsResponse.status === 'fulfilled' && dbPostsResponse.value.ok) {
+        const dbData = await dbPostsResponse.value.json()
+        // Filter out GBP and Instagram posts from database (we'll use live data instead)
+        dbEvents = (dbData.events || []).filter((event: EventInput) => {
+          const platforms = event.extendedProps?.platforms || []
+          return !platforms.includes('google_business') && !platforms.includes('instagram')
+        })
+        console.log(`[PlannerTab] Fetched ${dbEvents.length} non-GBP, non-Instagram events from database`)
+      } else if (dbPostsResponse.status === 'fulfilled' && dbPostsResponse.value.status === 401) {
+        console.warn('[PlannerTab] Unauthorized for database posts - session may have expired')
+      } else if (dbPostsResponse.status === 'rejected') {
+        console.error('[PlannerTab] Error fetching database posts:', dbPostsResponse.reason)
       }
 
-      const data = await response.json()
-      const fetchedEvents = data.events || []
-      console.log(`[PlannerTab] Fetched ${fetchedEvents.length} events from API (date range: ${from.toISOString().split('T')[0]} to ${to.toISOString().split('T')[0]})`)
-      setEvents(fetchedEvents)
+      // Process GBP posts (live from Google API)
+      let gbpEvents: EventInput[] = []
+      if (gbpPostsResponse.status === 'fulfilled' && gbpPostsResponse.value.ok) {
+        const gbpData = await gbpPostsResponse.value.json()
+        gbpEvents = gbpData.events || []
+        console.log(`[PlannerTab] Fetched ${gbpEvents.length} GBP events live from Google API`)
+      } else if (gbpPostsResponse.status === 'fulfilled') {
+        // GBP not connected or error - not critical, just log
+        const gbpData = await gbpPostsResponse.value.json().catch(() => ({}))
+        if (gbpData.needs_reauth) {
+          console.warn('[PlannerTab] GBP needs reconnection:', gbpData.error)
+        } else {
+          console.warn('[PlannerTab] GBP posts fetch failed (non-critical):', gbpData.error || 'Unknown error')
+        }
+      } else if (gbpPostsResponse.status === 'rejected') {
+        console.error('[PlannerTab] Error fetching GBP posts:', gbpPostsResponse.reason)
+      }
+
+      // Process Instagram posts (live from Instagram API)
+      let igEvents: EventInput[] = []
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlannerTab.tsx:194',message:'Processing Instagram posts response',data:{status:igPostsResponse.status,fulfilled:igPostsResponse.status==='fulfilled',responseOk:igPostsResponse.status==='fulfilled'?igPostsResponse.value.ok:null,responseStatus:igPostsResponse.status==='fulfilled'?igPostsResponse.value.status:null},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
+      if (igPostsResponse.status === 'fulfilled' && igPostsResponse.value.ok) {
+        // Reset retry counter on success
+        instagramRetryCount.current = 0
+        console.log('[PlannerTab] Instagram fetch successful - reset retry counter')
+        
+        const igData = await igPostsResponse.value.json()
+        
+        // Validate response structure
+        if (!igData || !Array.isArray(igData.items)) {
+          console.error('[PlannerTab] Invalid Instagram API response:', igData)
+          showToast('Received invalid data from Instagram', 'error')
+        } else {
+          const igItems = igData.items
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlannerTab.tsx:199',message:'Instagram API response parsed',data:{itemsCount:igItems.length,hasItems:!!igData.items,diagnostics:igData.diagnostics},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
+          
+          // Filter out invalid items and transform
+          igEvents = igItems
+            .filter((item: any) => {
+              if (!item?.id || !item?.timestamp) {
+                console.warn('[PlannerTab] Skipping invalid Instagram item:', item)
+                return false
+              }
+              return true
+            })
+            .map((item: any) => {
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlannerTab.tsx:194',message:'Transforming Instagram item',data:{itemId:item.id,timestamp:item.timestamp,mediaType:item.media_type,hasCaption:!!item.caption},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+              // #endregion
+              const eventDate = item.timestamp
+              
+              // Generate title from caption or media type
+              let title = item.caption?.substring(0, 50) || ''
+              if (!title) {
+                const mediaType = item.media_type || 'IMAGE'
+                if (mediaType === 'VIDEO') title = 'Video'
+                else if (mediaType === 'CAROUSEL_ALBUM') title = 'Carousel'
+                else if (mediaType === 'REELS') title = 'Reel'
+                else title = 'Photo'
+              }
+
+              return {
+                id: `ig_${item.id}`,
+                title,
+                start: eventDate,
+                end: eventDate,
+                extendedProps: {
+                  status: 'published',
+                  platforms: ['instagram'],
+                  platform: 'instagram',
+                  caption: item.caption || '',
+                  media: [{
+                    url: item.media_url || item.thumbnail_url || '',
+                    sourceUrl: item.media_url || item.thumbnail_url || '',
+                    type: item.media_type === 'VIDEO' || item.media_type === 'REELS' ? 'video' : 'image',
+                    thumbnail_url: item.thumbnail_url,
+                  }],
+                  mediaUrl: item.media_url || item.thumbnail_url || null,
+                  permalink: item.permalink || null,
+                  like_count: item.like_count || 0,
+                  comments_count: item.comments_count || 0,
+                  media_type: item.media_type || 'IMAGE',
+                  username: item.username || null,
+                  // Mark as live Instagram post (not from database)
+                  isLiveInstagram: true,
+                },
+                backgroundColor: 'transparent',
+                borderColor: 'transparent',
+                textColor: '#000000',
+                classNames: ['custom-calendar-event'],
+              }
+            })
+          
+          console.log(`[PlannerTab] Loaded ${igEvents.length} Instagram posts (filtered from ${igItems.length} items)`)
+        }
+      } else if (igPostsResponse.status === 'fulfilled' && !igPostsResponse.value.ok) {
+        // Instagram API returned an error - capture the error details
+        try {
+          const errorData = await igPostsResponse.value.json().catch(() => ({}))
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlannerTab.tsx:248',message:'Instagram API error response',data:{status:igPostsResponse.value.status,error:errorData.error,errorDetails:errorData.errorDetails,needsReauth:errorData.needs_reauth,retryable:errorData.retryable},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
+          
+          if (errorData.retryable && errorData.status === 500) {
+            instagramRetryCount.current++
+            
+            console.warn('[PlannerTab] Instagram API temporary error:', {
+              error: errorData,
+              retryCount: instagramRetryCount.current,
+              maxRetries: MAX_INSTAGRAM_RETRIES
+            })
+            
+            if (instagramRetryCount.current < MAX_INSTAGRAM_RETRIES) {
+              showToast(
+                `Instagram temporarily unavailable. Retry ${instagramRetryCount.current}/${MAX_INSTAGRAM_RETRIES}...`,
+                'warning'
+              )
+              
+              // Auto-retry with exponential backoff
+              const waitTime = Math.pow(2, instagramRetryCount.current - 1) * 3000 // 3s, 6s, 12s
+              setTimeout(() => {
+                console.log(`[PlannerTab] Auto-retrying Instagram fetch (attempt ${instagramRetryCount.current + 1})...`)
+                fetchPosts()
+              }, waitTime)
+            } else {
+              // Max retries exceeded
+              console.error('[PlannerTab] Instagram max retries exceeded')
+              showToast(
+                'Instagram is currently unavailable. Posts from other platforms are shown. Please try again later.',
+                'error'
+              )
+              instagramRetryCount.current = 0 // Reset for next manual refresh
+            }
+          } else if (errorData.needs_reauth || errorData.needsReauth) {
+            console.warn('[PlannerTab] Instagram needs reconnection:', errorData)
+            
+            // Show a more prominent error with instructions
+            showToast(
+              '⚠️ Instagram disconnected. Click "Connect" → "Instagram" to reconnect and restore your posts.',
+              'error'
+            )
+            
+            instagramRetryCount.current = 0
+          } else {
+            console.warn('[PlannerTab] Instagram posts fetch failed (non-critical):', errorData.error || 'Unknown error', errorData.errorDetails)
+            showToast('Failed to load Instagram posts. Please try refreshing.', 'error')
+            instagramRetryCount.current = 0
+          }
+        } catch (e) {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlannerTab.tsx:255',message:'Failed to parse Instagram error response',data:{status:igPostsResponse.value.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
+          console.error('[PlannerTab] Failed to parse Instagram error response:', e)
+          showToast('Failed to load Instagram posts. Please try refreshing.', 'error')
+        }
+      } else if (igPostsResponse.status === 'rejected') {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlannerTab.tsx:260',message:'Instagram API fetch rejected',data:{reason:igPostsResponse.reason?.toString()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+        console.error('[PlannerTab] Error fetching Instagram posts:', igPostsResponse.reason)
+        showToast('Unable to connect to Instagram. Please check your connection.', 'error')
+      }
+
+      // Merge all events
+      const allEvents = [...dbEvents, ...gbpEvents, ...igEvents]
+      console.log(`[PlannerTab] Total events: ${allEvents.length} (${dbEvents.length} from DB, ${gbpEvents.length} live GBP, ${igEvents.length} live Instagram)`)
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlannerTab.tsx:237',message:'Merging events',data:{dbCount:dbEvents.length,gbpCount:gbpEvents.length,igCount:igEvents.length,totalCount:allEvents.length,igEventIds:igEvents.slice(0,3).map((e:any)=>e.id)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
+      
+      setEvents(allEvents)
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlannerTab.tsx:240',message:'setEvents called',data:{eventCount:allEvents.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+      // #endregion
       lastFetchedDateRef.current = new Date().toISOString().split('T')[0]
+      console.log('[PlannerTab] fetchPosts completed successfully')
     } catch (error: any) {
       console.error('[PlannerTab] Error fetching posts:', error)
+      
+      // Retry once on transient errors
+      if (retryCount === 0 && (error.message?.includes('fetch') || error.message?.includes('network') || error.message?.includes('Failed to fetch'))) {
+        console.log('[PlannerTab] Retrying fetch after transient error...', error.message)
+        setTimeout(() => {
+          fetchPosts(1)
+        }, 2000)
+        return
+      }
+      
       // Only show error toast once, not on every failed request
       if (events.length === 0) {
-        showToast('Failed to load scheduled posts', 'error')
+        showToast('Failed to load scheduled posts. Please try again.', 'error')
       }
     } finally {
+      fetchPostsRef.current.fetching = false
+      if (fetchPostsRef.current.timeoutId) {
+        clearTimeout(fetchPostsRef.current.timeoutId)
+        fetchPostsRef.current.timeoutId = undefined
+      }
       setLoading(false)
-      fetchPostsRef.current = false
+      console.log('[PlannerTab] fetchPosts finally block - ref reset, loading set to false')
     }
   }
 
@@ -264,9 +519,26 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
           created_at: arg.event.start || new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }
+        // Add Instagram-specific fields from extendedProps
+        if (extendedProps.isLiveInstagram) {
+          (postFromEvent as any).isLiveInstagram = true
+          (postFromEvent as any).permalink = extendedProps.permalink
+          (postFromEvent as any).like_count = extendedProps.like_count
+          (postFromEvent as any).comments_count = extendedProps.comments_count
+          (postFromEvent as any).media_type = extendedProps.media_type
+        }
+        
         setSelectedPost(postFromEvent)
         setIsInspectorOpen(true)
         setIsEditing(false) // Reset edit mode when selecting a new post
+        
+        // Fetch Instagram insights if this is a live Instagram post
+        if (postFromEvent.platform === 'instagram' && postFromEvent.status === 'published' && extendedProps.isLiveInstagram) {
+          const mediaId = postId.startsWith('ig_') ? postId.replace('ig_', '') : postId
+          fetchInstagramInsights(mediaId, businessLocationId)
+        } else {
+          setInstagramInsights(null) // Clear insights for non-Instagram posts
+        }
         return
       }
 
@@ -279,6 +551,13 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
           setSelectedPost(post)
           setIsInspectorOpen(true)
           setIsEditing(false) // Reset edit mode when selecting a new post
+          
+          // Fetch Instagram insights if this is a live Instagram post
+          if (post.platform === 'instagram' && post.status === 'published' && (post as any).isLiveInstagram) {
+            fetchInstagramInsights(post.id.replace('ig_', ''), businessLocationId)
+          } else {
+            setInstagramInsights(null) // Clear insights for non-Instagram posts
+          }
         } else {
           showToast('Post not found', 'error')
         }
@@ -318,6 +597,12 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
 
   const handleEdit = () => {
     if (selectedPost) {
+      // For published Instagram posts, open the permalink instead of editing
+      if (selectedPost.platform === 'instagram' && selectedPost.status === 'published' && (selectedPost as any).permalink) {
+        window.open((selectedPost as any).permalink, '_blank', 'noopener,noreferrer')
+        return
+      }
+      
       setIsEditing(true)
       setEditCaption(selectedPost.caption || '')
       if (selectedPost.scheduled_at) {
@@ -747,42 +1032,6 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
             </div>
           </div>
 
-          {/* Middle: Sync Button */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={async () => {
-                try {
-                  showToast('Syncing GBP posts...', 'info')
-                  const response = await fetch('/api/social-studio/sync/gbp-posts', {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                      businessLocationId,
-                      lookbackDays: 365,
-                    }),
-                  })
-
-                  const data = await response.json()
-
-                  if (!response.ok || !data.success) {
-                    throw new Error(data.error || 'Failed to sync posts')
-                  }
-
-                  showToast(`Synced ${data.synced} GBP posts`, 'success')
-                  await fetchPosts() // Refresh calendar
-                } catch (error: any) {
-                  console.error('[PlannerTab] Error syncing GBP posts:', error)
-                  showToast(error.message || 'Failed to sync GBP posts', 'error')
-                }
-              }}
-              className="px-3 py-1.5 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50 transition-colors"
-            >
-              Sync GBP posts
-            </button>
-          </div>
-
           {/* Right: View Toggle */}
           <div className="flex items-center gap-2 bg-slate-100 rounded-lg p-1">
             <button
@@ -1038,22 +1287,83 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
                     return null
                   }
                   
-                  // Check if it's a video
+                  // Check if it's a video (Instagram or other)
                   const isVideo = imageUrl.match(/\.(mp4|webm|ogg|mov)(\?|$)/i) || 
                                  (selectedPost.media && Array.isArray(selectedPost.media) && 
                                   selectedPost.media[0] && typeof selectedPost.media[0] === 'object' &&
-                                  (selectedPost.media[0] as any).type === 'video')
+                                  ((selectedPost.media[0] as any).type === 'video' || (selectedPost.media[0] as any).media_type === 'VIDEO' || (selectedPost.media[0] as any).media_type === 'REELS')) ||
+                                 (selectedPost as any).media_type === 'VIDEO' || (selectedPost as any).media_type === 'REELS'
+                  
+                  // For Instagram videos, get media_url and thumbnail_url
+                  const videoUrl = isVideo && selectedPost.platform === 'instagram' 
+                    ? (imageUrl || (selectedPost.media && Array.isArray(selectedPost.media) && selectedPost.media[0] && typeof selectedPost.media[0] === 'object' 
+                        ? ((selectedPost.media[0] as any).sourceUrl || (selectedPost.media[0] as any).url) : null))
+                    : null
+                  const thumbnailUrl = selectedPost.platform === 'instagram' && selectedPost.media && Array.isArray(selectedPost.media) && selectedPost.media[0] && typeof selectedPost.media[0] === 'object'
+                    ? (selectedPost.media[0] as any).thumbnail_url : null
                   
                   return (
                     <div className="relative w-full h-48 rounded-lg overflow-hidden bg-slate-100">
                       {isVideo ? (
-                        <video
-                          src={imageUrl}
-                          className="w-full h-full object-cover"
-                          controls
-                          muted
-                          playsInline
-                        />
+                        videoUrl ? (
+                          <video
+                            src={videoUrl}
+                            className="w-full h-full object-cover"
+                            controls
+                            muted
+                            playsInline
+                            onError={(e) => {
+                              // If video fails to load, show thumbnail with play overlay
+                              const target = e.target as HTMLVideoElement
+                              if (target.parentElement && thumbnailUrl) {
+                                const permalink = (selectedPost as any).permalink || ''
+                                target.parentElement.innerHTML = `
+                                  <div class="relative w-full h-full">
+                                    <img src="${thumbnailUrl}" class="w-full h-full object-cover" />
+                                    <div class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-30">
+                                      <svg class="w-12 h-12 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                        <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+                                      </svg>
+                                    </div>
+                                    ${permalink ? `<a href="${permalink}" target="_blank" rel="noopener noreferrer" class="absolute bottom-2 right-2 px-2 py-1 bg-white bg-opacity-90 rounded text-xs text-slate-700 hover:bg-opacity-100">Open on Instagram</a>` : ''}
+                                  </div>
+                                `
+                              }
+                            }}
+                          />
+                        ) : thumbnailUrl ? (
+                          <div className="relative w-full h-full">
+                            <img
+                              src={thumbnailUrl}
+                              alt="Video thumbnail"
+                              className="w-full h-full object-cover"
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-30">
+                              <svg className="w-12 h-12 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+                              </svg>
+                            </div>
+                            {(selectedPost as any).permalink && (
+                              <a
+                                href={(selectedPost as any).permalink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="absolute bottom-2 right-2 px-2 py-1 bg-white bg-opacity-90 rounded text-xs text-slate-700 hover:bg-opacity-100"
+                              >
+                                Open on Instagram
+                              </a>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-slate-500">
+                            <div className="text-center">
+                              <svg className="w-8 h-8 mx-auto mb-2 text-slate-400" fill="currentColor" viewBox="0 0 20 20">
+                                <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+                              </svg>
+                              <p className="text-sm">Video unavailable</p>
+                            </div>
+                          </div>
+                        )
                       ) : (
                         // Use regular img tag for external URLs to avoid Next.js Image optimization issues
                         <img
@@ -1113,7 +1423,7 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
                     <div className="text-xs font-medium text-slate-600 mb-1">
                       {selectedPost.published_at ? 'Published' : 'Scheduled'}
                     </div>
-                    {isEditing && !selectedPost.published_at && selectedPost.platform !== 'google_business' ? (
+                    {isEditing && !selectedPost.published_at && selectedPost.platform !== 'google_business' && selectedPost.platform !== 'instagram' ? (
                       <div className="space-y-2">
                         <input
                           type="date"
@@ -1136,8 +1446,8 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
                   </div>
                 )}
                 
-                {/* Allow scheduling if not scheduled or published (and not GBP) */}
-                {isEditing && !selectedPost.scheduled_at && !selectedPost.published_at && selectedPost.platform !== 'google_business' && (
+                {/* Allow scheduling if not scheduled or published (and not GBP, not Instagram) */}
+                {isEditing && !selectedPost.scheduled_at && !selectedPost.published_at && selectedPost.platform !== 'google_business' && selectedPost.platform !== 'instagram' && (
                   <div>
                     <div className="text-xs font-medium text-slate-600 mb-1">Schedule</div>
                     <div className="space-y-2">
@@ -1175,8 +1485,90 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
                   )}
                 </div>
 
+                {/* Instagram Permalink */}
+                {selectedPost.platform === 'instagram' && (selectedPost as any).permalink && (
+                  <div>
+                    <div className="text-xs font-medium text-slate-600 mb-1">Instagram Post</div>
+                    <a
+                      href={(selectedPost as any).permalink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-[#1a73e8] hover:underline break-all"
+                    >
+                      Open on Instagram
+                    </a>
+                  </div>
+                )}
+
+                {/* Instagram Engagement Stats */}
+                {selectedPost.platform === 'instagram' && (
+                  <div>
+                    <div className="text-xs font-medium text-slate-600 mb-2">Engagement</div>
+                    <div className="flex items-center gap-4 text-sm">
+                      {(selectedPost as any).like_count !== undefined && (
+                        <div className="flex items-center gap-1">
+                          <svg className="w-4 h-4 text-slate-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" />
+                          </svg>
+                          <span className="text-slate-700">{(selectedPost as any).like_count || 0}</span>
+                        </div>
+                      )}
+                      {(selectedPost as any).comments_count !== undefined && (
+                        <div className="flex items-center gap-1">
+                          <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                          </svg>
+                          <span className="text-slate-700">{(selectedPost as any).comments_count || 0}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Instagram Insights (Performance Metrics) */}
+                {selectedPost.platform === 'instagram' && selectedPost.status === 'published' && (
+                  <div>
+                    <div className="text-xs font-medium text-slate-600 mb-2">Performance</div>
+                    {loadingInsights ? (
+                      <div className="flex items-center gap-2 text-sm text-slate-500">
+                        <div className="w-4 h-4 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin"></div>
+                        <span>Loading insights...</span>
+                      </div>
+                    ) : instagramInsights ? (
+                      <div className="space-y-2 text-sm">
+                        {instagramInsights.impressions !== undefined && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-600">Impressions</span>
+                            <span className="text-slate-900 font-medium">{instagramInsights.impressions.toLocaleString()}</span>
+                          </div>
+                        )}
+                        {instagramInsights.reach !== undefined && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-600">Reach</span>
+                            <span className="text-slate-900 font-medium">{instagramInsights.reach.toLocaleString()}</span>
+                          </div>
+                        )}
+                        {instagramInsights.engagement !== undefined && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-600">Engagement</span>
+                            <span className="text-slate-900 font-medium">{instagramInsights.engagement.toLocaleString()}</span>
+                          </div>
+                        )}
+                        {instagramInsights.saved !== undefined && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-600">Saved</span>
+                            <span className="text-slate-900 font-medium">{instagramInsights.saved.toLocaleString()}</span>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-slate-500 italic">Insights unavailable</div>
+                    )}
+                  </div>
+                )}
+
                 {/* GBP Search URL or Link */}
-                {(selectedPost.gbp_search_url || selectedPost.link_url) && (
+                {(selectedPost.gbp_search_url || (selectedPost.link_url && selectedPost.platform !== 'instagram')) && (
                   <div>
                     <div className="text-xs font-medium text-slate-600 mb-1">
                       {selectedPost.gbp_search_url ? 'View on Google' : 'Link'}
@@ -1253,7 +1645,28 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
                       </svg>
                       {selectedPost.platform === 'google_business' && selectedPost.status === 'published' && selectedPost.gbp_local_post_name
                         ? 'Edit on Google'
+                        : selectedPost.platform === 'instagram' && selectedPost.status === 'published'
+                        ? 'View on Instagram'
                         : 'Edit Post'}
+                    </button>
+                  )}
+                  {/* Copy link button for Instagram */}
+                  {selectedPost.platform === 'instagram' && (selectedPost as any).permalink && (
+                    <button
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText((selectedPost as any).permalink)
+                          showToast('Link copied to clipboard', 'success')
+                        } catch (error) {
+                          showToast('Failed to copy link', 'error')
+                        }
+                      }}
+                      className="w-full px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50 transition-colors flex items-center justify-center gap-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                      Copy link
                     </button>
                   )}
                   <button

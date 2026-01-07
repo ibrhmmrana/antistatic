@@ -217,14 +217,36 @@ export async function GET(request: NextRequest) {
 
     const tokenData = await tokenResponse.json()
 
-    console.log('[Instagram Callback] Token exchange result:', {
+    console.log('[Instagram Callback] Short-lived token received:', {
       hasAccessToken: !!tokenData.access_token,
       hasUserId: !!tokenData.user_id,
       expiresIn: tokenData.expires_in,
-      scope: tokenData.scope,
+      grantedScopes: tokenData.scope,
+      scopeType: typeof tokenData.scope,
       responseKeys: Object.keys(tokenData),
       // Do not log tokens/secrets
     })
+
+    // Parse the granted scopes
+    const grantedScopes = tokenData.scope && typeof tokenData.scope === 'string'
+      ? tokenData.scope.split(',').map((s: string) => s.trim())
+      : []
+
+    console.log('[Instagram Callback] Parsed granted scopes:', {
+      raw: tokenData.scope,
+      parsed: grantedScopes,
+      count: grantedScopes.length,
+    })
+
+    // Check for instagram_business_basic specifically
+    const hasBasicScope = grantedScopes.includes('instagram_business_basic')
+    console.log('[Instagram Callback] Has instagram_business_basic:', hasBasicScope)
+
+    if (!hasBasicScope) {
+      console.error('[Instagram Callback] WARNING: instagram_business_basic was not granted by Instagram!')
+      console.error('[Instagram Callback] This will cause media fetching to fail')
+      console.error('[Instagram Callback] Granted scopes:', grantedScopes)
+    }
 
     // Instagram API returns access_token and user_id in the response
     const accessToken = tokenData.access_token
@@ -295,7 +317,8 @@ export async function GET(request: NextRequest) {
       if (exchangeResponse.ok && exchangeData.access_token) {
         longLivedToken = exchangeData.access_token
         longLivedExpiresIn = exchangeData.expires_in || 5184000 // 60 days in seconds
-        console.log('[Instagram Callback] Successfully exchanged to long-lived token:', {
+        console.log('[Instagram Callback] Long-lived token received:', {
+          hasAccessToken: !!exchangeData.access_token,
           expiresIn: longLivedExpiresIn,
           expiresInDays: Math.floor(longLivedExpiresIn / 86400),
         })
@@ -315,28 +338,32 @@ export async function GET(request: NextRequest) {
       ? new Date(Date.now() + longLivedExpiresIn * 1000).toISOString()
       : null
 
-    // Extract scopes from token response if available
-    const scopes = tokenData.scope ? tokenData.scope.split(',') : null
+    // Use the parsed granted scopes (what Instagram actually granted)
+    const scopesToSave = grantedScopes.length > 0 ? grantedScopes : null
 
     // Upsert Instagram connection
-    console.log('[Instagram Callback] Upserting connection to database:', {
+    console.log('[Instagram Callback] Saving to database:', {
       businessLocationId,
-      instagramUserId,
-      hasUsername: !!instagramUsername,
-      hasScopes: !!scopes,
-      scopesCount: scopes?.length || 0,
+      instagramUserId: instagramUserId,
+      scopes: scopesToSave,
+      scopesType: typeof scopesToSave,
+      scopesIsArray: Array.isArray(scopesToSave),
+      scopesLength: scopesToSave?.length || 0,
+      tokenExpiresAt: tokenExpiresAt,
+      hasBasicScope: scopesToSave?.includes('instagram_business_basic') || false,
     })
 
     // Build upsert payload - try with connected_at first, fallback without it if column doesn't exist
     // IMPORTANT: Only include instagram_username if we successfully fetched it
     // If profile fetch failed, don't overwrite existing username with null
     // Use long-lived token instead of short-lived
+    // Ensure scopes are saved as an array
     const upsertPayload: any = {
       business_location_id: businessLocationId,
       instagram_user_id: instagramUserId,
       access_token: longLivedToken, // Store long-lived token
       token_expires_at: tokenExpiresAt,
-      scopes: scopes,
+      scopes: scopesToSave, // Must be array of strings
     }
     
     // Only set username if we successfully fetched it
@@ -364,6 +391,13 @@ export async function GET(request: NextRequest) {
       .select()
 
     if (upsertError) {
+      console.error('[Instagram Callback] Database save error:', {
+        error: upsertError,
+        message: upsertError.message,
+        code: upsertError.code,
+        hint: upsertError.hint,
+        scopesBeingSaved: scopesToSave,
+      })
       console.error('[Instagram Callback] Failed to store connection:', {
         error: upsertError,
         message: upsertError.message,
@@ -391,10 +425,13 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    console.log('[Instagram Callback] DB upsert result:', {
+    console.log('[Instagram Callback] Successfully saved connection with scopes:', {
       success: !upsertError,
       recordCount: upsertData?.length || 0,
       businessLocationId,
+      savedScopes: scopesToSave,
+      hasBasicScope: scopesToSave?.includes('instagram_business_basic') || false,
+      scopesCount: scopesToSave?.length || 0,
     })
 
     // Clean up used state
