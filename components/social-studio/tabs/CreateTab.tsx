@@ -370,13 +370,11 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
                     mediaArray.map(item => ({
                       sourceUrl: item.url,
                       type: item.type || (item.url.match(/\.(mp4|webm|ogg|mov|avi|mkv)(\?|$)/i) ? 'video' : 'image'),
-                      altText: item.altText, // Support alt text for images
                     }))
                   : // Single media post
                     {
                       sourceUrl: mediaArray[0].url,
                       type: mediaArray[0].type || (mediaArray[0].url.match(/\.(mp4|webm|ogg|mov|avi|mkv)(\?|$)/i) ? 'video' : 'image'),
-                      altText: mediaArray[0].altText, // Support alt text for images
                     },
               }
 
