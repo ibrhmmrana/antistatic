@@ -64,34 +64,80 @@ export async function POST(request: NextRequest) {
     const filePath = fileName
 
     // Convert file to buffer
-    const arrayBuffer = await file.arrayBuffer()
-    const buffer = Buffer.from(arrayBuffer)
+    let arrayBuffer: ArrayBuffer
+    let buffer: Buffer
+    
+    try {
+      arrayBuffer = await file.arrayBuffer()
+      buffer = Buffer.from(arrayBuffer)
+    } catch (error: any) {
+      console.error('[Social Studio Upload] Error converting file to buffer:', error)
+      return NextResponse.json({ 
+        error: 'Failed to process file'
+      }, { status: 500 })
+    }
 
     // Use storage client
-    const storageClient = createStorageClient()
+    let storageClient
+    try {
+      storageClient = createStorageClient()
+    } catch (error: any) {
+      console.error('[Social Studio Upload] Error creating storage client:', error)
+      return NextResponse.json({ 
+        error: 'Failed to initialize storage connection'
+      }, { status: 500 })
+    }
 
     // Upload to Supabase Storage
     const bucketName = 'Storage'
-    const { data: uploadData, error: uploadError } = await storageClient.storage
-      .from(bucketName)
-      .upload(filePath, buffer, {
-        contentType: file.type,
-        upsert: false,
-      })
+    let uploadData, uploadError
+    
+    try {
+      const uploadResult = await storageClient.storage
+        .from(bucketName)
+        .upload(filePath, buffer, {
+          contentType: file.type,
+          upsert: false,
+        })
+      uploadData = uploadResult.data
+      uploadError = uploadResult.error
+    } catch (error: any) {
+      console.error('[Social Studio Upload] Storage upload exception:', error)
+      return NextResponse.json({ 
+        error: error.message || 'Failed to upload to storage'
+      }, { status: 500 })
+    }
 
     if (uploadError) {
       console.error('[Social Studio Upload] Storage error:', uploadError)
+      // Provide more specific error messages
+      let errorMessage = uploadError.message || 'Failed to upload media'
+      if (uploadError.message?.includes('Bucket not found')) {
+        errorMessage = 'Storage bucket not found. Please check Supabase configuration.'
+      } else if (uploadError.message?.includes('new row violates row-level security')) {
+        errorMessage = 'Storage access denied. Please check storage policies.'
+      }
       return NextResponse.json({ 
-        error: uploadError.message || 'Failed to upload media'
+        error: errorMessage
       }, { status: 500 })
     }
 
     // Get public URL
-    const { data: urlData } = storageClient.storage
-      .from(bucketName)
-      .getPublicUrl(filePath)
+    let urlData
+    try {
+      const urlResult = storageClient.storage
+        .from(bucketName)
+        .getPublicUrl(filePath)
+      urlData = urlResult.data
+    } catch (error: any) {
+      console.error('[Social Studio Upload] Error getting public URL:', error)
+      return NextResponse.json({ 
+        error: 'Failed to generate public URL'
+      }, { status: 500 })
+    }
 
     if (!urlData?.publicUrl) {
+      console.error('[Social Studio Upload] No public URL returned:', urlData)
       return NextResponse.json({ error: 'Failed to generate public URL' }, { status: 500 })
     }
 

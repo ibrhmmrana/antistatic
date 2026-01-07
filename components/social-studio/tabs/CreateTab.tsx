@@ -1111,18 +1111,66 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
                       })
 
                       const uploadPromise = new Promise<{ publicUrl: string; filePath: string }>((resolve, reject) => {
-                        xhr.addEventListener('load', () => {
-                          if (xhr.status >= 200 && xhr.status < 300) {
-                            const data = JSON.parse(xhr.responseText)
-                            resolve({ publicUrl: data.publicUrl, filePath: data.filePath })
-                          } else {
-                            const error = JSON.parse(xhr.responseText)
-                            reject(new Error(error.error || 'Upload failed'))
+                        // Set timeout (5 minutes for large videos)
+                        const timeout = setTimeout(() => {
+                          xhr.abort()
+                          reject(new Error('Upload timeout: The file is too large or the connection is too slow'))
+                        }, 5 * 60 * 1000) // 5 minutes
+
+                        xhr.addEventListener('loadend', () => {
+                          clearTimeout(timeout)
+                          
+                          // Check readyState - should be 4 (DONE)
+                          if (xhr.readyState !== 4) {
+                            reject(new Error('Upload incomplete: connection interrupted'))
+                            return
+                          }
+                          
+                          // Check if response is empty
+                          if (!xhr.responseText || xhr.responseText.trim() === '') {
+                            console.error('[Upload] Empty response. Status:', xhr.status, 'StatusText:', xhr.statusText)
+                            reject(new Error('Empty response from server'))
+                            return
+                          }
+
+                          try {
+                            if (xhr.status >= 200 && xhr.status < 300) {
+                              const data = JSON.parse(xhr.responseText)
+                              
+                              // Validate response structure
+                              if (!data.publicUrl || !data.filePath) {
+                                console.error('[Upload] Invalid response structure:', data)
+                                reject(new Error('Invalid response from server: missing publicUrl or filePath'))
+                                return
+                              }
+                              
+                              resolve({ publicUrl: data.publicUrl, filePath: data.filePath })
+                            } else {
+                              // Try to parse error response
+                              let errorMessage = 'Upload failed'
+                              try {
+                                const error = JSON.parse(xhr.responseText)
+                                errorMessage = error.error || error.message || `Server error: ${xhr.status}`
+                              } catch {
+                                // If JSON parsing fails, use status text
+                                errorMessage = `Server error: ${xhr.status} ${xhr.statusText || 'Unknown error'}`
+                              }
+                              reject(new Error(errorMessage))
+                            }
+                          } catch (parseError: any) {
+                            console.error('[Upload] JSON parse error:', parseError, 'Response:', xhr.responseText?.substring(0, 200))
+                            reject(new Error(`Failed to parse server response: ${parseError.message}`))
                           }
                         })
 
                         xhr.addEventListener('error', () => {
-                          reject(new Error('Upload failed'))
+                          clearTimeout(timeout)
+                          reject(new Error('Network error: Failed to upload file'))
+                        })
+
+                        xhr.addEventListener('abort', () => {
+                          clearTimeout(timeout)
+                          reject(new Error('Upload was cancelled'))
                         })
 
                         xhr.open('POST', '/api/social-studio/upload-media')
