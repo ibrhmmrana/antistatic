@@ -363,8 +363,8 @@ export async function GET(request: NextRequest) {
       igAccountId = tokenData.ig_account_id
       
       // Fetch scopes from database
-      const { data: connection } = await supabase
-        .from('instagram_connections')
+      const { data: connection } = await (supabase
+        .from('instagram_connections') as any)
         .select('scopes, token_expires_at')
         .eq('business_location_id', businessLocationId)
         .maybeSingle()

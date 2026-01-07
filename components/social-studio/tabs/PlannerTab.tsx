@@ -368,7 +368,7 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
             if (instagramRetryCount.current < MAX_INSTAGRAM_RETRIES) {
               showToast(
                 `Instagram temporarily unavailable. Retry ${instagramRetryCount.current}/${MAX_INSTAGRAM_RETRIES}...`,
-                'warning'
+                'info'
               )
               
               // Auto-retry with exponential backoff
@@ -520,12 +520,13 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
           updated_at: new Date().toISOString(),
         }
         // Add Instagram-specific fields from extendedProps
-        if (extendedProps.isLiveInstagram) {
-          (postFromEvent as any).isLiveInstagram = true
-          (postFromEvent as any).permalink = extendedProps.permalink
-          (postFromEvent as any).like_count = extendedProps.like_count
-          (postFromEvent as any).comments_count = extendedProps.comments_count
-          (postFromEvent as any).media_type = extendedProps.media_type
+        if ((extendedProps as any).isLiveInstagram) {
+          const postAny = postFromEvent as any
+          postAny.isLiveInstagram = true
+          postAny.permalink = (extendedProps as any).permalink
+          postAny.like_count = (extendedProps as any).like_count
+          postAny.comments_count = (extendedProps as any).comments_count
+          postAny.media_type = (extendedProps as any).media_type
         }
         
         setSelectedPost(postFromEvent)
