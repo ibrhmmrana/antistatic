@@ -365,22 +365,19 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
               } = {
                 businessLocationId,
                 caption: content || undefined,
-              }
-
-              if (isCarousel) {
-                // Carousel post: send array of media items
-                instagramPayload.media = mediaArray.map(item => ({
-                  sourceUrl: item.url,
-                  type: item.type || (item.url.match(/\.(mp4|webm|ogg|mov|avi|mkv)(\?|$)/i) ? 'video' : 'image'),
-                  altText: item.altText, // Support alt text for images
-                }))
-              } else {
-                // Single media post
-                instagramPayload.media = {
-                  sourceUrl: mediaArray[0].url,
-                  type: mediaArray[0].type || (mediaArray[0].url.match(/\.(mp4|webm|ogg|mov|avi|mkv)(\?|$)/i) ? 'video' : 'image'),
-                  altText: mediaArray[0].altText, // Support alt text for images
-                }
+                media: isCarousel
+                  ? // Carousel post: send array of media items
+                    mediaArray.map(item => ({
+                      sourceUrl: item.url,
+                      type: item.type || (item.url.match(/\.(mp4|webm|ogg|mov|avi|mkv)(\?|$)/i) ? 'video' : 'image'),
+                      altText: item.altText, // Support alt text for images
+                    }))
+                  : // Single media post
+                    {
+                      sourceUrl: mediaArray[0].url,
+                      type: mediaArray[0].type || (mediaArray[0].url.match(/\.(mp4|webm|ogg|mov|avi|mkv)(\?|$)/i) ? 'video' : 'image'),
+                      altText: mediaArray[0].altText, // Support alt text for images
+                    },
               }
 
               const instagramResponse = await fetch('/api/social-studio/publish/instagram', {
