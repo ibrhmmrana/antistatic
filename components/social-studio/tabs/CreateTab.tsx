@@ -354,17 +354,33 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
                 throw new Error('Instagram posts require media (image or video)')
               }
 
+              // Support carousel posts (multiple media items) or single media
+              const isCarousel = mediaArray.length > 1
+              
               const instagramPayload: {
                 businessLocationId: string
                 caption?: string
-                media: { sourceUrl: string; type?: string }
+                media: { sourceUrl: string; type?: string } | Array<{ sourceUrl: string; type?: string }>
+                mediaType?: string
               } = {
                 businessLocationId,
                 caption: content || undefined,
-                media: {
+              }
+
+              if (isCarousel) {
+                // Carousel post: send array of media items
+                instagramPayload.media = mediaArray.map(item => ({
+                  sourceUrl: item.url,
+                  type: item.type || (item.url.match(/\.(mp4|webm|ogg|mov|avi|mkv)(\?|$)/i) ? 'video' : 'image'),
+                  altText: item.altText, // Support alt text for images
+                }))
+              } else {
+                // Single media post
+                instagramPayload.media = {
                   sourceUrl: mediaArray[0].url,
                   type: mediaArray[0].type || (mediaArray[0].url.match(/\.(mp4|webm|ogg|mov|avi|mkv)(\?|$)/i) ? 'video' : 'image'),
-                },
+                  altText: mediaArray[0].altText, // Support alt text for images
+                }
               }
 
               const instagramResponse = await fetch('/api/social-studio/publish/instagram', {
@@ -382,6 +398,35 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
                 if (instagramData.needs_reauth) {
                   throw new Error('Instagram connection expired. Please reconnect your account.')
                 }
+
+                // Handle structured errors from the server
+                if (instagramData.step) {
+                  let errorMessage = instagramData.message || instagramData.error || 'Failed to publish to Instagram'
+                  
+                  // Add fbtrace_id if available
+                  if (instagramData.meta?.fbtrace_id) {
+                    errorMessage += ` (Trace ID: ${instagramData.meta.fbtrace_id})`
+                  }
+
+                  // Special handling for capability check errors
+                  if (instagramData.step === 'capability_check') {
+                    if (instagramResponse.status === 401) {
+                      errorMessage = 'Instagram connection expired. Please reconnect your account.'
+                    } else if (instagramResponse.status === 403) {
+                      errorMessage = 'Missing Instagram publishing permission. Please reconnect and approve publish access (Advanced Access may be required in Meta App Review).'
+                    } else if (errorMessage.includes('Professional')) {
+                      errorMessage = 'Instagram account must be Professional (Business/Creator) to publish. Switch account type in Instagram settings.'
+                    }
+                  }
+
+                  // Special handling for content type errors
+                  if (instagramData.step === 'preflight' && errorMessage.includes('JPEG')) {
+                    errorMessage = 'Instagram requires JPEG for image publishing. We\'ll auto-convert — retry.'
+                  }
+
+                  throw new Error(errorMessage)
+                }
+
                 throw new Error(instagramData.error || 'Failed to publish to Instagram')
               }
 

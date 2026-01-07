@@ -222,6 +222,7 @@ export async function GET(request: NextRequest) {
       hasUserId: !!tokenData.user_id,
       expiresIn: tokenData.expires_in,
       scope: tokenData.scope,
+      responseKeys: Object.keys(tokenData),
       // Do not log tokens/secrets
     })
 
@@ -270,10 +271,48 @@ export async function GET(request: NextRequest) {
       console.warn('[Instagram Callback] Failed to fetch username from profile API, continuing without it')
     }
 
-    // Calculate token expiry (Instagram tokens typically expire in 60 days, but check response)
-    const expiresIn = tokenData.expires_in || 5184000 // Default to 60 days in seconds
-    const tokenExpiresAt = expiresIn
-      ? new Date(Date.now() + expiresIn * 1000).toISOString()
+    // IMPORTANT: Exchange short-lived token for long-lived token
+    // Short-lived tokens from api.instagram.com/oauth/access_token expire in ~1 hour
+    // Long-lived tokens from graph.instagram.com/access_token expire in 60 days
+    let longLivedToken = accessToken
+    let longLivedExpiresIn = tokenData.expires_in || 3600 // Default to 1 hour for short-lived
+    
+    try {
+      const exchangeUrl = new URL('https://graph.instagram.com/access_token')
+      exchangeUrl.searchParams.set('grant_type', 'ig_exchange_token')
+      exchangeUrl.searchParams.set('client_secret', config.appSecret)
+      exchangeUrl.searchParams.set('access_token', accessToken)
+      
+      const exchangeResponse = await fetch(exchangeUrl.toString(), {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+      })
+      
+      const exchangeData = await exchangeResponse.json()
+      
+      if (exchangeResponse.ok && exchangeData.access_token) {
+        longLivedToken = exchangeData.access_token
+        longLivedExpiresIn = exchangeData.expires_in || 5184000 // 60 days in seconds
+        console.log('[Instagram Callback] Successfully exchanged to long-lived token:', {
+          expiresIn: longLivedExpiresIn,
+          expiresInDays: Math.floor(longLivedExpiresIn / 86400),
+        })
+      } else {
+        console.warn('[Instagram Callback] Failed to exchange to long-lived token, using short-lived:', {
+          status: exchangeResponse.status,
+          error: exchangeData.error,
+        })
+      }
+    } catch (exchangeError: any) {
+      console.error('[Instagram Callback] Error exchanging to long-lived token:', exchangeError)
+      // Continue with short-lived token
+    }
+
+    // Calculate token expiry using long-lived token expiry
+    const tokenExpiresAt = longLivedExpiresIn
+      ? new Date(Date.now() + longLivedExpiresIn * 1000).toISOString()
       : null
 
     // Extract scopes from token response if available
@@ -291,10 +330,11 @@ export async function GET(request: NextRequest) {
     // Build upsert payload - try with connected_at first, fallback without it if column doesn't exist
     // IMPORTANT: Only include instagram_username if we successfully fetched it
     // If profile fetch failed, don't overwrite existing username with null
+    // Use long-lived token instead of short-lived
     const upsertPayload: any = {
       business_location_id: businessLocationId,
       instagram_user_id: instagramUserId,
-      access_token: accessToken,
+      access_token: longLivedToken, // Store long-lived token
       token_expires_at: tokenExpiresAt,
       scopes: scopes,
     }

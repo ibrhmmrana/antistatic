@@ -7,7 +7,7 @@
 
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { Database } from '@/lib/supabase/database.types'
-import { getInstagramAccessTokenForAccount, InstagramAuthError, isTokenExpiredError } from './tokens'
+import { getInstagramAccessTokenForAccount, getInstagramAccessTokenForLocation, InstagramAuthError, isTokenExpiredError } from './tokens'
 import { normalizeProfilePicUrl } from './normalize-profile-pic'
 
 const CACHE_TTL_DAYS = 7
@@ -82,8 +82,10 @@ export async function fetchIgMessagingUserProfile({
     const baseUrl = 'https://graph.facebook.com'
     const apiVersion = 'v24.0' // Use v24.0 to match inbox sync API version
     
-    // Request profile_pic field (not profile_pic_url) from User Profile endpoint
-    let url = `${baseUrl}/${apiVersion}/${messagingUserId}?fields=name,username,profile_pic&access_token=${accessToken}`
+    // Request correct fields for Instagram Messaging User Profile
+    // DO NOT request profile_pic_url - that field doesn't exist on User node
+    // The correct field is profile_pic
+    let url = `${baseUrl}/${apiVersion}/${messagingUserId}?fields=id,username,name,profile_pic&access_token=${accessToken}`
     
     // Debug log: request URL (without token)
     console.log('[Instagram Messaging Profile] Fetching user profile:', {
@@ -358,7 +360,8 @@ export async function resolveMessagingUserProfile(
       
       // If cache is fresh and has profile pic, return it
       if (!forceRefetch && daysSinceFetch < CACHE_TTL_DAYS && (cached.username || cached.name) && hasProfilePic) {
-        console.log('[Instagram Messaging Profile] Using cached data:', {
+        console.log('[Instagram Messaging Profile] returned_cached_ok:', {
+          traceId,
           messagingUserId,
           username: cached.username,
           name: cached.name,
@@ -366,7 +369,7 @@ export async function resolveMessagingUserProfile(
           daysSinceFetch: daysSinceFetch.toFixed(1),
         })
         // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messaging-user-profile.ts:330',message:'returning_cached_data',data:{traceId,messagingUserId,hasProfilePic,daysSinceFetch},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messaging-user-profile.ts:330',message:'returned_cached_ok',data:{traceId,messagingUserId,hasProfilePic,daysSinceFetch},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
         // #endregion
         return {
           username: cached.username,
@@ -391,10 +394,11 @@ export async function resolveMessagingUserProfile(
     fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messaging-user-profile.ts:355',message:'fail_count_check',data:{traceId,hasCached:!!cached,fail_count:cached?.fail_count||0,MAX_FAIL_COUNT,forceRefetch,last_failed_at:cached?.last_failed_at,hasProfilePic:!!(cached?.profile_pic||cached?.profile_pic_url),hasUsername:!!cached?.username},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
     // #endregion
     
-    // Step 4: If cache has username but missing profile pic, treat as stale and allow fetch
-    // This prevents caching "no pic" forever
+    // Step 4: If forceRefetch is true, bypass ALL cooldown/fail_count checks
+    // Also bypass if cache has username but missing profile pic (treat as stale)
     const shouldBypassCooldown = forceRefetch || (cached && cached.username && !(cached.profile_pic || cached.profile_pic_url))
     
+    // B) Make forceRefetch actually force - skip fail_count cooldown if forceRefetch is true
     if (cached && cached.fail_count >= MAX_FAIL_COUNT && !shouldBypassCooldown) {
       if (cached.last_failed_at) {
         const lastFailed = new Date(cached.last_failed_at)
@@ -403,14 +407,16 @@ export async function resolveMessagingUserProfile(
         const cooldownMinutes = FAIL_COOLDOWN_MS / (1000 * 60)
         
         if (minutesSinceFailure < cooldownMinutes) {
-          console.log('[Instagram Messaging Profile] Skipping fetch (cooldown):', {
+          console.log('[Instagram Messaging Profile] returned_cached_failcount_block:', {
+            traceId,
             messagingUserId,
             fail_count: cached.fail_count,
             minutesSinceFailure: minutesSinceFailure.toFixed(1),
             cooldownMinutes,
+            reason: 'cooldown_active',
           })
           // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messaging-user-profile.ts:365',message:'returning_due_to_fail_count_cooldown',data:{traceId,messagingUserId,fail_count:cached.fail_count,minutesSinceFailure,cooldownMinutes},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messaging-user-profile.ts:365',message:'returned_cached_failcount_block',data:{traceId,messagingUserId,fail_count:cached.fail_count,minutesSinceFailure,cooldownMinutes,reason:'cooldown_active'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
           // #endregion
           return {
             username: cached.username,
@@ -424,12 +430,14 @@ export async function resolveMessagingUserProfile(
         }
       } else {
         // No last_failed_at, but fail_count is high - still skip (unless forceRefetch)
-        console.log('[Instagram Messaging Profile] Skipping fetch (max fails reached):', {
+        console.log('[Instagram Messaging Profile] returned_cached_failcount_block:', {
+          traceId,
           messagingUserId,
           fail_count: cached.fail_count,
+          reason: 'max_fails_reached_no_cooldown',
         })
         // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messaging-user-profile.ts:380',message:'returning_due_to_max_fails',data:{traceId,messagingUserId,fail_count:cached.fail_count},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messaging-user-profile.ts:380',message:'returned_cached_failcount_block',data:{traceId,messagingUserId,fail_count:cached.fail_count,reason:'max_fails_reached_no_cooldown'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
         // #endregion
         return {
           username: cached.username,
@@ -455,29 +463,44 @@ export async function resolveMessagingUserProfile(
       })
     }
     
-    // A) Load access token
+    // C) Load access token - use the same token retrieval as inbox/messaging endpoints
+    console.log('[Instagram Messaging Profile] loading_access_token_start:', { traceId, recipientIgAccountId, businessLocationId })
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messaging-user-profile.ts:400',message:'loading_access_token',data:{traceId,recipientIgAccountId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messaging-user-profile.ts:400',message:'loading_access_token_start',data:{traceId,recipientIgAccountId,businessLocationId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
     // #endregion
     
     let accessToken: string
     try {
-      accessToken = await getInstagramAccessTokenForAccount(recipientIgAccountId)
-      // A) Log access token loaded
+      // Use the same token retrieval as inbox sync (getInstagramAccessTokenForLocation)
+      // This ensures we use the correct token type for messaging/profile calls
+      if (businessLocationId) {
+        const tokenData = await getInstagramAccessTokenForLocation(businessLocationId)
+        accessToken = tokenData.access_token
+      } else {
+        // Fallback to account-based token if no location ID
+        accessToken = await getInstagramAccessTokenForAccount(recipientIgAccountId)
+      }
+      
+      console.log('[Instagram Messaging Profile] loading_access_token_ok:', { traceId, tokenLength: accessToken?.length, hasToken: !!accessToken })
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messaging-user-profile.ts:405',message:'access_token_loaded',data:{traceId,tokenLength:accessToken?.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messaging-user-profile.ts:405',message:'loading_access_token_ok',data:{traceId,tokenLength:accessToken?.length,hasToken:!!accessToken},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
       // #endregion
     } catch (error: any) {
-      // Step 4: Log error in catch block with full details
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messaging-user-profile.ts:408',message:'access_token_error',data:{traceId,error_name:error?.name,error_message:error?.message,error_stack:error?.stack?.substring(0,300),isInstagramAuthError:error instanceof InstagramAuthError},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
-      console.error('[Instagram Messaging Profile] Access token error:', {
+      console.error('[Instagram Messaging Profile] loading_access_token_failed:', {
+        traceId,
         errorName: error?.name,
         errorMessage: error?.message,
-        errorStack: error?.stack?.substring(0, 200),
-        traceId,
+        errorStack: error?.stack?.substring(0, 300),
+        isInstagramAuthError: error instanceof InstagramAuthError,
       })
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messaging-user-profile.ts:408',message:'loading_access_token_failed',data:{traceId,error_name:error?.name,error_message:error?.message,error_stack:error?.stack?.substring(0,300),isInstagramAuthError:error instanceof InstagramAuthError},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
+      
+      console.log('[Instagram Messaging Profile] returned_null_no_token:', { traceId, messagingUserId })
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messaging-user-profile.ts:408',message:'returned_null_no_token',data:{traceId,messagingUserId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
       
       if (error instanceof InstagramAuthError) {
         console.log('[Instagram Messaging Profile] Auth error:', {
@@ -673,7 +696,8 @@ export async function resolveMessagingUserProfile(
           onConflict: 'ig_account_id,ig_user_id',
         })
       
-      console.log('[Instagram Messaging Profile] Fetch failed:', {
+      console.log('[Instagram Messaging Profile] returned_null_fetch_error:', {
+        traceId,
         messagingUserId,
         fail_count: newFailCount,
         errorStatus: result?.error?.status,
@@ -681,13 +705,14 @@ export async function resolveMessagingUserProfile(
       })
       
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messaging-user-profile.ts:540',message:'fetch_failed',data:{traceId,messagingUserId,fail_count:newFailCount,errorStatus:result?.error?.status,hasCached:!!cached},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messaging-user-profile.ts:540',message:'returned_null_fetch_error',data:{traceId,messagingUserId,fail_count:newFailCount,errorStatus:result?.error?.status,hasCached:!!cached},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
       // #endregion
       
       // C) Return cached data if available (even if stale)
       if (cached) {
+        console.log('[Instagram Messaging Profile] returned_cached_on_fetch_failure:', { traceId, hasCached: true })
         // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messaging-user-profile.ts:545',message:'returning_cached_on_fetch_failure',data:{traceId,hasCached:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messaging-user-profile.ts:545',message:'returned_cached_on_fetch_failure',data:{traceId,hasCached:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
         // #endregion
         return {
           username: cached.username,
