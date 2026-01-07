@@ -217,25 +217,48 @@ export async function GET(request: NextRequest) {
 
     const tokenData = await tokenResponse.json()
 
-    console.log('[Instagram Callback] Short-lived token received:', {
+    console.log('[Instagram Callback] Short-lived token response:', {
       hasAccessToken: !!tokenData.access_token,
       hasUserId: !!tokenData.user_id,
-      expiresIn: tokenData.expires_in,
-      grantedScopes: tokenData.scope,
-      scopeType: typeof tokenData.scope,
+      tokenLength: tokenData.access_token?.length,
+      userId: tokenData.user_id,
+      
+      // CRITICAL: Instagram returns 'permissions' not 'scope'
+      grantedPermissions: tokenData.permissions,  // ← Instagram uses this
+      grantedScope: tokenData.scope,              // ← Not used by Instagram
+      permissionsType: typeof tokenData.permissions,
+      permissionsValue: tokenData.permissions,
       responseKeys: Object.keys(tokenData),
       // Do not log tokens/secrets
     })
 
-    // Parse the granted scopes
-    const grantedScopes = tokenData.scope && typeof tokenData.scope === 'string'
-      ? tokenData.scope.split(',').map((s: string) => s.trim())
-      : []
+    // Instagram returns 'permissions' not 'scope'
+    const scopeField = tokenData.permissions || tokenData.scope
 
-    console.log('[Instagram Callback] Parsed granted scopes:', {
-      raw: tokenData.scope,
-      parsed: grantedScopes,
+    console.log('[Instagram Callback] Scope field check:', {
+      hasPermissions: !!tokenData.permissions,
+      hasScope: !!tokenData.scope,
+      permissionsType: typeof tokenData.permissions,
+      permissionsValue: tokenData.permissions,
+      usingField: tokenData.permissions ? 'permissions' : 'scope',
+    })
+
+    // Parse the granted scopes from the correct field
+    let grantedScopes: string[] = []
+    if (typeof scopeField === 'string') {
+      grantedScopes = scopeField.split(',').map((s: string) => s.trim())
+    } else if (Array.isArray(scopeField)) {
+      grantedScopes = scopeField
+    }
+
+    console.log('[Instagram Callback] Parsed scopes from permissions field:', {
+      scopesArray: grantedScopes,
       count: grantedScopes.length,
+      includesBasic: grantedScopes.includes('instagram_business_basic'),
+      includesPublish: grantedScopes.includes('instagram_business_content_publish'),
+      includesInsights: grantedScopes.includes('instagram_business_manage_insights'),
+      includesMessages: grantedScopes.includes('instagram_business_manage_messages'),
+      includesComments: grantedScopes.includes('instagram_business_manage_comments'),
     })
 
     // Check for instagram_business_basic specifically
@@ -243,8 +266,8 @@ export async function GET(request: NextRequest) {
     console.log('[Instagram Callback] Has instagram_business_basic:', hasBasicScope)
 
     if (!hasBasicScope) {
-      console.error('[Instagram Callback] WARNING: instagram_business_basic was not granted by Instagram!')
-      console.error('[Instagram Callback] This will cause media fetching to fail')
+      console.error('❌ [Instagram Callback] CRITICAL: instagram_business_basic NOT in granted scopes!')
+      console.error('[Instagram Callback] This means Instagram did not grant this permission')
       console.error('[Instagram Callback] Granted scopes:', grantedScopes)
     }
 
@@ -317,8 +340,9 @@ export async function GET(request: NextRequest) {
       if (exchangeResponse.ok && exchangeData.access_token) {
         longLivedToken = exchangeData.access_token
         longLivedExpiresIn = exchangeData.expires_in || 5184000 // 60 days in seconds
-        console.log('[Instagram Callback] Long-lived token received:', {
+        console.log('[Instagram Callback] Long-lived token response:', {
           hasAccessToken: !!exchangeData.access_token,
+          tokenLength: exchangeData.access_token?.length,
           expiresIn: longLivedExpiresIn,
           expiresInDays: Math.floor(longLivedExpiresIn / 86400),
         })
@@ -342,14 +366,14 @@ export async function GET(request: NextRequest) {
     const scopesToSave = grantedScopes.length > 0 ? grantedScopes : null
 
     // Upsert Instagram connection
-    console.log('[Instagram Callback] Saving to database:', {
+    console.log('[Instagram Callback] About to save to database:', {
       businessLocationId,
       instagramUserId: instagramUserId,
-      scopes: scopesToSave,
+      scopesToSave: scopesToSave,
       scopesType: typeof scopesToSave,
-      scopesIsArray: Array.isArray(scopesToSave),
+      isArray: Array.isArray(scopesToSave),
       scopesLength: scopesToSave?.length || 0,
-      tokenExpiresAt: tokenExpiresAt,
+      tokenExpiryDate: tokenExpiresAt,
       hasBasicScope: scopesToSave?.includes('instagram_business_basic') || false,
     })
 
@@ -391,7 +415,7 @@ export async function GET(request: NextRequest) {
       .select()
 
     if (upsertError) {
-      console.error('[Instagram Callback] Database save error:', {
+      console.error('[Instagram Callback] ❌ Database save FAILED:', {
         error: upsertError,
         message: upsertError.message,
         code: upsertError.code,
@@ -425,14 +449,20 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    console.log('[Instagram Callback] Successfully saved connection with scopes:', {
-      success: !upsertError,
-      recordCount: upsertData?.length || 0,
-      businessLocationId,
-      savedScopes: scopesToSave,
-      hasBasicScope: scopesToSave?.includes('instagram_business_basic') || false,
-      scopesCount: scopesToSave?.length || 0,
-    })
+    if (!upsertError) {
+      console.log('[Instagram Callback] ✅ Database save successful')
+      console.log('[Instagram Callback] Saved data:', {
+        recordCount: upsertData?.length || 0,
+        businessLocationId,
+        savedScopes: scopesToSave,
+        hasBasicScope: scopesToSave?.includes('instagram_business_basic') || false,
+        scopesCount: scopesToSave?.length || 0,
+      })
+    }
+    
+    console.log('========================================')
+    console.log('[Instagram Callback] OAuth flow completed')
+    console.log('========================================')
 
     // Clean up used state
     await supabase

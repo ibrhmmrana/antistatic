@@ -13,6 +13,17 @@ import { randomBytes } from 'crypto'
  * ${NEXT_PUBLIC_APP_URL}/api/integrations/instagram/callback
  */
 export async function GET(request: NextRequest) {
+  console.log('========================================')
+  console.log('[Instagram Connect] OAuth flow initiated')
+  console.log('========================================')
+  
+  // Environment check
+  console.log('[Instagram Connect] Environment check:', {
+    hasAppId: !!process.env.INSTAGRAM_APP_ID,
+    hasAppSecret: !!process.env.INSTAGRAM_APP_SECRET,
+    appIdLength: process.env.INSTAGRAM_APP_ID?.length,
+  })
+  
   try {
     const requestUrl = new URL(request.url)
     const supabase = await createClient()
@@ -192,6 +203,12 @@ export async function GET(request: NextRequest) {
     const authUrl = `https://www.instagram.com/oauth/authorize?${params.toString()}`
 
     // Log the full auth URL (no secrets, just the URL - safe to log)
+    const scopeParam = authUrl.match(/scope=([^&]+)/)?.[1]
+    console.log('[Instagram Connect] Redirecting to Instagram with URL:', {
+      url: authUrl.replace(/client_id=[^&]+/, 'client_id=***'),
+      scopeParam: scopeParam ? decodeURIComponent(scopeParam) : null,
+      scopeIncludesBasic: scopes.includes('instagram_business_basic'),
+    })
     console.log('[Instagram Connect] Generated OAuth URL:', authUrl.replace(/client_id=[^&]+/, 'client_id=***'))
     console.log('[Instagram Connect] OAuth URL details:', {
       baseUrl: 'https://www.instagram.com/oauth/authorize',
