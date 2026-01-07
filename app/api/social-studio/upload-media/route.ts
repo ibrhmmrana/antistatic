@@ -7,7 +7,15 @@ import { randomUUID } from 'crypto'
  * POST /api/social-studio/upload-media
  * 
  * Upload image/video to Supabase Storage for Social Studio posts
+ * 
+ * Note: For large file uploads (100MB), ensure your hosting platform
+ * (Vercel, etc.) allows large request bodies. Vercel Pro allows up to 4.5MB
+ * by default. For larger files, consider using direct Supabase Storage uploads
+ * from the client or a resumable upload approach.
  */
+export const maxDuration = 300 // 5 minutes timeout
+export const dynamic = 'force-dynamic'
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()

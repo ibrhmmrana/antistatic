@@ -8,6 +8,7 @@ import type { Platform } from '@/lib/social-studio/mock'
 import { EmojiPicker } from '@/components/social-studio/EmojiPicker'
 import { MediaViewer } from '@/components/social-studio/MediaViewer'
 import { AiPostIdeasDrawer } from '@/components/social-studio/ai/AiPostIdeasDrawer'
+import { createClient } from '@/lib/supabase/client'
 
 interface CreateTabProps {
   businessLocationId: string
@@ -1091,75 +1092,71 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
                     ])
 
                     try {
-                      // Create form data
-                      const formData = new FormData()
-                      formData.append('file', file)
-                      formData.append('businessLocationId', businessLocationId)
-
-                      // Upload to Supabase with progress tracking
-                      const xhr = new XMLHttpRequest()
+                      // Upload directly to Supabase Storage (bypasses Next.js body size limit)
+                      const supabase = createClient()
                       
-                      xhr.upload.addEventListener('progress', (event) => {
-                        if (event.lengthComputable) {
-                          const progress = Math.round((event.loaded / event.total) * 100)
-                          setUploadedMedia((prev) =>
-                            prev.map((m) =>
-                              m.id === mediaId ? { ...m, uploadProgress: progress } : m
-                            )
-                          )
-                        }
-                      })
+                      // Generate unique filename
+                      const timestamp = Date.now()
+                      const fileExtension = file.name.split('.').pop() || (isVideo ? 'mp4' : 'jpg')
+                      const randomId = Math.random().toString(36).substring(2, 15)
+                      const fileName = `social-studio/${businessLocationId}/${timestamp}-${randomId}.${fileExtension}`
+                      
+                      // Get session for auth token
+                      const { data: { session } } = await supabase.auth.getSession()
+                      if (!session) {
+                        throw new Error('Not authenticated')
+                      }
 
+                      // Upload using XMLHttpRequest for progress tracking and to bypass Next.js limits
                       const uploadPromise = new Promise<{ publicUrl: string; filePath: string }>((resolve, reject) => {
+                        const xhr = new XMLHttpRequest()
+                        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+                        const uploadUrl = `${supabaseUrl}/storage/v1/object/Storage/${encodeURIComponent(fileName)}`
+                        
                         // Set timeout (5 minutes for large videos)
                         const timeout = setTimeout(() => {
                           xhr.abort()
                           reject(new Error('Upload timeout: The file is too large or the connection is too slow'))
                         }, 5 * 60 * 1000) // 5 minutes
 
+                        xhr.upload.addEventListener('progress', (event) => {
+                          if (event.lengthComputable) {
+                            const progress = Math.round((event.loaded / event.total) * 100)
+                            setUploadedMedia((prev) =>
+                              prev.map((m) =>
+                                m.id === mediaId ? { ...m, uploadProgress: progress } : m
+                              )
+                            )
+                          }
+                        })
+
                         xhr.addEventListener('loadend', () => {
                           clearTimeout(timeout)
                           
-                          // Check readyState - should be 4 (DONE)
-                          if (xhr.readyState !== 4) {
-                            reject(new Error('Upload incomplete: connection interrupted'))
-                            return
-                          }
-                          
-                          // Check if response is empty
-                          if (!xhr.responseText || xhr.responseText.trim() === '') {
-                            console.error('[Upload] Empty response. Status:', xhr.status, 'StatusText:', xhr.statusText)
-                            reject(new Error('Empty response from server'))
-                            return
-                          }
-
-                          try {
-                            if (xhr.status >= 200 && xhr.status < 300) {
-                              const data = JSON.parse(xhr.responseText)
-                              
-                              // Validate response structure
-                              if (!data.publicUrl || !data.filePath) {
-                                console.error('[Upload] Invalid response structure:', data)
-                                reject(new Error('Invalid response from server: missing publicUrl or filePath'))
-                                return
-                              }
-                              
-                              resolve({ publicUrl: data.publicUrl, filePath: data.filePath })
-                            } else {
-                              // Try to parse error response
-                              let errorMessage = 'Upload failed'
-                              try {
-                                const error = JSON.parse(xhr.responseText)
-                                errorMessage = error.error || error.message || `Server error: ${xhr.status}`
-                              } catch {
-                                // If JSON parsing fails, use status text
-                                errorMessage = `Server error: ${xhr.status} ${xhr.statusText || 'Unknown error'}`
-                              }
-                              reject(new Error(errorMessage))
+                          if (xhr.status >= 200 && xhr.status < 300) {
+                            // Get public URL
+                            const { data: urlData } = supabase.storage
+                              .from('Storage')
+                              .getPublicUrl(fileName)
+                            
+                            if (!urlData?.publicUrl) {
+                              reject(new Error('Failed to generate public URL'))
+                              return
                             }
-                          } catch (parseError: any) {
-                            console.error('[Upload] JSON parse error:', parseError, 'Response:', xhr.responseText?.substring(0, 200))
-                            reject(new Error(`Failed to parse server response: ${parseError.message}`))
+                            
+                            resolve({
+                              publicUrl: urlData.publicUrl,
+                              filePath: fileName,
+                            })
+                          } else {
+                            let errorMessage = 'Upload failed'
+                            try {
+                              const error = JSON.parse(xhr.responseText)
+                              errorMessage = error.message || error.error || `Server error: ${xhr.status}`
+                            } catch {
+                              errorMessage = `Server error: ${xhr.status} ${xhr.statusText || 'Unknown error'}`
+                            }
+                            reject(new Error(errorMessage))
                           }
                         })
 
@@ -1173,8 +1170,11 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
                           reject(new Error('Upload was cancelled'))
                         })
 
-                        xhr.open('POST', '/api/social-studio/upload-media')
-                        xhr.send(formData)
+                        xhr.open('POST', uploadUrl)
+                        xhr.setRequestHeader('Authorization', `Bearer ${session.access_token}`)
+                        xhr.setRequestHeader('Content-Type', file.type)
+                        xhr.setRequestHeader('x-upsert', 'false')
+                        xhr.send(file)
                       })
 
                       const data = await uploadPromise
