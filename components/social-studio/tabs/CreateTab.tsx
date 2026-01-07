@@ -1092,95 +1092,105 @@ export function CreateTab({ businessLocationId }: CreateTabProps) {
                     ])
 
                     try {
-                      // For files under 4MB, use API route (avoids RLS issues)
-                      // For larger files, use direct Supabase upload (bypasses Next.js body size limit)
-                      const fileSizeMB = file.size / (1024 * 1024)
-                      const useDirectUpload = fileSizeMB > 4 // Use direct upload for files > 4MB
-                      
-                      let data: { publicUrl: string; filePath: string }
-                      
-                      if (useDirectUpload) {
-                        // Direct upload to Supabase Storage (bypasses Next.js body size limit)
-                        const supabase = createClient()
-                        
-                        // Generate unique filename
-                        const timestamp = Date.now()
-                        const fileExtension = file.name.split('.').pop() || (isVideo ? 'mp4' : 'jpg')
-                        const randomId = Math.random().toString(36).substring(2, 15)
-                        const fileName = `social-studio/${businessLocationId}/${timestamp}-${randomId}.${fileExtension}`
-                        
-                        // Simulate progress for large files (Supabase JS client doesn't support progress callbacks)
-                        // Update progress to 50% when starting upload
-                        setUploadedMedia((prev) =>
-                          prev.map((m) =>
-                            m.id === mediaId ? { ...m, uploadProgress: 50 } : m
-                          )
-                        )
-                        
-                        // Use Supabase JS client upload method
-                        // Note: Requires Storage bucket RLS policy: "Allow authenticated users to INSERT into Storage bucket"
-                        const { data: uploadData, error: uploadError } = await supabase.storage
-                          .from('Storage')
-                          .upload(fileName, file, {
-                            contentType: file.type,
-                            upsert: false,
-                            cacheControl: '3600',
-                          })
+                      // Always use API route (uses service role, bypasses RLS)
+                      // Note: Large files (>4.5MB) may fail on Vercel Hobby plan due to body size limits
+                      const formData = new FormData()
+                      formData.append('file', file)
+                      formData.append('businessLocationId', businessLocationId)
 
-                        if (uploadError) {
-                          // If RLS error, provide helpful message with instructions
-                          if (uploadError.message?.includes('row-level security') || uploadError.message?.includes('RLS') || uploadError.message?.includes('violates row-level security')) {
-                            throw new Error('Storage access denied by Row Level Security (RLS). Please configure your Supabase Storage bucket to allow authenticated users to upload files. Go to Supabase Dashboard > Storage > Policies and add a policy that allows INSERT for authenticated users.')
+                      // Upload to Supabase with progress tracking
+                      const xhr = new XMLHttpRequest()
+                      
+                      xhr.upload.addEventListener('progress', (event) => {
+                        if (event.lengthComputable) {
+                          const progress = Math.round((event.loaded / event.total) * 100)
+                          setUploadedMedia((prev) =>
+                            prev.map((m) =>
+                              m.id === mediaId ? { ...m, uploadProgress: progress } : m
+                            )
+                          )
+                        }
+                      })
+
+                      const uploadPromise = new Promise<{ publicUrl: string; filePath: string }>((resolve, reject) => {
+                        // Set timeout (5 minutes for large videos)
+                        const timeout = setTimeout(() => {
+                          xhr.abort()
+                          reject(new Error('Upload timeout: The file is too large or the connection is too slow'))
+                        }, 5 * 60 * 1000) // 5 minutes
+
+                        xhr.addEventListener('loadend', () => {
+                          clearTimeout(timeout)
+                          
+                          // Check readyState - should be 4 (DONE)
+                          if (xhr.readyState !== 4) {
+                            reject(new Error('Upload incomplete: connection interrupted'))
+                            return
                           }
-                          throw new Error(uploadError.message || 'Failed to upload to storage')
-                        }
+                          
+                          // Check if response is empty
+                          if (!xhr.responseText || xhr.responseText.trim() === '') {
+                            console.error('[Upload] Empty response. Status:', xhr.status, 'StatusText:', xhr.statusText)
+                            reject(new Error('Empty response from server'))
+                            return
+                          }
 
-                        // Update progress to 90% after upload completes
-                        setUploadedMedia((prev) =>
-                          prev.map((m) =>
-                            m.id === mediaId ? { ...m, uploadProgress: 90 } : m
-                          )
-                        )
-
-                        // Get public URL
-                        const { data: urlData } = supabase.storage
-                          .from('Storage')
-                          .getPublicUrl(fileName)
-
-                        if (!urlData?.publicUrl) {
-                          throw new Error('Failed to generate public URL')
-                        }
-
-                        data = {
-                          publicUrl: urlData.publicUrl,
-                          filePath: fileName,
-                        }
-                      } else {
-                        // Use API route for smaller files (handles RLS via service role)
-                        const formData = new FormData()
-                        formData.append('file', file)
-                        formData.append('businessLocationId', businessLocationId)
-
-                        const response = await fetch('/api/social-studio/upload-media', {
-                          method: 'POST',
-                          body: formData,
+                          try {
+                            if (xhr.status >= 200 && xhr.status < 300) {
+                              const data = JSON.parse(xhr.responseText)
+                              
+                              // Validate response structure
+                              if (!data.publicUrl || !data.filePath) {
+                                console.error('[Upload] Invalid response structure:', data)
+                                reject(new Error('Invalid response from server: missing publicUrl or filePath'))
+                                return
+                              }
+                              
+                              resolve({ publicUrl: data.publicUrl, filePath: data.filePath })
+                            } else {
+                              // Handle specific error codes
+                              let errorMessage = 'Upload failed'
+                              try {
+                                const error = JSON.parse(xhr.responseText)
+                                errorMessage = error.error || error.message || `Server error: ${xhr.status}`
+                                
+                                // Provide helpful message for 413 (Payload Too Large)
+                                if (xhr.status === 413) {
+                                  const fileSizeMB = (file.size / (1024 * 1024)).toFixed(1)
+                                  errorMessage = `File too large (${fileSizeMB}MB). Your hosting plan may have a file size limit (e.g., Vercel Hobby allows 4.5MB). Consider upgrading your plan or compressing the file.`
+                                }
+                              } catch {
+                                // If JSON parsing fails, use status text
+                                if (xhr.status === 413) {
+                                  const fileSizeMB = (file.size / (1024 * 1024)).toFixed(1)
+                                  errorMessage = `File too large (${fileSizeMB}MB). Your hosting plan may have a file size limit.`
+                                } else {
+                                  errorMessage = `Server error: ${xhr.status} ${xhr.statusText || 'Unknown error'}`
+                                }
+                              }
+                              reject(new Error(errorMessage))
+                            }
+                          } catch (parseError: any) {
+                            console.error('[Upload] JSON parse error:', parseError, 'Response:', xhr.responseText?.substring(0, 200))
+                            reject(new Error(`Failed to parse server response: ${parseError.message}`))
+                          }
                         })
 
-                        if (!response.ok) {
-                          const errorData = await response.json().catch(() => ({}))
-                          throw new Error(errorData.error || `Upload failed: ${response.status}`)
-                        }
+                        xhr.addEventListener('error', () => {
+                          clearTimeout(timeout)
+                          reject(new Error('Network error: Failed to upload file'))
+                        })
 
-                        const responseData = await response.json()
-                        if (!responseData.publicUrl || !responseData.filePath) {
-                          throw new Error('Invalid response from server')
-                        }
+                        xhr.addEventListener('abort', () => {
+                          clearTimeout(timeout)
+                          reject(new Error('Upload was cancelled'))
+                        })
 
-                        data = {
-                          publicUrl: responseData.publicUrl,
-                          filePath: responseData.filePath,
-                        }
-                      }
+                        xhr.open('POST', '/api/social-studio/upload-media')
+                        xhr.send(formData)
+                      })
+
+                      const data = await uploadPromise
 
                       // Revoke the preview URL and update with real URL
                       URL.revokeObjectURL(previewUrl)
