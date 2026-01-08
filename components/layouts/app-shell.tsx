@@ -22,6 +22,7 @@ import { getEnabledToolsForSidebar } from '@/lib/modules/enabled'
 import { type ModuleKey } from '@/lib/onboarding/module-registry'
 import { Tooltip } from '@/components/ui/tooltip'
 import { SendReviewRequestModal } from '@/components/reputation/SendReviewRequestModal'
+import { useSessionRefresh } from '@/lib/hooks/use-session-refresh'
 
 // Icon map for dynamic icon rendering
 const ICON_MAP: Record<string, React.ComponentType<{ sx?: { fontSize: number } }>> = {
@@ -164,6 +165,9 @@ export function AppShell({
   businessRating: _businessRating,
   businessReviewCount: _businessReviewCount,
 }: AppShellProps) {
+  // Keep session alive by refreshing periodically
+  useSessionRefresh()
+  
   const pathname = usePathname()
   const router = useRouter()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)

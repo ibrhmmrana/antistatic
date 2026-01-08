@@ -58,8 +58,15 @@ export async function middleware(request: NextRequest) {
   if (user) {
     const { data: { session } } = await supabase.auth.getSession()
     if (session) {
-      // Refresh the session to extend its lifetime
-      await supabase.auth.refreshSession()
+      try {
+        // Refresh the session to extend its lifetime
+        // Pass the current session to refreshSession
+        await supabase.auth.refreshSession(session)
+      } catch (error) {
+        // If refresh fails, session might be expired - let it continue
+        // The auth check below will handle redirecting to login
+        console.error('[Middleware] Session refresh failed:', error)
+      }
     }
   }
 
