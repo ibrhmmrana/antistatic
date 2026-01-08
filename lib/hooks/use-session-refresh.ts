@@ -28,9 +28,10 @@ export function useSessionRefresh() {
     // Refresh immediately on mount
     refreshSession()
 
-    // Set up periodic refresh every 30 minutes (1800000 ms)
-    // This ensures the session is refreshed before it expires (typically 1 hour)
-    intervalRef.current = setInterval(refreshSession, 30 * 60 * 1000)
+    // Set up periodic refresh every 15 minutes (900000 ms)
+    // This ensures the session is refreshed well before it expires (typically 1 hour)
+    // More frequent refresh prevents logout during inactivity
+    intervalRef.current = setInterval(refreshSession, 15 * 60 * 1000)
 
     // Also refresh on visibility change (when user returns to tab)
     const handleVisibilityChange = () => {

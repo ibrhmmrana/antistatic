@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { InstagramInbox } from '@/components/social/instagram/inbox'
 import { Button } from '@/components/ui/button'
+import { useSessionRefresh } from '@/lib/hooks/use-session-refresh'
 
 interface InboxTabProps {
   businessLocationId: string
@@ -17,6 +18,9 @@ type InstagramConnection = {
 } | null
 
 export function InboxTab({ businessLocationId }: InboxTabProps) {
+  // Keep session alive while on inbox tab
+  useSessionRefresh()
+  
   const [instagramConnection, setInstagramConnection] = useState<InstagramConnection>(null)
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
