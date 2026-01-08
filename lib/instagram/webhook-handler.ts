@@ -107,11 +107,32 @@ async function getOrCreateConversationFromEvent(
             if (!error) {
               console.log('[Instagram Webhook] Fetched conversation ID from API:', apiConversationId)
               return apiConversationId
+            } else {
+              console.error('[Instagram Webhook] Error upserting conversation from API:', error)
             }
+          } else {
+            console.log('[Instagram Webhook] No conversations found in API response for participant:', participantIgsid)
           }
+        } else {
+          const errorData = await convResponse.json().catch(() => ({}))
+          console.warn('[Instagram Webhook] Failed to fetch conversation from API:', {
+            status: convResponse.status,
+            statusText: convResponse.statusText,
+            error: errorData.error?.message || 'Unknown error',
+          })
         }
       } catch (apiError: any) {
-        console.warn('[Instagram Webhook] Failed to fetch conversation from API:', apiError.message)
+        console.warn('[Instagram Webhook] Exception fetching conversation from API:', {
+          message: apiError.message,
+          name: apiError.name,
+        })
+      }
+    } else {
+      if (!accessToken) {
+        console.log('[Instagram Webhook] Cannot fetch conversation ID: access token not available (may need to reconnect account)')
+      }
+      if (!participantIgsid) {
+        console.log('[Instagram Webhook] Cannot fetch conversation ID: participant IGSID not available')
       }
     }
 
@@ -243,11 +264,19 @@ export async function handleWebhookMessage(
     // Extract conversation ID from webhook event if available
     // Meta webhooks may include conversation/thread ID in the event structure
     // Check common fields: event.conversation, event.thread, event.conversation_id, etc.
+    // Also check nested structures like event.value.conversation for changes format
     const conversationIdFromEvent = event.conversation?.id || 
                                      event.thread?.id || 
                                      (event as any).conversation_id ||
                                      (event as any).thread_id ||
+                                     (event as any).value?.conversation?.id ||
+                                     (event as any).value?.thread?.id ||
                                      null
+    
+    // Log available event keys for debugging
+    if (!conversationIdFromEvent) {
+      console.log('[Instagram Webhook] No conversation ID in event, available keys:', Object.keys(event || {}))
+    }
     
     // Get or create conversation using API conversation ID
     const conversationId = await getOrCreateConversationFromEvent(

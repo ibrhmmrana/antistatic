@@ -484,58 +484,63 @@ async function findBusinessLocationId(
     })
   }
 
-  // Strategy 3: Get any connection (fallback for test payloads)
-  try {
-    console.log('[Meta Webhook] Strategy 3: Getting any instagram_connection (fallback)')
-    
-    const result = await timed(
-      'Strategy 3',
-      (supabase
-        .from('instagram_connections') as any)
-        .select('business_location_id, instagram_user_id, updated_at')
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-    ) as any
-    
-    const { data, error } = result
-    
-    console.log('[Meta Webhook] Strategy 3 result:', {
-      dataLength: data ? 1 : 0,
-      error: error ? {
-        code: error.code,
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
-      } : null,
-    })
-    
-    if (error) {
-      console.log('[Meta Webhook] Strategy 3 error:', {
-        code: error.code,
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
+  // Strategy 3: Get any connection (ONLY for test payloads with id="0")
+  // DO NOT use fallback for real webhook events - this causes messages to be associated with wrong accounts
+  if (igAccountId === '0' || !igAccountId) {
+    try {
+      console.log('[Meta Webhook] Strategy 3: Getting any instagram_connection (test payload fallback)')
+      
+      const result = await timed(
+        'Strategy 3',
+        (supabase
+          .from('instagram_connections') as any)
+          .select('business_location_id, instagram_user_id, updated_at')
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+      ) as any
+      
+      const { data, error } = result
+      
+      console.log('[Meta Webhook] Strategy 3 result:', {
+        dataLength: data ? 1 : 0,
+        error: error ? {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+        } : null,
       })
-    } else if (data) {
-      console.log('[Meta Webhook] Strategy 3 MATCH (fallback):', {
-        business_location_id: data.business_location_id,
-        instagram_user_id: data.instagram_user_id,
-        matched_via: 'instagram_connections.any (fallback)',
-      })
-      return {
-        business_location_id: data.business_location_id,
-        instagram_user_id: data.instagram_user_id,
-        matched_via: 'instagram_connections.any (fallback)'
+      
+      if (error) {
+        console.log('[Meta Webhook] Strategy 3 error:', {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+        })
+      } else if (data) {
+        console.log('[Meta Webhook] Strategy 3 MATCH (test payload fallback):', {
+          business_location_id: data.business_location_id,
+          instagram_user_id: data.instagram_user_id,
+          matched_via: 'instagram_connections.any (test payload fallback)',
+        })
+        return {
+          business_location_id: data.business_location_id,
+          instagram_user_id: data.instagram_user_id,
+          matched_via: 'instagram_connections.any (test payload fallback)'
+        }
+      } else {
+        console.log('[Meta Webhook] Strategy 3: No connections found in database (data is null)')
       }
-    } else {
-      console.log('[Meta Webhook] Strategy 3: No connections found in database (data is null)')
+    } catch (error: any) {
+      console.log('[Meta Webhook] Strategy 3 exception:', {
+        message: error.message,
+        name: error.name,
+      })
     }
-  } catch (error: any) {
-    console.log('[Meta Webhook] Strategy 3 exception:', {
-      message: error.message,
-      name: error.name,
-    })
+  } else {
+    console.log('[Meta Webhook] Strategy 3: Skipped (not a test payload, igAccountId:', igAccountId, ')')
   }
 
   const handlerDuration = Date.now() - handlerStart
@@ -706,10 +711,23 @@ async function handleMessageEvent(
     const { business_location_id, matched_via } = locationMatch
     const instagram_user_id = (locationMatch as any).instagram_user_id || igAccountId
     const recipientIgAccountId = instagram_user_id || igAccountId
+    
+    // Warn if webhook account ID doesn't match database account ID
+    if (matched_via.includes('fallback') && igAccountId !== '0') {
+      console.warn('[Meta Webhook] WARNING: Webhook account ID mismatch!', {
+        webhookIgAccountId: igAccountId,
+        databaseIgAccountId: instagram_user_id,
+        matched_via,
+        message: 'Webhook subscription may be configured for a different account. Consider updating the webhook subscription or reconnecting the correct account.',
+      })
+    }
+    
     console.log('[Meta Webhook] Found business_location_id:', {
       business_location_id,
       matched_via,
       instagram_user_id,
+      webhookIgAccountId: igAccountId,
+      usingAccountId: recipientIgAccountId,
     })
 
     // Step 2: Handle message using new schema (instagram_conversations + instagram_messages)
@@ -719,12 +737,13 @@ async function handleMessageEvent(
     // - Update unread count
     // - Resolve participant identity
     // Try to get access token for API lookup if conversation ID not in event
+    // Use the matched instagram_user_id (not the webhook igAccountId) to get the correct token
     let accessToken: string | null = null
     try {
       const { data: connection } = await (supabase
         .from('instagram_connections') as any)
         .select('access_token')
-        .eq('instagram_user_id', igAccountId)
+        .eq('instagram_user_id', recipientIgAccountId) // Use matched account ID, not webhook ID
         .maybeSingle()
       accessToken = connection?.access_token || null
     } catch (tokenError: any) {
@@ -732,7 +751,9 @@ async function handleMessageEvent(
     }
     
     try {
-      await handleWebhookMessage(business_location_id, igAccountId, event, accessToken)
+      // Use the matched instagram_user_id (not the webhook igAccountId) for message handling
+      // This ensures we use the correct account ID that exists in the database
+      await handleWebhookMessage(business_location_id, recipientIgAccountId, event, accessToken)
       console.log('[Meta Webhook] Message handled successfully using new schema')
     } catch (webhookError: any) {
       console.error('[Meta Webhook] Error handling message with new schema:', {
