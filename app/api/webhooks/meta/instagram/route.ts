@@ -429,17 +429,18 @@ async function findBusinessLocationId(
     })
   }
 
-  // Strategy 2: instagram_sync_state.ig_user_id
+  // Strategy 2: instagram_connections.self_scoped_id
+  // The webhook entry.id might be the scoped ID (self_scoped_id) rather than the professional account ID
   try {
-    console.log('[Meta Webhook] Strategy 2: Querying instagram_sync_state.ig_user_id =', igAccountId)
+    console.log('[Meta Webhook] Strategy 2: Querying instagram_connections.self_scoped_id =', igAccountId)
     
     const result = await timed(
       'Strategy 2',
       (supabase
-        .from('instagram_sync_state') as any)
-        .select('business_location_id, ig_user_id, last_synced_at')
-        .eq('ig_user_id', igAccountId)
-        .order('last_synced_at', { ascending: false })
+        .from('instagram_connections') as any)
+        .select('business_location_id, instagram_user_id, self_scoped_id, updated_at')
+        .eq('self_scoped_id', igAccountId)
+        .order('updated_at', { ascending: false })
         .limit(1)
         .maybeSingle()
     ) as any
@@ -464,15 +465,16 @@ async function findBusinessLocationId(
         hint: error.hint,
       })
     } else if (data) {
-      console.log('[Meta Webhook] Strategy 2 MATCH:', {
+      console.log('[Meta Webhook] Strategy 2 MATCH (self_scoped_id):', {
         business_location_id: data.business_location_id,
-        ig_user_id: data.ig_user_id,
-        matched_via: 'instagram_sync_state.ig_user_id',
+        instagram_user_id: data.instagram_user_id,
+        self_scoped_id: data.self_scoped_id,
+        matched_via: 'instagram_connections.self_scoped_id',
       })
       return {
         business_location_id: data.business_location_id,
-        instagram_user_id: data.ig_user_id,
-        matched_via: 'instagram_sync_state.ig_user_id'
+        instagram_user_id: data.instagram_user_id,
+        matched_via: 'instagram_connections.self_scoped_id'
       }
     } else {
       console.log('[Meta Webhook] Strategy 2: No match found (data is null)')
@@ -484,14 +486,129 @@ async function findBusinessLocationId(
     })
   }
 
-  // Strategy 3: Get any connection (ONLY for test payloads with id="0")
+  // Strategy 2b: instagram_sync_state.ig_user_id (fallback)
+  try {
+    console.log('[Meta Webhook] Strategy 2b: Querying instagram_sync_state.ig_user_id =', igAccountId)
+    
+    const result = await timed(
+      'Strategy 2b',
+      (supabase
+        .from('instagram_sync_state') as any)
+        .select('business_location_id, ig_user_id, last_synced_at')
+        .eq('ig_user_id', igAccountId)
+        .order('last_synced_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    ) as any
+    
+    const { data, error } = result
+    
+    console.log('[Meta Webhook] Strategy 2b result:', {
+      dataLength: data ? 1 : 0,
+      error: error ? {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      } : null,
+    })
+    
+    if (error) {
+      console.log('[Meta Webhook] Strategy 2b error:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      })
+    } else if (data) {
+      console.log('[Meta Webhook] Strategy 2b MATCH:', {
+        business_location_id: data.business_location_id,
+        ig_user_id: data.ig_user_id,
+        matched_via: 'instagram_sync_state.ig_user_id',
+      })
+      return {
+        business_location_id: data.business_location_id,
+        instagram_user_id: data.ig_user_id,
+        matched_via: 'instagram_sync_state.ig_user_id'
+      }
+    } else {
+      console.log('[Meta Webhook] Strategy 2b: No match found (data is null)')
+    }
+  } catch (error: any) {
+    console.log('[Meta Webhook] Strategy 2b exception:', {
+      message: error.message,
+      name: error.name,
+    })
+  }
+
+  // Strategy 3: If only one Instagram connection exists, use it (with warning)
+  // This handles cases where webhook entry.id format doesn't match stored IDs
+  // Only use this if there's exactly one connection to avoid wrong account association
+  try {
+    console.log('[Meta Webhook] Strategy 3: Checking for single Instagram connection')
+    
+    const result = await timed(
+      'Strategy 3',
+      (supabase
+        .from('instagram_connections') as any)
+        .select('business_location_id, instagram_user_id, self_scoped_id, updated_at')
+        .order('updated_at', { ascending: false })
+    ) as any
+    
+    const { data, error } = result
+    
+    console.log('[Meta Webhook] Strategy 3 result:', {
+      dataLength: data?.length || 0,
+      error: error ? {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      } : null,
+    })
+    
+    if (error) {
+      console.log('[Meta Webhook] Strategy 3 error:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      })
+    } else if (data && data.length === 1) {
+      // Only use single connection fallback if there's exactly one
+      console.warn('[Meta Webhook] Strategy 3 MATCH (single connection fallback):', {
+        business_location_id: data[0].business_location_id,
+        instagram_user_id: data[0].instagram_user_id,
+        self_scoped_id: data[0].self_scoped_id,
+        webhookIgAccountId: igAccountId,
+        matched_via: 'instagram_connections.single (fallback)',
+        warning: 'Webhook entry.id does not match stored instagram_user_id or self_scoped_id. Using single connection as fallback.',
+      })
+      return {
+        business_location_id: data[0].business_location_id,
+        instagram_user_id: data[0].instagram_user_id,
+        matched_via: 'instagram_connections.single (fallback)'
+      }
+    } else if (data && data.length > 1) {
+      console.log('[Meta Webhook] Strategy 3: Skipped (multiple connections found, cannot safely use fallback)')
+    } else {
+      console.log('[Meta Webhook] Strategy 3: No connections found in database')
+    }
+  } catch (error: any) {
+    console.log('[Meta Webhook] Strategy 3 exception:', {
+      message: error.message,
+      name: error.name,
+    })
+  }
+
+  // Strategy 4: Get any connection (ONLY for test payloads with id="0")
   // DO NOT use fallback for real webhook events - this causes messages to be associated with wrong accounts
   if (igAccountId === '0' || !igAccountId) {
     try {
-      console.log('[Meta Webhook] Strategy 3: Getting any instagram_connection (test payload fallback)')
+      console.log('[Meta Webhook] Strategy 4: Getting any instagram_connection (test payload fallback)')
       
       const result = await timed(
-        'Strategy 3',
+        'Strategy 4',
         (supabase
           .from('instagram_connections') as any)
           .select('business_location_id, instagram_user_id, updated_at')
@@ -502,7 +619,7 @@ async function findBusinessLocationId(
       
       const { data, error } = result
       
-      console.log('[Meta Webhook] Strategy 3 result:', {
+      console.log('[Meta Webhook] Strategy 4 result:', {
         dataLength: data ? 1 : 0,
         error: error ? {
           code: error.code,
@@ -513,14 +630,14 @@ async function findBusinessLocationId(
       })
       
       if (error) {
-        console.log('[Meta Webhook] Strategy 3 error:', {
+        console.log('[Meta Webhook] Strategy 4 error:', {
           code: error.code,
           message: error.message,
           details: error.details,
           hint: error.hint,
         })
       } else if (data) {
-        console.log('[Meta Webhook] Strategy 3 MATCH (test payload fallback):', {
+        console.log('[Meta Webhook] Strategy 4 MATCH (test payload fallback):', {
           business_location_id: data.business_location_id,
           instagram_user_id: data.instagram_user_id,
           matched_via: 'instagram_connections.any (test payload fallback)',
@@ -531,16 +648,16 @@ async function findBusinessLocationId(
           matched_via: 'instagram_connections.any (test payload fallback)'
         }
       } else {
-        console.log('[Meta Webhook] Strategy 3: No connections found in database (data is null)')
+        console.log('[Meta Webhook] Strategy 4: No connections found in database (data is null)')
       }
     } catch (error: any) {
-      console.log('[Meta Webhook] Strategy 3 exception:', {
+      console.log('[Meta Webhook] Strategy 4 exception:', {
         message: error.message,
         name: error.name,
       })
     }
   } else {
-    console.log('[Meta Webhook] Strategy 3: Skipped (not a test payload, igAccountId:', igAccountId, ')')
+    console.log('[Meta Webhook] Strategy 4: Skipped (not a test payload, igAccountId:', igAccountId, ')')
   }
 
   const handlerDuration = Date.now() - handlerStart
