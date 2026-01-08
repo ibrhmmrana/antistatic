@@ -47,10 +47,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: { type: 'not_found', message: 'Location not found' } }, { status: 404 })
     }
 
-    // Step 2: Get Instagram connection to determine ig_account_id and business account IGSID
+    // Step 2: Get Instagram connection to determine ig_account_id, self_scoped_id, and business account IGSID
     const { data: connection } = await (supabase
       .from('instagram_connections') as any)
-      .select('instagram_user_id, instagram_username')
+      .select('instagram_user_id, instagram_username, self_scoped_id')
       .eq('business_location_id', locationId)
       .maybeSingle()
 
@@ -85,14 +85,8 @@ export async function POST(request: NextRequest) {
     // Step 3: Get valid access token using centralized helper (needed for API calls)
     let accessToken: string
     try {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messages/send/route.ts:85',message:'Getting access token',data:{locationId,igAccountId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
       const tokenResult = await getInstagramAccessTokenForLocation(locationId)
       accessToken = tokenResult.access_token
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messages/send/route.ts:87',message:'Access token retrieved',data:{hasToken:!!accessToken,tokenLength:accessToken?.length,tokenPrefix:accessToken?.substring(0,20),igAccountId:tokenResult.ig_account_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
     } catch (error: any) {
       if (error instanceof InstagramAuthError) {
         return NextResponse.json(
@@ -205,10 +199,6 @@ export async function POST(request: NextRequest) {
     } else {
       recipientIgsid = conversation.participant_igsid
     }
-    
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messages/send/route.ts:199',message:'Recipient IGSID determined',data:{recipientIgsid,recipientIgsidLength:recipientIgsid?.length,recipientIgsidFormat:recipientIgsid?.substring(0,20),isUnknown:recipientIgsid?.startsWith('UNKNOWN_'),conversationId:finalConversationId,hasConversation:!!conversation},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
 
     if (!recipientIgsid || recipientIgsid.startsWith('UNKNOWN_')) {
       console.error('[Instagram Send Message] Missing or invalid participant_igsid:', {
@@ -284,9 +274,40 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Step 7: Call Instagram Graph API with retry logic
+    // Step 7: Resolve IG User ID for endpoint (scoped ID, not account ID)
+    // For Instagram Login Messaging API, we need the scoped IG User ID (not the account ID)
+    // Priority: self_scoped_id from DB > businessAccountIgsid from cache > fallback to /me API call
+    let igUserIdForEndpoint: string | null = connection.self_scoped_id || businessAccountIgsid || null
+    
+    // If we don't have self_scoped_id or businessAccountIgsid, try to fetch it from /me
+    // Note: /me returns account ID, not scoped ID, but we'll use it as a last resort
+    if (!igUserIdForEndpoint) {
+      try {
+        const apiVersion = 'v24.0'
+        const meUrl = `https://graph.instagram.com/${apiVersion}/me?fields=id&access_token=${accessToken}`
+        const meResponse = await fetch(meUrl)
+        
+        if (meResponse.ok) {
+          const meData = await meResponse.json()
+          // Note: /me returns the account ID, not the scoped ID
+          // This is a fallback - ideally self_scoped_id should be populated during inbox sync
+          console.warn('[Instagram Send Message] No self_scoped_id found, using account ID as fallback:', {
+            igAccountId,
+            meDataId: meData.id,
+          })
+        }
+      } catch (meError: any) {
+        console.warn('[Instagram Send Message] Failed to fetch /me for scoped ID:', meError.message)
+      }
+    }
+    
+    // Final fallback: use account ID if no scoped ID available (this might fail, but we'll try)
+    const finalIgUserId = igUserIdForEndpoint || igAccountId
+
+    // Step 8: Call Instagram Graph API with retry logic
     // Instagram API with Instagram Login requires:
-    // - Endpoint: POST https://graph.instagram.com/v{apiVersion}/{igUserId}/messages
+    // - Endpoint: POST https://graph.instagram.com/v{apiVersion}/{IG_USER_ID}/messages
+    //   WHERE IG_USER_ID is the scoped user ID (self_scoped_id), NOT the account ID
     // - Headers: Authorization: Bearer <IG_USER_ACCESS_TOKEN>, Content-Type: application/json
     // - Body: { "recipient": { "id": "<RECIPIENT_IGSID>" }, "message": { "text": "<TEXT>" } }
     const apiVersion = 'v24.0'
@@ -300,7 +321,9 @@ export async function POST(request: NextRequest) {
     // Log request details (never log full token)
     console.log('[Instagram Send Message] Preparing request:', {
       requestId,
-      igUserId: igAccountId,
+      igUserId: finalIgUserId,
+      igAccountId,
+      selfScopedId: connection.self_scoped_id,
       conversationId: finalConversationId,
       recipientId: recipientIgsid,
       recipientIdLength: recipientIgsid.length,
@@ -319,7 +342,8 @@ export async function POST(request: NextRequest) {
     // Retry loop (only retry on transient errors or 5xx)
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        const apiUrl = `${apiBase}/${apiVersion}/${igAccountId}/messages`
+        // Use scoped IG User ID (self_scoped_id) in endpoint, NOT account ID
+        const apiUrl = `${apiBase}/${apiVersion}/${finalIgUserId}/messages`
         
         // Use JSON body with Bearer token header (Instagram Login format)
         const requestBody = {

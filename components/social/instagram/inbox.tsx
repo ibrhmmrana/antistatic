@@ -65,6 +65,8 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
   const { toasts, showToast, removeToast } = useToast()
   const supabaseRef = useRef(createClient())
   const realtimeSubscriptionRef = useRef<any>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
   
   // Track component mount/unmount
   useEffect(() => {
@@ -427,7 +429,18 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
     }
   }, [locationId, instagramConnection, selectedConversationId, unreadCount])
 
-  // Handle conversation selection
+  // Scroll to bottom of messages when messages change or conversation is selected
+  useEffect(() => {
+    if (messagesContainerRef.current && messages.length > 0) {
+      // Use setTimeout to ensure DOM is updated
+      setTimeout(() => {
+        if (messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
+        }
+      }, 100)
+    }
+  }, [messages, selectedConversationId])
+
   const handleSelectConversation = async (conversationId: string) => {
     setSelectedConversationId(conversationId)
     
@@ -494,10 +507,13 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
         avatarUrl: null,
       }
       setMessages(prev => [...prev, optimisticMessage])
-
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:498',message:'Sending message request',data:{locationId,conversationId:selectedConversationId,textLength:text.length,textPreview:text.substring(0,50),hasConnection:!!instagramConnection},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
+      
+      // Scroll to bottom after adding optimistic message
+      setTimeout(() => {
+        if (messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
+        }
+      }, 0)
       
       const response = await fetch('/api/social/instagram/messages/send', {
         method: 'POST',
@@ -789,12 +805,12 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
   }
 
   return (
-    <div className="space-y-6">
+    <div className="h-full flex flex-col">
       <ToastContainer toasts={toasts} onClose={removeToast} />
       
       {/* Token Expiry Banner - Only show for non-EXPIRED errors */}
       {authError && authError.code !== 'EXPIRED' && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-start gap-3">
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-start gap-3 mb-4 flex-shrink-0">
           <InfoIcon sx={{ fontSize: 20, color: '#d97706', flexShrink: 0, mt: 0.5 }} />
           <div className="flex-1">
             <p className="text-sm font-medium text-yellow-900 mb-1">
@@ -815,7 +831,7 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
       
       {/* Auto-reconnecting indicator */}
       {authError && authError.code === 'EXPIRED' && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3 mb-4 flex-shrink-0">
           <InfoIcon sx={{ fontSize: 20, color: '#2563eb', flexShrink: 0, mt: 0.5 }} />
           <div className="flex-1">
             <p className="text-sm font-medium text-blue-900 mb-1">
@@ -828,8 +844,8 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
         </div>
       )}
 
-      <div className="bg-white rounded-lg border border-slate-200 p-6 shadow-sm">
-        <div className="flex items-center justify-between mb-4">
+      <div className="bg-white rounded-lg border border-slate-200 p-6 shadow-sm flex-1 min-h-0 flex flex-col">
+        <div className="flex items-center justify-between mb-4 flex-shrink-0">
           <h2 className="text-xl font-semibold text-slate-900 flex items-center gap-2">
             <MessageIcon sx={{ fontSize: 24 }} />
             Direct Messages
@@ -839,39 +855,9 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
               </span>
             )}
           </h2>
-          <div className="flex gap-2">
-            {conversations.length > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleRefreshIdentities}
-                disabled={refreshingIdentities}
-                title="Refresh user identities (usernames, profile photos)"
-              >
-                {refreshingIdentities ? 'Refreshing...' : 'Refresh Identities'}
-              </Button>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSync}
-              disabled={syncing}
-              title="Auto-sync runs every 30 seconds. Click to sync now."
-            >
-              {syncing ? 'Syncing...' : 'Sync Now'}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={fetchInbox}
-              disabled={loading}
-            >
-              Refresh
-            </Button>
-          </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1 min-h-0">
           {/* Conversation List */}
           <div className="lg:col-span-1 border-r border-slate-200 pr-4">
             <div className="mb-3">
@@ -945,11 +931,11 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
           </div>
 
           {/* Messages Thread */}
-          <div className="lg:col-span-2 flex flex-col">
+          <div className="lg:col-span-2 flex flex-col min-h-0">
             {selectedConversationId ? (
               <>
                 {/* Header */}
-                <div className="border-b border-slate-200 pb-3 mb-4">
+                <div className="border-b border-slate-200 pb-3 mb-4 flex-shrink-0">
                   {(() => {
                     const conv = conversations.find(c => c.id === selectedConversationId)
                     return conv ? (
@@ -985,8 +971,12 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
                   })()}
                 </div>
 
-                {/* Messages */}
-                <div className="flex-1 overflow-y-auto space-y-4 mb-4 max-h-96">
+                {/* Messages - Scrollable container */}
+                <div 
+                  ref={messagesContainerRef}
+                  className="flex-1 overflow-y-auto space-y-4 pr-2"
+                  style={{ minHeight: 0 }}
+                >
                   {messages.length === 0 ? (
                     <p className="text-sm text-slate-500 text-center py-8">No messages in this conversation</p>
                   ) : (
@@ -997,66 +987,71 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
                         inboundCount: messages.filter(m => m.direction === 'inbound').length,
                         messages: messages.map(m => ({ id: m.id, direction: m.direction, text: m.text?.substring(0, 50) })),
                       })
-                      return Object.entries(groupMessagesByDay(messages)).map(([date, dayMessages]) => (
-                        <div key={date}>
-                          <div className="text-center text-xs text-slate-400 mb-2">{date}</div>
-                          {dayMessages.map((message) => {
-                            const isOutbound = message.direction === 'outbound'
-                            console.log('[Instagram Inbox] Rendering message:', {
-                              id: message.id,
-                              direction: message.direction,
-                              isOutbound,
-                              text: message.text?.substring(0, 50),
-                            })
-                            return (
-                            <div
-                              key={message.id}
-                              className={`flex items-start gap-3 mb-3 ${isOutbound ? 'flex-row-reverse' : ''}`}
-                            >
-                              {/* Avatar */}
-                              {message.avatarUrl ? (
-                                <img
-                                  src={message.avatarUrl}
-                                  alt={message.displayName}
-                                  className="w-8 h-8 rounded-full object-cover"
-                                  referrerPolicy="no-referrer"
-                                  onError={(e) => {
-                                    const target = e.target as HTMLImageElement
-                                    target.style.display = 'none'
-                                    if (target.nextElementSibling) {
-                                      (target.nextElementSibling as HTMLElement).style.display = 'flex'
-                                    }
-                                  }}
-                                />
-                              ) : null}
-                              <div className={`w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs text-slate-600 ${message.avatarUrl ? 'hidden' : ''}`}>
-                                {message.displayName.charAt(0)?.toUpperCase() || '?'}
-                              </div>
-                              
-                              <div className={`flex-1 ${isOutbound ? 'text-right' : ''}`}>
-                                <div className={`flex items-center gap-2 mb-1 ${isOutbound ? 'justify-end' : ''}`}>
-                                  <span className="text-sm font-medium text-slate-900">
-                                    {isOutbound ? 'You' : message.displayName}
-                                  </span>
-                                  <span className="text-xs text-slate-500">
-                                    {new Date(message.createdTime).toLocaleTimeString()}
-                                  </span>
+                      return (
+                        <>
+                          {Object.entries(groupMessagesByDay(messages)).map(([date, dayMessages]) => (
+                            <div key={date}>
+                              <div className="text-center text-xs text-slate-400 mb-2">{date}</div>
+                              {dayMessages.map((message) => {
+                                const isOutbound = message.direction === 'outbound'
+                                console.log('[Instagram Inbox] Rendering message:', {
+                                  id: message.id,
+                                  direction: message.direction,
+                                  isOutbound,
+                                  text: message.text?.substring(0, 50),
+                                })
+                                return (
+                                <div
+                                  key={message.id}
+                                  className={`flex items-start gap-3 mb-3 ${isOutbound ? 'flex-row-reverse' : ''}`}
+                                >
+                                  {/* Avatar */}
+                                  {message.avatarUrl ? (
+                                    <img
+                                      src={message.avatarUrl}
+                                      alt={message.displayName}
+                                      className="w-8 h-8 rounded-full object-cover"
+                                      referrerPolicy="no-referrer"
+                                      onError={(e) => {
+                                        const target = e.target as HTMLImageElement
+                                        target.style.display = 'none'
+                                        if (target.nextElementSibling) {
+                                          (target.nextElementSibling as HTMLElement).style.display = 'flex'
+                                        }
+                                      }}
+                                    />
+                                  ) : null}
+                                  <div className={`w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs text-slate-600 ${message.avatarUrl ? 'hidden' : ''}`}>
+                                    {message.displayName.charAt(0)?.toUpperCase() || '?'}
+                                  </div>
+                                  
+                                  <div className={`flex-1 ${isOutbound ? 'text-right' : ''}`}>
+                                    <div className={`flex items-center gap-2 mb-1 ${isOutbound ? 'justify-end' : ''}`}>
+                                      <span className="text-sm font-medium text-slate-900">
+                                        {isOutbound ? 'You' : message.displayName}
+                                      </span>
+                                      <span className="text-xs text-slate-500">
+                                        {new Date(message.createdTime).toLocaleTimeString()}
+                                      </span>
+                                    </div>
+                                    <p className={`text-sm text-slate-700 ${isOutbound ? 'bg-blue-50 p-2 rounded inline-block' : ''}`}>
+                                      {message.text}
+                                    </p>
+                                  </div>
                                 </div>
-                                <p className={`text-sm text-slate-700 ${isOutbound ? 'bg-blue-50 p-2 rounded inline-block' : ''}`}>
-                                  {message.text}
-                                </p>
-                              </div>
+                                )
+                              })}
                             </div>
-                            )
-                          })}
-                        </div>
-                      ))
+                          ))}
+                          <div ref={messagesEndRef} />
+                        </>
+                      )
                     })()
                   )}
                 </div>
 
-                {/* Composer */}
-                <div className="border-t border-slate-200 pt-4">
+                {/* Composer - Sticky at bottom */}
+                <div className="border-t border-slate-200 pt-4 flex-shrink-0 bg-white">
                   <div className="flex gap-2">
                     <textarea
                       value={replyText}
