@@ -359,7 +359,65 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
             igItems = igData.items
           }
         } else {
-          // Non-transient error, will be handled below
+          // Non-transient error - handle error response
+          try {
+            const errorData = igData
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlannerTab.tsx:248',message:'Instagram API error response',data:{status:igPostsResponse.value.status,error:errorData.error,errorDetails:errorData.errorDetails,needsReauth:errorData.needs_reauth,retryable:errorData.retryable},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+            
+            if (errorData.retryable && errorData.status === 500) {
+              instagramRetryCount.current++
+              
+              console.warn('[PlannerTab] Instagram API temporary error:', {
+                error: errorData,
+                retryCount: instagramRetryCount.current,
+                maxRetries: MAX_INSTAGRAM_RETRIES
+              })
+              
+              if (instagramRetryCount.current < MAX_INSTAGRAM_RETRIES) {
+                showToast(
+                  `Instagram temporarily unavailable. Retry ${instagramRetryCount.current}/${MAX_INSTAGRAM_RETRIES}...`,
+                  'info'
+                )
+                
+                // Auto-retry with exponential backoff
+                const waitTime = Math.pow(2, instagramRetryCount.current - 1) * 3000 // 3s, 6s, 12s
+                setTimeout(() => {
+                  console.log(`[PlannerTab] Auto-retrying Instagram fetch (attempt ${instagramRetryCount.current + 1})...`)
+                  fetchPosts()
+                }, waitTime)
+              } else {
+                // Max retries exceeded
+                console.error('[PlannerTab] Instagram max retries exceeded')
+                showToast(
+                  'Instagram is currently unavailable. Posts from other platforms are shown. Please try again later.',
+                  'error'
+                )
+                instagramRetryCount.current = 0 // Reset for next manual refresh
+              }
+            } else if (errorData.needs_reauth || errorData.needsReauth) {
+              console.warn('[PlannerTab] Instagram needs reconnection:', errorData)
+              
+              // Show a more prominent error with instructions
+              showToast(
+                '⚠️ Instagram disconnected. Click "Connect" → "Instagram" to reconnect and restore your posts.',
+                'error'
+              )
+              
+              instagramRetryCount.current = 0
+            } else {
+              console.warn('[PlannerTab] Instagram posts fetch failed (non-critical):', errorData.error || 'Unknown error', errorData.errorDetails)
+              showToast('Failed to load Instagram posts. Please try refreshing.', 'error')
+              instagramRetryCount.current = 0
+            }
+          } catch (e) {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlannerTab.tsx:255',message:'Failed to parse Instagram error response',data:{status:igPostsResponse.value.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+            console.error('[PlannerTab] Failed to parse Instagram error response:', e)
+            showToast('Failed to load Instagram posts. Please try refreshing.', 'error')
+          }
           igItems = []
         }
         
@@ -427,66 +485,6 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
             })
           
           console.log(`[PlannerTab] Loaded ${igEvents.length} Instagram posts (filtered from ${igItems.length} items)`)
-        }
-      } else if (igPostsResponse.status === 'fulfilled' && !igPostsResponse.value.ok) {
-        // Instagram API returned an error - capture the error details
-        try {
-          const errorData = await igPostsResponse.value.json().catch(() => ({}))
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlannerTab.tsx:248',message:'Instagram API error response',data:{status:igPostsResponse.value.status,error:errorData.error,errorDetails:errorData.errorDetails,needsReauth:errorData.needs_reauth,retryable:errorData.retryable},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-          // #endregion
-          
-          if (errorData.retryable && errorData.status === 500) {
-            instagramRetryCount.current++
-            
-            console.warn('[PlannerTab] Instagram API temporary error:', {
-              error: errorData,
-              retryCount: instagramRetryCount.current,
-              maxRetries: MAX_INSTAGRAM_RETRIES
-            })
-            
-            if (instagramRetryCount.current < MAX_INSTAGRAM_RETRIES) {
-              showToast(
-                `Instagram temporarily unavailable. Retry ${instagramRetryCount.current}/${MAX_INSTAGRAM_RETRIES}...`,
-                'info'
-              )
-              
-              // Auto-retry with exponential backoff
-              const waitTime = Math.pow(2, instagramRetryCount.current - 1) * 3000 // 3s, 6s, 12s
-              setTimeout(() => {
-                console.log(`[PlannerTab] Auto-retrying Instagram fetch (attempt ${instagramRetryCount.current + 1})...`)
-                fetchPosts()
-              }, waitTime)
-            } else {
-              // Max retries exceeded
-              console.error('[PlannerTab] Instagram max retries exceeded')
-              showToast(
-                'Instagram is currently unavailable. Posts from other platforms are shown. Please try again later.',
-                'error'
-              )
-              instagramRetryCount.current = 0 // Reset for next manual refresh
-            }
-          } else if (errorData.needs_reauth || errorData.needsReauth) {
-            console.warn('[PlannerTab] Instagram needs reconnection:', errorData)
-            
-            // Show a more prominent error with instructions
-            showToast(
-              '⚠️ Instagram disconnected. Click "Connect" → "Instagram" to reconnect and restore your posts.',
-              'error'
-            )
-            
-            instagramRetryCount.current = 0
-          } else {
-            console.warn('[PlannerTab] Instagram posts fetch failed (non-critical):', errorData.error || 'Unknown error', errorData.errorDetails)
-            showToast('Failed to load Instagram posts. Please try refreshing.', 'error')
-            instagramRetryCount.current = 0
-          }
-        } catch (e) {
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlannerTab.tsx:255',message:'Failed to parse Instagram error response',data:{status:igPostsResponse.value.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-          // #endregion
-          console.error('[PlannerTab] Failed to parse Instagram error response:', e)
-          showToast('Failed to load Instagram posts. Please try refreshing.', 'error')
         }
       } else if (igPostsResponse.status === 'rejected') {
         // #region agent log
@@ -1449,7 +1447,7 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
                       ) : (
                         // Use regular img tag for external URLs to avoid Next.js Image optimization issues
                         <img
-                          src={imageUrl}
+                          src={imageUrl || undefined}
                           alt={selectedPost.topic || selectedPost.caption || 'Post media'}
                           className="w-full h-full object-cover"
                           onError={(e) => {

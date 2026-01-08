@@ -375,7 +375,9 @@ export async function GET(request: NextRequest) {
             })
             
             // Return cached data if available, otherwise empty array
-            const cachedItems = cached?.items || []
+            // Retrieve cache again in case it was set during this request
+            const cachedEntry = getCached(cacheKey)
+            const cachedItems = cachedEntry?.items || []
             
             return NextResponse.json({
               ok: true,
