@@ -136,6 +136,47 @@ async function getOrCreateConversationFromEvent(
       }
     }
 
+    // Priority 3: Try to find existing conversation by participant (fallback when token is expired)
+    // This is safe because we're using an existing conversation ID from the database, not generating a fake one
+    if (participantIgsid) {
+      try {
+        console.log('[Instagram Webhook] Strategy 3: Looking up existing conversation by participant:', participantIgsid)
+        const { data: existingConv, error: lookupError } = await (supabase
+          .from('instagram_conversations') as any)
+          .select('id, participant_igsid')
+          .eq('ig_account_id', igAccountId)
+          .eq('participant_igsid', participantIgsid)
+          .order('last_message_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (lookupError) {
+          console.warn('[Instagram Webhook] Error looking up existing conversation:', lookupError)
+        } else if (existingConv && existingConv.id) {
+          console.log('[Instagram Webhook] Found existing conversation by participant:', {
+            conversationId: existingConv.id,
+            participantIgsid: existingConv.participant_igsid,
+          })
+          // Update the conversation's last_message_at
+          await (supabase
+            .from('instagram_conversations') as any)
+            .update({
+              last_message_at: new Date().toISOString(),
+              updated_time: new Date().toISOString(),
+            })
+            .eq('id', existingConv.id)
+          return existingConv.id
+        } else {
+          console.log('[Instagram Webhook] No existing conversation found for participant:', participantIgsid)
+        }
+      } catch (lookupException: any) {
+        console.warn('[Instagram Webhook] Exception looking up existing conversation:', {
+          message: lookupException.message,
+          name: lookupException.name,
+        })
+      }
+    }
+
     // If no conversation ID available, we cannot proceed
     // DO NOT generate fake IDs based on participant - this causes merging
     console.error('[Instagram Webhook] No conversation ID available - cannot create conversation', {
@@ -143,6 +184,7 @@ async function getOrCreateConversationFromEvent(
       participantIgsid,
       hasEventId: !!conversationIdFromEvent,
       hasAccessToken: !!accessToken,
+      triedExistingLookup: true,
     })
     return null
   } catch (error: any) {

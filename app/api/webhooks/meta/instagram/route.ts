@@ -855,14 +855,25 @@ async function handleMessageEvent(
     // - Resolve participant identity
     // Try to get access token for API lookup if conversation ID not in event
     // Use the matched instagram_user_id (not the webhook igAccountId) to get the correct token
+    // Even if expired, we'll try to use it (API might still work for some endpoints)
     let accessToken: string | null = null
     try {
       const { data: connection } = await (supabase
         .from('instagram_connections') as any)
-        .select('access_token')
+        .select('access_token, token_expires_at')
         .eq('instagram_user_id', recipientIgAccountId) // Use matched account ID, not webhook ID
         .maybeSingle()
       accessToken = connection?.access_token || null
+      if (accessToken && connection?.token_expires_at) {
+        const expiresAt = new Date(connection.token_expires_at)
+        const now = new Date()
+        if (expiresAt < now) {
+          console.warn('[Meta Webhook] Access token is expired, but will try to use it anyway:', {
+            expiredAt: expiresAt.toISOString(),
+            now: now.toISOString(),
+          })
+        }
+      }
     } catch (tokenError: any) {
       console.warn('[Meta Webhook] Could not fetch access token for API lookup:', tokenError.message)
     }
