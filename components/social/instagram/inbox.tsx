@@ -56,6 +56,26 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
   // #endregion
   
   const [loading, setLoading] = useState(true)
+  const supabase = createClient()
+  
+  // Track auth state changes to detect session loss
+  useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:58',message:'Auth state change',data:{event,hasSession:!!session,sessionExpiresAt:session?.expires_at,userId:session?.user?.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
+      
+      if (event === 'SIGNED_OUT' || !session) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:62',message:'User signed out detected',data:{event},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
+      }
+    })
+    
+    return () => subscription.unsubscribe()
+  }, [supabase])
   const [error, setError] = useState<string | null>(null)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
@@ -103,10 +123,20 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
       // #region agent log
       fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:74',message:'fetchInbox: calling API',data:{url:`/api/social/instagram/inbox?locationId=${locationId}`},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
       // #endregion
-      const response = await fetch(`/api/social/instagram/inbox?locationId=${locationId}`)
+      const response = await fetch(`/api/social/instagram/inbox?locationId=${locationId}`, {
+        credentials: 'include', // Ensure cookies are sent with the request
+      })
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:107',message:'API response received',data:{status:response.status,statusText:response.statusText,ok:response.ok},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:112',message:'API error response',data:{status:response.status,errorData,errorType:errorData?.error?.type,errorMessage:errorData?.error?.message,isUnauthorized:response.status===401},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         
       // Check for Instagram auth error - automatically reconnect if expired
       if (errorData.error?.type === 'instagram_auth') {
@@ -381,7 +411,9 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
       
       try {
         // Always refresh conversations list to update unread counts and previews
-        const response = await fetch(`/api/social/instagram/inbox?locationId=${locationId}`)
+        const response = await fetch(`/api/social/instagram/inbox?locationId=${locationId}`, {
+          credentials: 'include', // Ensure cookies are sent with the request
+        })
         if (response.ok) {
           const data = await response.json()
           const previousUnreadCount = unreadCount
@@ -399,7 +431,9 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
 
           // If conversation is selected, also refresh its messages
           if (selectedConversationId) {
-            const convResponse = await fetch(`/api/social/instagram/inbox?locationId=${locationId}&conversationId=${selectedConversationId}`)
+            const convResponse = await fetch(`/api/social/instagram/inbox?locationId=${locationId}&conversationId=${selectedConversationId}`, {
+              credentials: 'include', // Ensure cookies are sent with the request
+            })
             if (convResponse.ok) {
               const convData = await convResponse.json()
               const conv = convData.conversations?.[0]
@@ -449,7 +483,9 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
     setSelectedConversationId(conversationId)
     
     // Fetch messages for this conversation
-    const response = await fetch(`/api/social/instagram/inbox?locationId=${locationId}&conversationId=${conversationId}`)
+    const response = await fetch(`/api/social/instagram/inbox?locationId=${locationId}&conversationId=${conversationId}`, {
+      credentials: 'include', // Ensure cookies are sent with the request
+    })
     if (response.ok) {
       const data = await response.json()
       const conversation = data.conversations?.[0]
@@ -465,10 +501,13 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
         // Mark messages as read
         await fetch(`/api/social/instagram/inbox/mark-read?locationId=${locationId}&conversationId=${conversationId}`, {
           method: 'POST',
+          credentials: 'include', // Ensure cookies are sent with the request
         })
         
         // Refresh to update unread count (but preserve messages)
-        const refreshResponse = await fetch(`/api/social/instagram/inbox?locationId=${locationId}`)
+        const refreshResponse = await fetch(`/api/social/instagram/inbox?locationId=${locationId}`, {
+          credentials: 'include', // Ensure cookies are sent with the request
+        })
         if (refreshResponse.ok) {
           const refreshData = await refreshResponse.json()
           setConversations(refreshData.conversations || [])
@@ -634,7 +673,9 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
       
       // Refresh messages for the selected conversation specifically
       if (selectedConversationId) {
-        const refreshResponse = await fetch(`/api/social/instagram/inbox?locationId=${locationId}&conversationId=${selectedConversationId}`)
+        const refreshResponse = await fetch(`/api/social/instagram/inbox?locationId=${locationId}&conversationId=${selectedConversationId}`, {
+          credentials: 'include', // Ensure cookies are sent with the request
+        })
         if (refreshResponse.ok) {
           const refreshData = await refreshResponse.json()
           const refreshedConv = refreshData.conversations?.[0]
@@ -664,7 +705,9 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
       }
       
       // Also refresh the conversations list to update previews (but don't overwrite messages)
-      const refreshInboxResponse = await fetch(`/api/social/instagram/inbox?locationId=${locationId}`)
+      const refreshInboxResponse = await fetch(`/api/social/instagram/inbox?locationId=${locationId}`, {
+        credentials: 'include', // Ensure cookies are sent with the request
+      })
       if (refreshInboxResponse.ok) {
         const refreshInboxData = await refreshInboxResponse.json()
         setConversations(refreshInboxData.conversations || [])
@@ -686,6 +729,7 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
     try {
       const response = await fetch(`/api/social/instagram/inbox/sync?locationId=${locationId}`, {
         method: 'POST',
+        credentials: 'include', // Ensure cookies are sent with the request
       })
       
       if (!response.ok) {
@@ -732,6 +776,7 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
     try {
       const response = await fetch(`/api/social/instagram/inbox/backfill-identities?locationId=${locationId}`, {
         method: 'POST',
+        credentials: 'include', // Ensure cookies are sent with the request
       })
       
       if (!response.ok) {
