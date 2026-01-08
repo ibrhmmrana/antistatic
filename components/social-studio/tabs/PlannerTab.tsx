@@ -359,62 +359,8 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
             igItems = igData.items
           }
         } else {
-          // Non-transient error - handle it here
+          // Non-transient error, will be handled below
           igItems = []
-          
-          // Try to parse error details
-          try {
-            const errorData = igData.error ? igData : await igPostsResponse.value.json().catch(() => ({}))
-            
-            if (errorData.retryable && errorData.status === 500) {
-              instagramRetryCount.current++
-              
-              console.warn('[PlannerTab] Instagram API temporary error:', {
-                error: errorData,
-                retryCount: instagramRetryCount.current,
-                maxRetries: MAX_INSTAGRAM_RETRIES
-              })
-              
-              if (instagramRetryCount.current < MAX_INSTAGRAM_RETRIES) {
-                showToast(
-                  `Instagram temporarily unavailable. Retry ${instagramRetryCount.current}/${MAX_INSTAGRAM_RETRIES}...`,
-                  'info'
-                )
-                
-                // Auto-retry with exponential backoff
-                const waitTime = Math.pow(2, instagramRetryCount.current - 1) * 3000 // 3s, 6s, 12s
-                setTimeout(() => {
-                  console.log(`[PlannerTab] Auto-retrying Instagram fetch (attempt ${instagramRetryCount.current + 1})...`)
-                  fetchPosts()
-                }, waitTime)
-              } else {
-                // Max retries exceeded
-                console.error('[PlannerTab] Instagram max retries exceeded')
-                showToast(
-                  'Instagram is currently unavailable. Posts from other platforms are shown. Please try again later.',
-                  'error'
-                )
-                instagramRetryCount.current = 0 // Reset for next manual refresh
-              }
-            } else if (errorData.needs_reauth || errorData.needsReauth) {
-              console.warn('[PlannerTab] Instagram needs reconnection:', errorData)
-              
-              // Show a more prominent error with instructions
-              showToast(
-                '⚠️ Instagram disconnected. Click "Connect" → "Instagram" to reconnect and restore your posts.',
-                'error'
-              )
-              
-              instagramRetryCount.current = 0
-            } else {
-              console.warn('[PlannerTab] Instagram posts fetch failed (non-critical):', errorData.error || 'Unknown error', errorData.errorDetails)
-              showToast('Failed to load Instagram posts. Please try refreshing.', 'error')
-              instagramRetryCount.current = 0
-            }
-          } catch (e) {
-            console.error('[PlannerTab] Failed to parse Instagram error response:', e)
-            showToast('Failed to load Instagram posts. Please try refreshing.', 'error')
-          }
         }
         
         // Process items if we have any
@@ -481,6 +427,66 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
             })
           
           console.log(`[PlannerTab] Loaded ${igEvents.length} Instagram posts (filtered from ${igItems.length} items)`)
+        }
+      } else if (igPostsResponse.status === 'fulfilled' && !igPostsResponse.value.ok) {
+        // Instagram API returned an error - capture the error details
+        try {
+          const errorData = await igPostsResponse.value.json().catch(() => ({}))
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlannerTab.tsx:248',message:'Instagram API error response',data:{status:igPostsResponse.value.status,error:errorData.error,errorDetails:errorData.errorDetails,needsReauth:errorData.needs_reauth,retryable:errorData.retryable},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
+          
+          if (errorData.retryable && errorData.status === 500) {
+            instagramRetryCount.current++
+            
+            console.warn('[PlannerTab] Instagram API temporary error:', {
+              error: errorData,
+              retryCount: instagramRetryCount.current,
+              maxRetries: MAX_INSTAGRAM_RETRIES
+            })
+            
+            if (instagramRetryCount.current < MAX_INSTAGRAM_RETRIES) {
+              showToast(
+                `Instagram temporarily unavailable. Retry ${instagramRetryCount.current}/${MAX_INSTAGRAM_RETRIES}...`,
+                'info'
+              )
+              
+              // Auto-retry with exponential backoff
+              const waitTime = Math.pow(2, instagramRetryCount.current - 1) * 3000 // 3s, 6s, 12s
+              setTimeout(() => {
+                console.log(`[PlannerTab] Auto-retrying Instagram fetch (attempt ${instagramRetryCount.current + 1})...`)
+                fetchPosts()
+              }, waitTime)
+            } else {
+              // Max retries exceeded
+              console.error('[PlannerTab] Instagram max retries exceeded')
+              showToast(
+                'Instagram is currently unavailable. Posts from other platforms are shown. Please try again later.',
+                'error'
+              )
+              instagramRetryCount.current = 0 // Reset for next manual refresh
+            }
+          } else if (errorData.needs_reauth || errorData.needsReauth) {
+            console.warn('[PlannerTab] Instagram needs reconnection:', errorData)
+            
+            // Show a more prominent error with instructions
+            showToast(
+              '⚠️ Instagram disconnected. Click "Connect" → "Instagram" to reconnect and restore your posts.',
+              'error'
+            )
+            
+            instagramRetryCount.current = 0
+          } else {
+            console.warn('[PlannerTab] Instagram posts fetch failed (non-critical):', errorData.error || 'Unknown error', errorData.errorDetails)
+            showToast('Failed to load Instagram posts. Please try refreshing.', 'error')
+            instagramRetryCount.current = 0
+          }
+        } catch (e) {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlannerTab.tsx:255',message:'Failed to parse Instagram error response',data:{status:igPostsResponse.value.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
+          console.error('[PlannerTab] Failed to parse Instagram error response:', e)
+          showToast('Failed to load Instagram posts. Please try refreshing.', 'error')
         }
       } else if (igPostsResponse.status === 'rejected') {
         // #region agent log
@@ -852,11 +858,6 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
 
     // Check if this is a GBP post - use GBP delete route
     const isGBPPost = postToDelete.platform === 'google_business' && postToDelete.gbp_local_post_name
-    
-    // Check if this is a live Instagram post
-    const isInstagramPost = postToDelete.platform === 'instagram' && 
-                           postToDelete.status === 'published' && 
-                           (postToDelete as any).isLiveInstagram
 
     try {
       if (isGBPPost) {
@@ -877,61 +878,6 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
         }
 
         showToast('Post deleted from Google successfully', 'success')
-      } else if (isInstagramPost) {
-        // Delete from Instagram
-        const mediaId = postToDelete.id.startsWith('ig_') ? postToDelete.id.replace('ig_', '') : postToDelete.id
-        const response = await fetch(
-          `/api/social-studio/instagram/posts?businessLocationId=${encodeURIComponent(businessLocationId)}&mediaId=${encodeURIComponent(mediaId)}`,
-          {
-            method: 'DELETE',
-          }
-        )
-
-        const data = await response.json()
-
-        if (response.status === 501 && data.reason === 'INSTAGRAM_DELETE_NOT_SUPPORTED') {
-          // Instagram doesn't support deletion via API
-          const permalink = instagramDetails?.permalink || (postToDelete as any).permalink
-          if (permalink) {
-            showToast(
-              'Instagram doesn\'t allow deleting published posts via API. Please delete it in Instagram.',
-              'error',
-              10000, // Show for 10 seconds
-              {
-                label: 'Open Instagram',
-                onClick: () => {
-                  window.open(permalink, '_blank', 'noopener,noreferrer')
-                },
-              }
-            )
-          } else {
-            showToast('Instagram doesn\'t allow deleting published posts via API. Please delete it in Instagram.', 'error')
-          }
-          setPostToDelete(null)
-          return
-        }
-
-        if (!response.ok) {
-          throw new Error(data.error || 'Failed to delete post on Instagram')
-        }
-
-        // Success - remove from local state
-        setEvents((prevEvents) => prevEvents.filter((event) => event.id !== postToDelete.id))
-        showToast('Post deleted', 'success')
-        setSelectedPost(null)
-        setIsInspectorOpen(false)
-        setIsEditing(false)
-        setPostToDelete(null)
-        
-        // Force calendar refresh
-        if (apiRef.current) {
-          try {
-            apiRef.current.refetchEvents()
-          } catch (e) {
-            console.warn('[PlannerTab] Could not refetch events:', e)
-          }
-        }
-        return
       } else {
         // Delete local post
         console.log('[PlannerTab] Deleting local post:', postToDelete.id)
@@ -1503,7 +1449,7 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
                       ) : (
                         // Use regular img tag for external URLs to avoid Next.js Image optimization issues
                         <img
-                          src={imageUrl || undefined}
+                          src={imageUrl}
                           alt={selectedPost.topic || selectedPost.caption || 'Post media'}
                           className="w-full h-full object-cover"
                           onError={(e) => {
@@ -1839,19 +1785,20 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
                       Unschedule
                     </button>
                   )}
-                  <button
-                    onClick={handleDeleteClick}
-                    className="w-full px-4 py-2 text-sm font-medium text-red-600 bg-white border border-red-300 rounded-md hover:bg-red-50 transition-colors flex items-center justify-center gap-2"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                    {selectedPost.platform === 'google_business' && selectedPost.gbp_local_post_name
-                      ? 'Delete on Google'
-                      : selectedPost.platform === 'instagram' && selectedPost.status === 'published' && (selectedPost as any).isLiveInstagram
-                      ? 'Delete on Instagram'
-                      : 'Delete Post'}
-                  </button>
+                  {/* Hide delete button for Instagram posts */}
+                  {selectedPost.platform !== 'instagram' && (
+                    <button
+                      onClick={handleDeleteClick}
+                      className="w-full px-4 py-2 text-sm font-medium text-red-600 bg-white border border-red-300 rounded-md hover:bg-red-50 transition-colors flex items-center justify-center gap-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                      {selectedPost.platform === 'google_business' && selectedPost.gbp_local_post_name
+                        ? 'Delete on Google'
+                        : 'Delete Post'}
+                    </button>
+                  )}
                 </div>
                 </div>
               ) : (
@@ -1871,15 +1818,11 @@ export function PlannerTab({ businessLocationId }: PlannerTabProps) {
             <h3 className="text-lg font-semibold text-slate-900 mb-4">
               {postToDelete.platform === 'google_business' && postToDelete.gbp_local_post_name
                 ? 'Delete from Google Business Profile'
-                : postToDelete.platform === 'instagram' && postToDelete.status === 'published' && (postToDelete as any).isLiveInstagram
-                ? 'Delete from Instagram'
                 : 'Delete Post'}
             </h3>
             <p className="text-sm text-slate-700 mb-6">
               {postToDelete.platform === 'google_business' && postToDelete.gbp_local_post_name
                 ? 'Are you sure you want to delete this post from Google Business Profile? This action cannot be undone.'
-                : postToDelete.platform === 'instagram' && postToDelete.status === 'published' && (postToDelete as any).isLiveInstagram
-                ? 'Are you sure you want to delete this post from Instagram? This action cannot be undone.'
                 : 'Are you sure you want to delete this post? This action cannot be undone.'}
             </p>
             <div className="flex gap-3 justify-end">

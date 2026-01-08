@@ -49,12 +49,21 @@ function getCached(key: string): CacheEntry | null {
 /**
  * Set cache entry
  */
-function setCached(key: string, items: any[], fbtrace_id?: string): void {
+function setCache(key: string, items: any[], fbtrace_id?: string): void {
   cache.set(key, {
     items,
     timestamp: Date.now(),
     fbtrace_id,
   })
+  
+  // Cleanup old entries (keep cache size reasonable)
+  if (cache.size > 100) {
+    const oldestKey = Array.from(cache.entries())
+      .sort((a, b) => a[1].timestamp - b[1].timestamp)[0]?.[0]
+    if (oldestKey) {
+      cache.delete(oldestKey)
+    }
+  }
 }
 
 /**
@@ -62,6 +71,15 @@ function setCached(key: string, items: any[], fbtrace_id?: string): void {
  */
 function generateRequestId(): string {
   return `req_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+}
+
+/**
+ * Add jitter to retry delay
+ */
+function getRetryDelay(attempt: number): number {
+  const baseDelay = RETRY_DELAYS[attempt] || RETRY_DELAYS[RETRY_DELAYS.length - 1]
+  const jitter = Math.random() * 200 // 0-200ms jitter
+  return baseDelay + jitter
 }
 
 /**
@@ -76,16 +94,7 @@ function withTimeout(ms: number): { controller: AbortController; timeoutId: Node
 }
 
 /**
- * Get retry delay with jitter
- */
-function getRetryDelay(attempt: number): number {
-  const baseDelay = RETRY_DELAYS[attempt] || RETRY_DELAYS[RETRY_DELAYS.length - 1]
-  const jitter = Math.random() * 0.3 * baseDelay // ±30% jitter
-  return baseDelay + jitter
-}
-
-/**
- * Fetch with retry logic
+ * Fetch with retry logic for transient errors
  */
 async function fetchWithRetry(
   url: string,
@@ -143,44 +152,57 @@ async function fetchWithRetry(
         }
       }
       
-      // Non-retryable error or max retries reached
       throw error
     }
   }
   
-  // If we exhausted retries, return the last response or throw the last error
+  // If we exhausted retries, return last response or throw last error
   if (lastResponse) {
     return lastResponse
   }
-  
-  throw lastError || new Error('Max retries exceeded')
-}
-
-/**
- * Safe JSON fetch helper
- */
-async function safeFetchJson(url: string, options: RequestInit, requestId: string): Promise<any> {
-  const response = await fetchWithRetry(url, options, requestId)
-  return response.json()
+  throw lastError || new Error('Failed after retries')
 }
 
 export async function GET(request: NextRequest) {
   const requestId = generateRequestId()
   
   try {
-    console.log(`[IG Posts] start`, { requestId })
-    
     const { searchParams } = new URL(request.url)
     const businessLocationId = searchParams.get('businessLocationId')
-    const start = searchParams.get('start')
-    const end = searchParams.get('end')
-    const limit = searchParams.get('limit')
+    const startParam = searchParams.get('start')
+    const endParam = searchParams.get('end')
 
     if (!businessLocationId) {
       return NextResponse.json(
         { ok: false, error: 'Missing businessLocationId', requestId },
         { status: 400 }
       )
+    }
+
+    // Parse date range
+    let startDate: Date
+    let endDate: Date
+    
+    if (startParam && endParam) {
+      startDate = new Date(startParam)
+      endDate = new Date(endParam)
+      
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        return NextResponse.json(
+          { ok: false, error: 'Invalid date range', requestId },
+          { status: 400 }
+        )
+      }
+    } else {
+      // Default: current month ± 7 days
+      const now = new Date()
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1)
+      startDate.setDate(startDate.getDate() - 7)
+      startDate.setHours(0, 0, 0, 0)
+      
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+      endDate.setDate(endDate.getDate() + 7)
+      endDate.setHours(23, 59, 59, 999)
     }
 
     const supabase = await createClient()
@@ -196,69 +218,32 @@ export async function GET(request: NextRequest) {
     }
 
     // Check cache first
-    const cacheKey = getCacheKey(user.id, businessLocationId, start || '', end || '')
+    const cacheKey = getCacheKey(user.id, businessLocationId, startDate.toISOString(), endDate.toISOString())
     const cached = getCached(cacheKey)
     if (cached) {
-      console.log(`[IG Posts] cache_hit`, { requestId, itemCount: cached.items.length })
+      console.log(`[IG Posts] Cache hit:`, { requestId, itemsCount: cached.items.length })
       return NextResponse.json({
         ok: true,
-        range: { start, end },
         items: cached.items,
-        diagnostics: {
-          cached: true,
-          fbtrace_id: cached.fbtrace_id,
-        },
+        cached: true,
         requestId,
       })
     }
 
-    console.log(`[IG Posts] validate_input`, { requestId, businessLocationId, start, end, limit })
-
-    // Parse and validate date range
-    let startDate: Date
-    let endDate: Date
-
-    if (start && end) {
-      startDate = new Date(start)
-      endDate = new Date(end)
-      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-        return NextResponse.json(
-          { ok: false, error: 'Invalid date range', requestId },
-          { status: 400 }
-        )
-      }
-    } else {
-      // Default: current month ± 7 days
-      const now = new Date()
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1)
-      startDate.setDate(startDate.getDate() - 7)
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-      endDate.setDate(endDate.getDate() + 7)
-    }
-
-    // Clamp date range to max 120 days
-    const maxRangeDays = 120
-    const requestedRangeDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
-    if (requestedRangeDays > maxRangeDays) {
-      const midpoint = new Date((startDate.getTime() + endDate.getTime()) / 2)
-      startDate = new Date(midpoint)
-      startDate.setDate(startDate.getDate() - maxRangeDays / 2)
-      endDate = new Date(midpoint)
-      endDate.setDate(endDate.getDate() + maxRangeDays / 2)
-      console.log(`[IG Posts] clamped_date_range`, { requestId, requestedRangeDays, clampedTo: maxRangeDays })
-    }
-
-    // Get Instagram access token
+    // Get Instagram access token and account ID
     let accessToken: string
     let igAccountId: string
 
     try {
-      console.log(`[IG Posts] resolve_token`, { requestId, businessLocationId })
       const tokenData = await getInstagramAccessTokenForLocation(businessLocationId)
       accessToken = tokenData.access_token
       igAccountId = tokenData.ig_account_id
       
-      console.log(`[IG Posts] token_resolved`, { requestId, igAccountId, hasToken: !!accessToken })
+      console.log(`[IG Posts] resolve_token - Token loaded:`, {
+        requestId,
+        igAccountId,
+        hasToken: !!accessToken,
+      })
     } catch (error: any) {
       if (error instanceof InstagramAuthError) {
         if (error.code === 'EXPIRED') {
@@ -272,14 +257,12 @@ export async function GET(request: NextRequest) {
             { status: 401 }
           )
         }
-        return NextResponse.json(
-          {
-            ok: false,
-            error: 'Instagram not connected',
-            requestId,
-          },
-          { status: 404 }
-        )
+        // Not connected - return empty array (non-blocking)
+        return NextResponse.json({
+          ok: true,
+          items: [],
+          requestId,
+        })
       }
       
       return NextResponse.json(
@@ -292,430 +275,248 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Validate igAccountId format
-    if (!igAccountId || !/^\d+$/.test(igAccountId)) {
-      console.error(`[IG Posts] invalid_ig_account_id`, { requestId, igAccountId })
-      return NextResponse.json(
-        {
-          ok: false,
-          error: 'Invalid Instagram account ID',
-          requestId,
-        },
-        { status: 400 }
-      )
-    }
-
-    // Sanity check: verify token and account match
-    const meUrl = new URL(`${API_BASE}/${API_VERSION}/me`)
-    meUrl.searchParams.set('fields', 'id,username')
-    meUrl.searchParams.set('access_token', accessToken)
-
-    let meData: any = null
+    // Sanity check: verify token and account ID match
     try {
-      const meResponse = await safeFetchJson(meUrl.toString(), { method: 'GET' }, requestId)
-      if (meResponse.id) {
-        meData = meResponse
-        console.log(`[IG Posts] me_check`, { requestId, meId: meData.id, storedIgAccountId: igAccountId, match: meData.id === igAccountId })
+      const meUrl = new URL(`${API_BASE}/${API_VERSION}/me`)
+      meUrl.searchParams.set('fields', 'id,username')
+      meUrl.searchParams.set('access_token', accessToken)
+      
+      const meResponse = await fetch(meUrl.toString(), { method: 'GET' })
+      if (meResponse.ok) {
+        const meData = await meResponse.json()
+        const actualIgId = meData.id
         
-        // If IDs don't match, use /me/media instead
-        if (meData.id !== igAccountId) {
-          console.log(`[IG Posts] account_id_mismatch, using /me/media`, { requestId, meId: meData.id, storedId: igAccountId })
+        if (actualIgId && actualIgId !== igAccountId) {
+          console.log(`[IG Posts] Account ID mismatch, using /me/media instead:`, {
+            requestId,
+            stored: igAccountId,
+            actual: actualIgId,
+          })
+          igAccountId = actualIgId
         }
       }
-    } catch (error: any) {
-      console.warn(`[IG Posts] me_check_failed`, { requestId, error: error.message })
-      // Continue anyway - might still work with stored ID
+    } catch (meError: any) {
+      console.warn(`[IG Posts] /me check failed (non-fatal):`, {
+        requestId,
+        error: meError.message,
+      })
+      // Continue with stored igAccountId
     }
 
-    // Build media endpoint URL
-    const mediaEndpoint = meData && meData.id !== igAccountId 
-      ? `${API_BASE}/${API_VERSION}/me/media`
-      : `${API_BASE}/${API_VERSION}/${igAccountId}/media`
-
-    console.log(`[IG Posts] calling_api`, { requestId, endpoint: mediaEndpoint, startDate: startDate.toISOString(), endDate: endDate.toISOString() })
-
-    // Convert dates to Unix timestamps for filtering
-    const sinceTimestamp = Math.floor(startDate.getTime() / 1000)
-    const untilTimestamp = Math.floor(endDate.getTime() / 1000)
-
-    // Build initial request URL
-    const initialUrl = new URL(mediaEndpoint)
-    initialUrl.searchParams.set('fields', 'id,caption,media_type,timestamp')
-    initialUrl.searchParams.set('access_token', accessToken)
-    // Note: Instagram API doesn't support since/until on /media endpoint, so we'll filter client-side
-
-    const allItems: any[] = []
-    let nextPageUrl: string | null = null
+    // Fetch media with pagination (minimal fields first)
+    const allMedia: any[] = []
+    let nextPageToken: string | undefined = undefined
     let pageCount = 0
-    let fbtrace_id: string | undefined
+    const startTimestamp = Math.floor(startDate.getTime() / 1000)
+    const endTimestamp = Math.floor(endDate.getTime() / 1000)
 
-    // Paginate through results
+    // Minimal fields for initial fetch
+    const fields = 'id,caption,media_type,timestamp'
+
     do {
-      const url = nextPageUrl || initialUrl.toString()
-      const response = await safeFetchJson(url, { method: 'GET' }, requestId)
-      
-      if (response.error) {
-        fbtrace_id = response.error.fbtrace_id
-        const errorCode = response.error.code
-        const errorMessage = response.error.message || 'Unknown error'
-        const errorType = response.error.type || 'Unknown'
-        const isTransient = response.error.is_transient === true || response.error.code === 2
+      pageCount++
 
-        console.error(`[IG Posts] api_error`, {
-          requestId,
-          errorCode,
-          errorMessage,
-          errorType,
-          isTransient,
-          fbtrace_id,
-        })
+      if (pageCount > MAX_PAGES) {
+        console.log(`[IG Posts] Max pages reached:`, { requestId, pageCount, maxPages: MAX_PAGES })
+        break
+      }
 
-        // Check cache for fallback
-        const cached = getCached(cacheKey)
-        if (cached && cached.items.length > 0) {
-          console.log(`[IG Posts] returning_cached_on_error`, { requestId, itemCount: cached.items.length, fbtrace_id })
+      // Build API URL
+      const apiUrl = new URL(`${API_BASE}/${API_VERSION}/${igAccountId}/media`)
+      apiUrl.searchParams.set('fields', fields)
+      apiUrl.searchParams.set('limit', PAGE_LIMIT.toString())
+      apiUrl.searchParams.set('access_token', accessToken)
+
+      if (nextPageToken) {
+        apiUrl.searchParams.set('after', nextPageToken)
+      }
+
+      console.log(`[IG Posts] Fetching page ${pageCount}:`, {
+        requestId,
+        url: apiUrl.toString().replace(/access_token=[^&]+/, 'access_token=***'),
+        hasNextToken: !!nextPageToken,
+      })
+
+      try {
+        const response = await fetchWithRetry(
+          apiUrl.toString(),
+          { method: 'GET' },
+          requestId
+        )
+
+        if (!response.ok) {
+          let errorData: any = {}
+          let fbtrace_id: string | undefined
+          try {
+            const text = await response.text()
+            errorData = JSON.parse(text)
+            fbtrace_id = errorData.error?.fbtrace_id
+          } catch (parseError: any) {
+            // Failed to parse
+          }
+          
+          // Check if it's a transient error
+          const isTransient = 
+            response.status >= 500 || 
+            response.status === 502 || 
+            response.status === 503 || 
+            response.status === 504 ||
+            (errorData.error?.code === 2 && errorData.error?.is_transient === true)
+          
+          if (isTransient) {
+            // Log error with fbtrace_id for diagnosis
+            console.error(`[IG Posts] Transient error from Instagram:`, {
+              requestId,
+              status: response.status,
+              errorCode: errorData.error?.code,
+              errorMessage: errorData.error?.message,
+              fbtrace_id,
+              responsePreview: JSON.stringify(errorData).substring(0, 200),
+            })
+            
+            // Return cached data if available, otherwise empty array
+            const cachedItems = cached?.items || []
+            
+            return NextResponse.json({
+              ok: true,
+              items: cachedItems,
+              transient: true,
+              error: errorData.error?.message || 'Instagram API temporarily unavailable',
+              fbtrace_id,
+              requestId,
+            })
+          }
+          
+          if (response.status === 401 || errorData.error?.code === 190) {
+            return NextResponse.json({
+              ok: false,
+              error: 'Instagram authentication failed. Please reconnect your account.',
+              needs_reauth: true,
+              requestId,
+            }, { status: 401 })
+          }
+          
           return NextResponse.json({
-            ok: true,
-            range: { start, end },
-            items: cached.items,
-            transient: true,
-            error: errorMessage,
+            ok: false,
+            error: errorData.error?.message || 'Instagram API error',
             fbtrace_id,
             requestId,
-          })
+          }, { status: response.status })
         }
 
-        // Return error response
-        return NextResponse.json(
-          {
-            ok: false,
-            error: errorMessage,
-            step: 'calling_api',
-            requestId,
-            errorDetails: {
-              code: errorCode,
-              type: errorType,
-              fbtrace_id,
-              is_transient: isTransient,
-            },
-          },
-          { status: 502 }
-        )
-      }
+        const data = await response.json()
 
-      if (response.data && Array.isArray(response.data)) {
-        allItems.push(...response.data)
-      }
+        if (data.data && Array.isArray(data.data)) {
+          allMedia.push(...data.data)
+        }
 
-      // Check if we should continue paginating
-      if (response.paging && response.paging.cursors && response.paging.cursors.after) {
-        // Check if oldest item is before start date (with 3-day buffer)
-        if (allItems.length > 0) {
-          const oldestItem = allItems[allItems.length - 1]
-          if (oldestItem.timestamp) {
-            // Parse timestamp (ISO string or Unix seconds)
-            let itemTimestamp: number
-            if (typeof oldestItem.timestamp === 'string') {
-              itemTimestamp = Math.floor(new Date(oldestItem.timestamp).getTime() / 1000)
+        // Check for next page
+        nextPageToken = data.paging?.cursors?.after
+
+        // Early exit if oldest post is before start date (with 3-day buffer)
+        if (data.data && data.data.length > 0) {
+          const oldestTimestampRaw = data.data[data.data.length - 1]?.timestamp
+          if (oldestTimestampRaw) {
+            // Convert to Unix seconds for comparison
+            let oldestTimestamp: number
+            if (typeof oldestTimestampRaw === 'string') {
+              const date = new Date(oldestTimestampRaw)
+              oldestTimestamp = Math.floor(date.getTime() / 1000)
             } else {
-              itemTimestamp = oldestItem.timestamp
+              oldestTimestamp = parseInt(oldestTimestampRaw)
             }
             
-            // If oldest item is more than 3 days before start, stop paginating
-            if (itemTimestamp < sinceTimestamp - (3 * 24 * 60 * 60)) {
-              console.log(`[IG Posts] early_exit`, { requestId, itemTimestamp, sinceTimestamp, itemCount: allItems.length })
+            if (oldestTimestamp < startTimestamp - (3 * 24 * 60 * 60)) {
+              console.log(`[IG Posts] Reached posts older than start date, stopping pagination`, {
+                requestId,
+                oldestTimestamp,
+                oldestTimestampRaw,
+                startTimestamp,
+              })
               break
             }
           }
         }
-        
-        nextPageUrl = `${mediaEndpoint}?fields=id,caption,media_type,timestamp&access_token=${accessToken}&after=${response.paging.cursors.after}`
-        pageCount++
-      } else {
-        nextPageUrl = null
-      }
 
-      // Hard caps
-      if (pageCount >= MAX_PAGES) {
-        console.log(`[IG Posts] max_pages_reached`, { requestId, pageCount: MAX_PAGES })
+        if (!nextPageToken) {
+          break
+        }
+      } catch (error: any) {
+        console.error(`[IG Posts] Fetch error:`, {
+          requestId,
+          error: error.message,
+          attempt: pageCount,
+        })
+        // Continue with what we have
         break
       }
-      if (allItems.length >= (limit ? parseInt(limit, 10) : PAGE_LIMIT * MAX_PAGES)) {
-        console.log(`[IG Posts] max_items_reached`, { requestId, itemCount: allItems.length })
-        break
-      }
-    } while (nextPageUrl)
+    } while (nextPageToken)
 
-    console.log(`[IG Posts] fetch_username`, { requestId, igAccountId })
-    
-    // Fetch username once
-    let username: string | null = null
-    try {
-      const usernameUrl = new URL(`${API_BASE}/${API_VERSION}/${igAccountId}`)
-      usernameUrl.searchParams.set('fields', 'username')
-      usernameUrl.searchParams.set('access_token', accessToken)
-      const usernameResponse = await safeFetchJson(usernameUrl.toString(), { method: 'GET' }, requestId)
-      if (usernameResponse.username) {
-        username = usernameResponse.username
-      }
-    } catch (error: any) {
-      console.warn(`[IG Posts] username_fetch_failed`, { requestId, error: error.message })
-    }
-
-    // Filter items by date range and normalize
-    const normalized: any[] = []
-    for (const item of allItems) {
-      if (!item.id || !item.timestamp) continue
-
-      // Parse timestamp (ISO string or Unix seconds)
-      let itemTimestamp: number
+    // Filter by date range server-side
+    const filteredMedia = allMedia.filter((item: any) => {
+      if (!item.timestamp) return false
+      
+      // Convert timestamp to Unix seconds
+      let timestamp: number
       if (typeof item.timestamp === 'string') {
-        itemTimestamp = Math.floor(new Date(item.timestamp).getTime() / 1000)
+        // Instagram returns ISO 8601 strings like '2025-12-31T16:22:20+0000'
+        const date = new Date(item.timestamp)
+        timestamp = Math.floor(date.getTime() / 1000)
       } else {
-        itemTimestamp = item.timestamp
+        // Already a number (Unix timestamp)
+        timestamp = parseInt(item.timestamp)
       }
+      
+      return timestamp >= startTimestamp && timestamp <= endTimestamp
+    })
 
-      // Filter to date range
-      if (itemTimestamp < sinceTimestamp || itemTimestamp > untilTimestamp) {
-        continue
+    // Normalize for calendar rendering (minimal fields - media URLs fetched on demand)
+    const normalizedItems = filteredMedia.map((item: any) => {
+      // Convert timestamp to ISO string for calendar
+      let timestampStr: string
+      if (typeof item.timestamp === 'string') {
+        timestampStr = item.timestamp
+      } else {
+        // Convert Unix timestamp to ISO string
+        timestampStr = new Date(parseInt(item.timestamp) * 1000).toISOString()
       }
+      
+      return {
+        id: item.id,
+        timestamp: timestampStr,
+        caption: item.caption || '',
+        mediaType: item.media_type,
+        // mediaUrl, thumbUrl, permalink will be fetched on demand when post is selected
+      }
+    })
 
-      // Normalize to EventInput format
-      const eventDate = new Date(itemTimestamp * 1000)
-      normalized.push({
-        id: `ig_${item.id}`,
-        title: item.caption ? (item.caption.length > 50 ? item.caption.substring(0, 50) + '...' : item.caption) : 'Instagram Post',
-        start: eventDate.toISOString(),
-        allDay: false,
-        extendedProps: {
-          platform: 'instagram',
-          status: 'published',
-          media_type: item.media_type || 'IMAGE',
-          permalink: `https://www.instagram.com/p/${item.id}/`,
-          like_count: 0, // Will be fetched on-demand
-          comments_count: 0, // Will be fetched on-demand
-          mediaUrl: null, // Will be fetched on-demand
-          thumbnail_url: null, // Will be fetched on-demand
-          isLiveInstagram: true,
-        },
-      })
-    }
+    // Cache successful results
+    setCache(cacheKey, normalizedItems)
 
-    console.log(`[IG Posts] success`, { requestId, totalFetched: allItems.length, normalized: normalized.length, pageCount })
-
-    // Cache the results
-    setCached(cacheKey, normalized, fbtrace_id)
+    console.log(`[IG Posts] Success:`, {
+      requestId,
+      totalFetched: allMedia.length,
+      filtered: filteredMedia.length,
+      normalized: normalizedItems.length,
+      pages: pageCount,
+    })
 
     return NextResponse.json({
       ok: true,
-      range: { start: startDate.toISOString(), end: endDate.toISOString() },
-      items: normalized,
-      diagnostics: {
-        totalFetched: allItems.length,
-        normalized: normalized.length,
-        pageCount,
-        username,
-        fbtrace_id,
-      },
+      items: normalizedItems,
       requestId,
     })
   } catch (error: any) {
-    console.error(`[IG Posts] unexpected_error`, {
+    console.error(`[IG Posts] Unexpected error:`, {
       requestId,
       error: error.message,
       stack: error.stack,
     })
     
-    return NextResponse.json(
-      {
-        ok: false,
-        error: 'Internal server error',
-        step: 'unexpected_error',
-        requestId,
-      },
-      { status: 500 }
-    )
-  }
-}
-
-export async function DELETE(request: NextRequest) {
-  const requestId = generateRequestId()
-  
-  try {
-    console.log(`[IG Delete] start`, { requestId })
-    
-    const { searchParams } = new URL(request.url)
-    const businessLocationId = searchParams.get('businessLocationId')
-    const mediaId = searchParams.get('mediaId')
-
-    if (!businessLocationId || !mediaId) {
-      return NextResponse.json(
-        { ok: false, error: 'Missing businessLocationId or mediaId', requestId },
-        { status: 400 }
-      )
-    }
-
-    const supabase = await createClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json(
-        { ok: false, error: 'Unauthorized', requestId },
-        { status: 401 }
-      )
-    }
-
-    // Get Instagram access token
-    let accessToken: string
-    let igAccountId: string
-
-    try {
-      console.log(`[IG Delete] resolve_token`, { requestId, businessLocationId })
-      const tokenData = await getInstagramAccessTokenForLocation(businessLocationId)
-      accessToken = tokenData.access_token
-      igAccountId = tokenData.ig_account_id
-      
-      console.log(`[IG Delete] token_resolved`, { requestId, igAccountId, hasToken: !!accessToken })
-    } catch (error: any) {
-      if (error instanceof InstagramAuthError) {
-        if (error.code === 'EXPIRED') {
-          return NextResponse.json(
-            {
-              ok: false,
-              error: 'Instagram access token has expired. Please reconnect your account.',
-              needs_reauth: true,
-              requestId,
-            },
-            { status: 401 }
-          )
-        }
-        return NextResponse.json(
-          {
-            ok: false,
-            error: 'Instagram not connected',
-            requestId,
-          },
-          { status: 404 }
-        )
-      }
-      
-      return NextResponse.json(
-        {
-          ok: false,
-          error: 'Failed to get Instagram token',
-          requestId,
-        },
-        { status: 500 }
-      )
-    }
-
-    // Attempt to delete the media
-    const deleteUrl = new URL(`${API_BASE}/${API_VERSION}/${mediaId}`)
-    deleteUrl.searchParams.set('access_token', accessToken)
-
-    console.log(`[IG Delete] calling_api`, { requestId, mediaId, igAccountId, url: deleteUrl.toString().replace(accessToken, '***') })
-
-    try {
-      const { controller, timeoutId, signal } = withTimeout(FETCH_TIMEOUT_MS)
-      const response = await fetch(deleteUrl.toString(), {
-        method: 'DELETE',
-        signal,
-      })
-      clearTimeout(timeoutId)
-
-      const data = await response.json().catch(() => ({}))
-
-      if (response.ok) {
-        console.log(`[IG Delete] success`, { requestId, mediaId, igAccountId, status: response.status })
-        return NextResponse.json({
-          ok: true,
-          requestId,
-        })
-      }
-
-      // Check if deletion is not supported
-      const errorMessage = data.error?.message?.toLowerCase() || ''
-      const errorCode = data.error?.code
-      const errorType = data.error?.type || ''
-      const fbtrace_id = data.error?.fbtrace_id
-
-      if (
-        response.status === 400 &&
-        (errorMessage.includes('unsupported') ||
-         errorMessage.includes('not supported') ||
-         errorMessage.includes('cannot delete') ||
-         errorType === 'UnsupportedDeleteRequestException')
-      ) {
-        console.log(`[IG Delete] not_supported`, { requestId, mediaId, igAccountId, errorMessage, errorCode, fbtrace_id })
-        return NextResponse.json(
-          {
-            ok: false,
-            reason: 'INSTAGRAM_DELETE_NOT_SUPPORTED',
-            requestId,
-          },
-          { status: 501 }
-        )
-      }
-
-      // Other errors
-      console.error(`[IG Delete] api_error`, {
-        requestId,
-        mediaId,
-        igAccountId,
-        status: response.status,
-        errorCode,
-        errorMessage,
-        errorType,
-        fbtrace_id,
-      })
-
-      return NextResponse.json(
-        {
-          ok: false,
-          error: errorMessage || 'Failed to delete post',
-          requestId,
-          errorDetails: {
-            code: errorCode,
-            type: errorType,
-            fbtrace_id,
-          },
-        },
-        { status: response.status >= 400 && response.status < 500 ? response.status : 500 }
-      )
-    } catch (error: any) {
-      console.error(`[IG Delete] unexpected_error`, {
-        requestId,
-        mediaId,
-        igAccountId,
-        error: error.message,
-        stack: error.stack,
-      })
-      
-      return NextResponse.json(
-        {
-          ok: false,
-          error: 'Internal server error',
-          requestId,
-        },
-        { status: 500 }
-      )
-    }
-  } catch (error: any) {
-    console.error(`[IG Delete] unexpected_error`, {
+    return NextResponse.json({
+      ok: false,
+      error: 'Internal server error',
       requestId,
-      error: error.message,
-      stack: error.stack,
-    })
-    
-    return NextResponse.json(
-      {
-        ok: false,
-        error: 'Internal server error',
-        requestId,
-      },
-      { status: 500 }
-    )
+    }, { status: 500 })
   }
 }
