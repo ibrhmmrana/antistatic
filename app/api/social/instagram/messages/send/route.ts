@@ -247,178 +247,236 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Step 6: Call Instagram Graph API
+    // Step 6: Call Instagram Graph API with retry logic
     // According to Instagram Messaging API docs, use form-urlencoded format with access_token in query params
     // Endpoint: /<IG_ID>/messages
     const apiVersion = 'v24.0'
+    const baseHosts = ['https://graph.instagram.com', 'https://graph.facebook.com'] // Try both hosts
+    const maxRetries = 3
+    const backoffDelays = [500, 1500, 3000] // ms
     
-    // Use account ID endpoint directly (skip /me as it doesn't work for Instagram Business accounts)
-    const apiUrl = new URL(`https://graph.instagram.com/${apiVersion}/${igAccountId}/messages`)
-    apiUrl.searchParams.set('access_token', accessToken)
+    let lastError: any = null
+    let lastResponse: Response | null = null
+    let lastResponseData: any = null
     
-    // Use form-urlencoded format (Instagram Messaging API expects this format)
-    const formBody = new URLSearchParams()
-    formBody.append('recipient', JSON.stringify({ id: recipientIgsid }))
-    formBody.append('message', JSON.stringify({ text: text.trim() }))
-
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messages/send/route.ts:224',message:'Preparing Instagram API call',data:{apiUrl:apiUrl.toString(),recipientIgsid,recipientIgsidLength:recipientIgsid?.length,recipientIgsidFormat:recipientIgsid?.substring(0,10),textLength:text.length,textPreview:text.substring(0,50),igAccountId,apiVersion,hasAccessToken:!!accessToken,accessTokenLength:accessToken?.length,accessTokenPrefix:accessToken?.substring(0,20),format:'form-urlencoded'},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'C'})}).catch(()=>{});
-    // #endregion
-
-    console.log('[Instagram Send Message] Calling Instagram API:', {
-      url: apiUrl.toString(),
-      recipientId: recipientIgsid,
-      textLength: text.length,
-      format: 'form-urlencoded',
-    })
-
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messages/send/route.ts:237',message:'Calling Instagram API with form-urlencoded',data:{url:apiUrl.toString(),recipientIgsid,messageText:text.trim(),headers:{contentType:'application/x-www-form-urlencoded',hasAccessTokenInQuery:true}},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'C'})}).catch(()=>{});
-    // #endregion
-
-    const response = await fetch(apiUrl.toString(), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: formBody.toString(),
-    })
-    
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messages/send/route.ts:245',message:'Instagram API response',data:{status:response.status,ok:response.ok,statusText:response.statusText,headers:Object.fromEntries(response.headers.entries())},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'C'})}).catch(()=>{});
-    // #endregion
-
-    const responseData = await response.json().catch(() => ({}))
-    
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messages/send/route.ts:271',message:'Instagram API response data',data:{responseOk:response.ok,responseStatus:response.status,responseData,hasError:!!responseData.error,errorCode:responseData.error?.code,errorType:responseData.error?.type,errorMessage:responseData.error?.message,errorSubcode:responseData.error?.error_subcode,fullError:responseData.error},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-    // #endregion
-
-    if (!response.ok) {
-      const error = responseData.error || {}
+    // Retry loop with host fallback
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      // Try each host (start with graph.instagram.com, fallback to graph.facebook.com on code 2)
+      const hostsToTry = attempt === 0 ? [baseHosts[0]] : baseHosts
       
-      // Log full error response (without tokens) for debugging
-      console.error('[Instagram Send Message] Graph API error:', {
-        status: response.status,
-        code: error.code,
-        message: error.message,
-        type: error.type,
-        error_subcode: error.error_subcode,
-        fbtrace_id: error.fbtrace_id,
-        error_user_title: error.error_user_title,
-        error_user_msg: error.error_user_msg,
-        conversationId,
-        recipientIgsid,
-        igAccountId,
-        apiUrl: apiUrl.toString().replace(accessToken, 'REDACTED'),
-        fullError: JSON.stringify(error),
-      })
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'messages/send/route.ts:275',message:'Instagram API error details',data:{status:response.status,code:error.code,message:error.message,type:error.type,errorSubcode:error.error_subcode,fbtraceId:error.fbtrace_id,errorUserTitle:error.error_user_title,errorUserMsg:error.error_user_msg,fullError:error,conversationId,recipientIgsid,apiUrl},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-      // #endregion
+      for (const baseHost of hostsToTry) {
+        try {
+          const apiUrl = new URL(`${baseHost}/${apiVersion}/${igAccountId}/messages`)
+          apiUrl.searchParams.set('access_token', accessToken)
+          
+          // Use form-urlencoded format (Instagram Messaging API expects this format)
+          const formBody = new URLSearchParams()
+          formBody.append('recipient', JSON.stringify({ id: recipientIgsid }))
+          formBody.append('message', JSON.stringify({ text: text.trim() }))
 
-      // Check for token expiry (code 190)
-      if (isTokenExpiredError(error) || error.code === 190) {
-        return NextResponse.json(
-          {
-            error: {
-              type: 'instagram_auth',
-              code: 'EXPIRED',
-              message: 'Instagram token expired. Please reconnect your Instagram account.',
+          if (attempt === 0 && baseHost === baseHosts[0]) {
+            console.log('[Instagram Send Message] Calling Instagram API:', {
+              url: apiUrl.toString().replace(accessToken, 'REDACTED'),
+              recipientId: recipientIgsid,
+              textLength: text.length,
+              format: 'form-urlencoded',
+              host: baseHost,
+              attempt: attempt + 1,
+            })
+          }
+
+          const response = await fetch(apiUrl.toString(), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
             },
-          },
-          { status: 401 }
-        )
-      }
+            body: formBody.toString(),
+          })
 
-      // Return detailed error to client
+          const responseData = await response.json().catch(() => ({}))
+
+          if (!response.ok) {
+            const error = responseData.error || {}
+            
+            // Check if this is a transient error (code 2) that we should retry
+            const isTransient = error.code === 2 || // OAuthException
+                               error.code === 1 || // API Unknown Error
+                               response.status >= 500 // Server errors
+            
+            // If OAuthException code 2 and we haven't tried fallback host yet, try it
+            if (error.code === 2 && baseHost === baseHosts[0] && attempt === 0) {
+              console.log('[Instagram Send Message] OAuthException code 2, trying fallback host:', {
+                originalHost: baseHost,
+                fallbackHost: baseHosts[1],
+              })
+              // Continue to next host
+              lastError = error
+              lastResponse = response
+              lastResponseData = responseData
+              continue
+            }
+            
+            // If transient and we have retries left, retry with backoff
+            if (isTransient && attempt < maxRetries) {
+              const delay = backoffDelays[attempt] || 3000
+              console.log('[Instagram Send Message] Transient error, retrying:', {
+                code: error.code,
+                message: error.message,
+                attempt: attempt + 1,
+                maxRetries,
+                delay,
+                host: baseHost,
+              })
+              
+              lastError = error
+              lastResponse = response
+              lastResponseData = responseData
+              
+              // Wait before retrying
+              await new Promise((resolve) => setTimeout(resolve, delay))
+              break // Break out of host loop, continue to next attempt
+            }
+            
+            // Non-transient error or max retries exceeded
+            lastError = error
+            lastResponse = response
+            lastResponseData = responseData
+            break // Break out of host loop
+          }
+          
+          // Success! Return the response data
+          const messageId = responseData.id || responseData.message_id || `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`
+          const messageTime = new Date().toISOString()
+
+          console.log('[Instagram Send Message] Success:', {
+            messageId,
+            recipientId: recipientIgsid,
+            host: baseHost,
+            attempt: attempt + 1,
+          })
+
+          // Step 7: Insert outbound message into database
+          const fromId = businessAccountIgsid || igAccountId
+          
+          const { error: insertError } = await (supabase
+            .from('instagram_messages') as any)
+            .insert({
+              id: messageId,
+              ig_account_id: igAccountId,
+              conversation_id: finalConversationId,
+              direction: 'outbound',
+              from_id: fromId,
+              to_id: recipientIgsid,
+              text: text.trim(),
+              attachments: null,
+              created_time: messageTime,
+              read_at: messageTime,
+              raw: responseData,
+            })
+
+          if (insertError) {
+            console.error('[Instagram Send Message] Error inserting message:', insertError)
+          }
+
+          // Step 8: Update conversation metadata
+          const { data: recentMessages } = await (supabase
+            .from('instagram_messages') as any)
+            .select('text, created_time')
+            .eq('conversation_id', finalConversationId)
+            .eq('ig_account_id', igAccountId)
+            .order('created_time', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          
+          const previewText = recentMessages?.text || text.trim()
+          const previewTime = recentMessages?.created_time || messageTime
+          
+          const { error: updateError } = await (supabase
+            .from('instagram_conversations') as any)
+            .update({
+              last_message_preview: previewText ? previewText.substring(0, 100) : null,
+              last_message_at: previewTime,
+              updated_time: previewTime,
+              unread_count: 0,
+            })
+            .eq('id', finalConversationId)
+
+          if (updateError) {
+            console.error('[Instagram Send Message] Error updating conversation:', updateError)
+          }
+
+          return NextResponse.json({
+            ok: true,
+            messageId,
+          })
+        } catch (fetchError: any) {
+          // Network/timeout errors - retry if we have attempts left
+          if (attempt < maxRetries) {
+            const delay = backoffDelays[attempt] || 3000
+            console.log('[Instagram Send Message] Network error, retrying:', {
+              error: fetchError.message,
+              attempt: attempt + 1,
+              maxRetries,
+              delay,
+              host: baseHost,
+            })
+            
+            lastError = fetchError
+            await new Promise((resolve) => setTimeout(resolve, delay))
+            break // Break out of host loop, continue to next attempt
+          }
+          
+          lastError = fetchError
+        }
+      }
+    }
+    
+    // All retries exhausted - return error
+    const error = lastResponseData?.error || lastError || {}
+    
+    console.error('[Instagram Send Message] All retries exhausted:', {
+      status: lastResponse?.status,
+      code: error.code,
+      message: error.message,
+      type: error.type,
+      error_subcode: error.error_subcode,
+      fbtrace_id: error.fbtrace_id,
+      conversationId,
+      recipientIgsid,
+      igAccountId,
+      attempts: maxRetries + 1,
+    })
+
+    // Check for token expiry (code 190)
+    if (isTokenExpiredError(error) || error.code === 190) {
       return NextResponse.json(
         {
           error: {
-            type: 'instagram_api',
-            message: error.message || error.error_user_msg || 'An unexpected error has occurred. Please retry your request later.',
-            code: error.code,
-            error_subcode: error.error_subcode,
-            fbtrace_id: error.fbtrace_id,
-            error_user_title: error.error_user_title,
-            error_user_msg: error.error_user_msg,
+            type: 'instagram_auth',
+            code: 'EXPIRED',
+            message: 'Instagram token expired. Please reconnect your Instagram account.',
           },
         },
-        { status: response.status }
+        { status: 401 }
       )
     }
 
-    // Step 7: Parse response and extract message_id
-    const messageId = responseData.id || responseData.message_id || `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`
-    const messageTime = new Date().toISOString()
-
-    console.log('[Instagram Send Message] Success:', {
-      messageId,
-      recipientId: recipientIgsid,
-    })
-
-    // Step 8: Insert outbound message into database
-    // Use business account IGSID for from_id (not business account ID)
-    // If we don't have the IGSID, we'll need to fetch it or use a placeholder
-    // For now, we'll use the business account ID as fallback, but ideally we should have the IGSID
-    const fromId = businessAccountIgsid || igAccountId
-    
-    const { error: insertError } = await (supabase
-      .from('instagram_messages') as any)
-      .insert({
-        id: messageId,
-        ig_account_id: igAccountId,
-        conversation_id: finalConversationId,
-        direction: 'outbound',
-        from_id: fromId, // Use IGSID if available, otherwise fallback to account ID
-        to_id: recipientIgsid,
-        text: text.trim(),
-        attachments: null,
-        created_time: messageTime,
-        read_at: messageTime, // Outbound messages are read immediately
-        raw: responseData,
-      })
-
-    if (insertError) {
-      console.error('[Instagram Send Message] Error inserting message:', insertError)
-      // Don't fail the request - message was sent successfully to Instagram
-    }
-
-    // Step 9: Update conversation metadata with the most recent message
-    // Get the most recent message from the database to ensure we have the correct preview
-    const { data: recentMessages } = await (supabase
-      .from('instagram_messages') as any)
-      .select('text, created_time')
-      .eq('conversation_id', finalConversationId)
-      .eq('ig_account_id', igAccountId)
-      .order('created_time', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-    
-    const previewText = recentMessages?.text || text.trim()
-    const previewTime = recentMessages?.created_time || messageTime
-    
-    const { error: updateError } = await (supabase
-      .from('instagram_conversations') as any)
-      .update({
-        last_message_preview: previewText ? previewText.substring(0, 100) : null,
-        last_message_at: previewTime,
-        updated_time: previewTime,
-        unread_count: 0, // Reset unread since we sent it
-      })
-      .eq('id', finalConversationId)
-
-    if (updateError) {
-      console.error('[Instagram Send Message] Error updating conversation:', updateError)
-      // Don't fail the request - message was sent successfully
-    }
-
-    // Step 10: Return success
-    return NextResponse.json({
-      ok: true,
-      messageId,
-    })
+    // Return detailed error to client
+    const errorStatus = lastResponse ? lastResponse.status : 500
+    return NextResponse.json(
+      {
+        error: {
+          type: 'instagram_api',
+          message: error.message || error.error_user_msg || 'An unexpected error has occurred. Please retry your request later.',
+          code: error.code,
+          error_subcode: error.error_subcode,
+          fbtrace_id: error.fbtrace_id,
+          error_user_title: error.error_user_title,
+          error_user_msg: error.error_user_msg,
+        },
+      },
+      { status: errorStatus }
+    )
   } catch (error: any) {
     console.error('[Instagram Send Message] Unexpected error:', error)
     
