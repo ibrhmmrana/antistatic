@@ -545,8 +545,10 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
         
         // Check for Instagram API error
         if (errorData.error?.type === 'instagram_api') {
-          // Build detailed error message with code and subcode if available
+          // Build detailed error message with code, subcode, and transient flag
           let errorMsg = errorData.error.message || errorData.error.error_user_msg || 'Instagram API error'
+          
+          // Add code and subcode
           if (errorData.error.code) {
             errorMsg += ` (Code: ${errorData.error.code}`
             if (errorData.error.error_subcode) {
@@ -554,14 +556,24 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
             }
             errorMsg += ')'
           }
+          
+          // Add transient indicator
+          if (errorData.error.is_transient === true) {
+            errorMsg += ' - This is a temporary error. Please try again.'
+          }
+          
+          // Log full error details for debugging
           console.error('[Instagram Inbox] Send message API error:', {
             code: errorData.error.code,
             error_subcode: errorData.error.error_subcode,
             fbtrace_id: errorData.error.fbtrace_id,
+            is_transient: errorData.error.is_transient,
+            status: errorData.error.status,
             message: errorData.error.message,
             error_user_msg: errorData.error.error_user_msg,
             fullError: errorData.error,
           })
+          
           showToast(`Failed to send message: ${errorMsg}`, 'error')
           throw new Error(errorMsg)
         }
