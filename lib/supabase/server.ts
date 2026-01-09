@@ -2,6 +2,12 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { Database } from './database.types'
 
+/**
+ * Create a Supabase server client for use in API routes and server components
+ * This creates a NEW client per request using cookies from next/headers
+ * 
+ * NOTE: This is SERVER-ONLY. For client-side code, use lib/supabase/client.ts
+ */
 export async function createClient() {
   const cookieStore = await cookies()
 

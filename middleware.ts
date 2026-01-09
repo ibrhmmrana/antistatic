@@ -48,49 +48,42 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // Refresh the session to ensure it's valid and up-to-date
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser()
+  // Check for Supabase auth cookies
+  const cookies = request.cookies.getAll()
+  const hasAccessToken = cookies.some(c => c.name.includes('sb-access-token') || c.name.includes('access-token'))
+  const hasRefreshToken = cookies.some(c => c.name.includes('sb-refresh-token') || c.name.includes('refresh-token'))
   
-  // #region agent log
-  await fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'middleware.ts:55',message:'getUser in middleware',data:{pathname:request.nextUrl.pathname,hasUser:!!user,userId:user?.id,hasError:!!userError,errorMessage:userError?.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-  // #endregion
+  console.log('[Middleware] Cookie check:', {
+    pathname: request.nextUrl.pathname,
+    hasAccessToken,
+    hasRefreshToken,
+    cookieNames: cookies.map(c => c.name),
+  })
   
-  // If there's a session, refresh it to extend expiration
-  if (user) {
-    const { data: { session } } = await supabase.auth.getSession()
-    // #region agent log
-    await fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'middleware.ts:62',message:'getSession in middleware',data:{pathname:request.nextUrl.pathname,hasSession:!!session,sessionExpiresAt:session?.expires_at,hasUser:!!user},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-    // #endregion
-    if (session) {
-      try {
-        // Refresh the session to extend its lifetime
-        // Pass the current session to refreshSession
-        await supabase.auth.refreshSession(session)
-        // #region agent log
-        await fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'middleware.ts:68',message:'refreshSession in middleware success',data:{pathname:request.nextUrl.pathname,hasUser:!!user},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
-      } catch (error) {
-        // If refresh fails, session might be expired - let it continue
-        // The auth check below will handle redirecting to login
-        console.error('[Middleware] Session refresh failed:', error)
-        // #region agent log
-        await fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'middleware.ts:72',message:'refreshSession in middleware failed',data:{pathname:request.nextUrl.pathname,hasUser:!!user,errorMessage:error instanceof Error ? error.message : String(error)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
-      }
-    }
-  }
+  // Get session (DO NOT call refreshSession - let Supabase handle it automatically)
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+  
+  console.log('[Middleware] Session check:', {
+    pathname: request.nextUrl.pathname,
+    hasSession: !!session,
+    sessionExpiresAt: session?.expires_at,
+    hasError: !!sessionError,
+    errorMessage: sessionError?.message,
+  })
+  
+  // Get user from session
+  const user = session?.user ?? null
 
   const pathname = request.nextUrl.pathname
 
   // Protected routes
   if (pathname.startsWith('/onboarding') || pathname.startsWith('/app') || pathname.startsWith('/dashboard') || pathname.startsWith('/reviews') || pathname.startsWith('/messaging') || pathname.startsWith('/social') || pathname.startsWith('/listings') || pathname.startsWith('/automations') || pathname.startsWith('/settings')) {
     if (!user) {
-      // #region agent log
-      await fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'middleware.ts:81',message:'Middleware redirecting to /auth',data:{pathname,hasUser:false,userError:userError?.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-      // #endregion
+      console.log('[Middleware] Redirecting to /auth - no user found:', {
+        pathname,
+        hasSession: !!session,
+        sessionError: sessionError?.message,
+      })
       return NextResponse.redirect(new URL('/auth', request.url))
     }
 

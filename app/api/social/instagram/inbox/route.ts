@@ -21,80 +21,53 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'locationId is required' }, { status: 400 })
     }
 
-    // Create Supabase client - this will read cookies that middleware may have refreshed
+    // Create Supabase server client - this will read cookies from the request
     const supabase = await createClient()
     
-    // Try to get user first - if middleware refreshed the session, this should work
-    // If not, try to refresh the session ourselves
-    const { data: { user: initialUser }, error: initialUserError } = await supabase.auth.getUser()
+    // Check for Supabase auth cookies in the request
+    const requestCookies = request.cookies.getAll()
+    const hasAccessToken = requestCookies.some(c => c.name.includes('sb-access-token') || c.name.includes('access-token'))
+    const hasRefreshToken = requestCookies.some(c => c.name.includes('sb-refresh-token') || c.name.includes('refresh-token'))
     
-    // If we don't have a user, try to get and refresh the session
-    if (!initialUser) {
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox/route.ts:30',message:'getSession in API route (no initial user)',data:{hasSession:!!session,sessionExpiresAt:session?.expires_at,hasError:!!sessionError,errorMessage:sessionError?.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
-      
-      if (session) {
-        try {
-          const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession(session)
-          
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox/route.ts:37',message:'refreshSession in API route result (no initial user)',data:{hasNewSession:!!refreshData?.session,newSessionExpiresAt:refreshData?.session?.expires_at,hasError:!!refreshError,errorMessage:refreshError?.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-          // #endregion
-        } catch (error) {
-          // If refresh fails, continue to getUser check below
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox/route.ts:43',message:'Session refresh exception in API route (no initial user)',data:{errorMessage:error instanceof Error ? error.message : String(error)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-          // #endregion
-        }
-      } else {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox/route.ts:48',message:'No session to refresh in API route (no initial user)',data:{sessionError:sessionError?.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
-      }
-    }
+    console.log('[Instagram Inbox API] Cookie check:', {
+      locationId,
+      hasAccessToken,
+      hasRefreshToken,
+      cookieNames: requestCookies.map(c => c.name),
+    })
     
-    // Now get user (either from initial check or after refresh)
+    // Get session (DO NOT call refreshSession - let Supabase handle it automatically)
     const { data: { session }, error: sessionError } = await supabase.auth.getSession()
     
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox/route.ts:28',message:'getSession in API route',data:{hasSession:!!session,sessionExpiresAt:session?.expires_at,hasError:!!sessionError,errorMessage:sessionError?.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
+    console.log('[Instagram Inbox API] Session check:', {
+      locationId,
+      hasSession: !!session,
+      sessionExpiresAt: session?.expires_at,
+      hasError: !!sessionError,
+      errorMessage: sessionError?.message,
+    })
     
-    if (session) {
-      try {
-        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession(session)
-        
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox/route.ts:35',message:'refreshSession in API route result',data:{hasNewSession:!!refreshData?.session,newSessionExpiresAt:refreshData?.session?.expires_at,hasError:!!refreshError,errorMessage:refreshError?.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
-      } catch (error) {
-        // If refresh fails, continue to getUser check below
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox/route.ts:41',message:'Session refresh exception in API route',data:{errorMessage:error instanceof Error ? error.message : String(error)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
-      }
-    } else {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox/route.ts:46',message:'No session to refresh in API route',data:{sessionError:sessionError?.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
-    }
-    
+    // Get user (DO NOT call refreshSession - let Supabase handle it automatically)
     const {
       data: { user },
       error: userError,
     } = await supabase.auth.getUser()
 
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox/route.ts:40',message:'getUser result',data:{hasUser:!!user,userId:user?.id,hasError:!!userError,errorMessage:userError?.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
+    console.log('[Instagram Inbox API] User check:', {
+      locationId,
+      hasUser: !!user,
+      userId: user?.id,
+      hasError: !!userError,
+      errorMessage: userError?.message,
+    })
 
     if (!user) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox/route.ts:45',message:'Returning Unauthorized',data:{userError:userError?.message,locationId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
+      console.error('[Instagram Inbox API] Unauthorized - no user found:', {
+        locationId,
+        hasSession: !!session,
+        sessionError: sessionError?.message,
+        userError: userError?.message,
+      })
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 

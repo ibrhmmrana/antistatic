@@ -7,7 +7,6 @@ import InfoIcon from '@mui/icons-material/Info'
 import SendIcon from '@mui/icons-material/Send'
 import { Button } from '@/components/ui/button'
 import { useToast, ToastContainer } from '@/components/ui/toast'
-import { useSessionRefresh } from '@/lib/hooks/use-session-refresh'
 
 type InstagramConnection = {
   id: string
@@ -48,8 +47,7 @@ interface Message {
 }
 
 export function InstagramInbox({ locationId, instagramConnection }: InstagramInboxProps) {
-  // Keep session alive while inbox is open
-  useSessionRefresh()
+  // Session refresh is handled globally by AppShell via useSessionRefresh()
   
   // #region agent log
   fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:49',message:'InstagramInbox component render',data:{locationId,hasConnection:!!instagramConnection,igUserId:instagramConnection?.instagram_user_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
@@ -251,6 +249,7 @@ export function InstagramInbox({ locationId, instagramConnection }: InstagramInb
         // #endregion
         const response = await fetch(`/api/social/instagram/inbox/sync?locationId=${locationId}`, {
           method: 'POST',
+          credentials: 'include', // Ensure cookies are sent with the request
         })
         // #region agent log
         fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'inbox.tsx:174',message:'Sync API response received',data:{status:response.status,ok:response.ok,statusText:response.statusText},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});

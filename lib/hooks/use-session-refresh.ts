@@ -1,99 +1,61 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { useEffect } from 'react'
+import { refreshSessionSingleton } from '@/lib/auth/session-refresh-manager'
+
+// Module-scope flag to ensure listeners are installed only once globally
+let listenersInstalled = false
+let globalIntervalRef: NodeJS.Timeout | null = null
+let globalVisibilityHandler: (() => void) | null = null
+let globalFocusHandler: (() => void) | null = null
 
 /**
  * Hook to automatically refresh the session periodically to keep it alive
- * Refreshes every 30 minutes (before typical 1-hour session expiration)
+ * Uses the global refreshSessionSingleton to prevent concurrent refresh attempts
+ * 
+ * This hook can be called from multiple components, but listeners are installed only once globally.
+ * All instances share the same interval and event listeners.
  */
 export function useSessionRefresh() {
-  const supabase = createClient()
-  const intervalRef = useRef<NodeJS.Timeout | null>(null)
-
   useEffect(() => {
-    const refreshSession = async () => {
-      try {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'use-session-refresh.ts:15',message:'Session refresh started',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
-        
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-        
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'use-session-refresh.ts:18',message:'getSession result',data:{hasSession:!!session,sessionExpiresAt:session?.expires_at,hasError:!!sessionError,errorMessage:sessionError?.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
-        
-        if (session) {
-          // Refresh the session to extend its lifetime
-          const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession(session)
-          
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'use-session-refresh.ts:24',message:'refreshSession result',data:{hasNewSession:!!refreshData?.session,newSessionExpiresAt:refreshData?.session?.expires_at,hasError:!!refreshError,errorMessage:refreshError?.message,errorCode:refreshError?.code},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-          // #endregion
-          
-          // After refreshing the session in localStorage, trigger a request that goes through middleware
-          // This ensures cookies are updated with the refreshed session
-          // Use a lightweight endpoint that just checks auth (middleware will refresh and set cookies)
-          if (refreshData?.session && !refreshError) {
-            try {
-              // Make a request to an API endpoint that goes through middleware
-              // This ensures the refreshed session in localStorage gets synced to cookies
-              await fetch('/api/auth/check', {
-                method: 'GET',
-                credentials: 'include',
-                cache: 'no-store',
-              }).catch(() => {
-                // Ignore errors - this is just to trigger middleware cookie update
-              })
-            } catch (error) {
-              // Ignore errors - this is just to trigger middleware cookie update
-            }
-          }
-          
-          console.log('[Session Refresh] Session refreshed successfully')
-        } else {
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'use-session-refresh.ts:30',message:'No session to refresh',data:{sessionError:sessionError?.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-          // #endregion
+    // Install global listeners only once
+    if (!listenersInstalled) {
+      listenersInstalled = true
+      
+      console.log('[Session Refresh Hook] Installing global listeners (first instance)')
+      
+      // Set up periodic refresh every 15 minutes
+      globalIntervalRef = setInterval(() => {
+        refreshSessionSingleton('periodic-interval')
+      }, 15 * 60 * 1000)
+      
+      // Also refresh on visibility change (when user returns to tab)
+      globalVisibilityHandler = () => {
+        if (!document.hidden) {
+          refreshSessionSingleton('visibility-change')
         }
-      } catch (error: any) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/95d0d712-d91b-47c1-a157-c0939709591b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'use-session-refresh.ts:34',message:'Session refresh exception',data:{errorMessage:error?.message,errorType:error?.constructor?.name},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
-        console.error('[Session Refresh] Failed to refresh session:', error)
       }
-    }
-
-    // Refresh immediately on mount
-    refreshSession()
-
-    // Set up periodic refresh every 15 minutes (900000 ms)
-    // This ensures the session is refreshed well before it expires (typically 1 hour)
-    // More frequent refresh prevents logout during inactivity
-    intervalRef.current = setInterval(refreshSession, 15 * 60 * 1000)
-
-    // Also refresh on visibility change (when user returns to tab)
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        refreshSession()
+      document.addEventListener('visibilitychange', globalVisibilityHandler)
+      
+      // Also refresh on focus (when user returns to window)
+      globalFocusHandler = () => {
+        refreshSessionSingleton('window-focus')
       }
+      window.addEventListener('focus', globalFocusHandler)
+      
+      // Initial refresh on first mount (only once globally)
+      refreshSessionSingleton('initial-mount')
+      
+      console.log('[Session Refresh Hook] Global listeners installed successfully')
+    } else {
+      console.log('[Session Refresh Hook] Listeners already installed, skipping (this is normal if hook is called from multiple components)')
     }
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-
-    // Also refresh on focus (when user returns to window)
-    const handleFocus = () => {
-      refreshSession()
-    }
-    window.addEventListener('focus', handleFocus)
-
+    
     return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current)
-      }
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-      window.removeEventListener('focus', handleFocus)
+      // Note: We don't clean up global listeners here because they should persist
+      // across component unmounts. The global listeners will persist for the app lifetime.
+      // If we need to clean them up, it should be done on app unmount, not component unmount.
     }
-  }, [supabase])
+  }, []) // Empty deps - only run once per hook instance
 }
 

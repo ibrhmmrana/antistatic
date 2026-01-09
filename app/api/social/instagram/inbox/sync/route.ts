@@ -31,12 +31,40 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'locationId is required' }, { status: 400 })
     }
 
+    // Create Supabase server client - this will read cookies from the request
     const supabase = await createClient()
+    
+    // Check for Supabase auth cookies in the request
+    const requestCookies = request.cookies.getAll()
+    const hasAccessToken = requestCookies.some(c => c.name.includes('sb-access-token') || c.name.includes('access-token'))
+    const hasRefreshToken = requestCookies.some(c => c.name.includes('sb-refresh-token') || c.name.includes('refresh-token'))
+    
+    console.log('[Instagram Inbox Sync API] Cookie check:', {
+      locationId,
+      hasAccessToken,
+      hasRefreshToken,
+      cookieNames: requestCookies.map(c => c.name),
+    })
+    
+    // Get user (DO NOT call refreshSession - let Supabase handle it automatically)
     const {
       data: { user },
+      error: userError,
     } = await supabase.auth.getUser()
+    
+    console.log('[Instagram Inbox Sync API] User check:', {
+      locationId,
+      hasUser: !!user,
+      userId: user?.id,
+      hasError: !!userError,
+      errorMessage: userError?.message,
+    })
 
     if (!user) {
+      console.error('[Instagram Inbox Sync API] Unauthorized - no user found:', {
+        locationId,
+        userError: userError?.message,
+      })
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
