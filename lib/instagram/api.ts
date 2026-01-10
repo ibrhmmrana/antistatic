@@ -324,6 +324,55 @@ export class InstagramAPI {
   }
 
   /**
+   * List replies to a comment
+   */
+  async listReplies(
+    commentId: string,
+    options: {
+      limit?: number
+      after?: string
+    } = {}
+  ): Promise<{
+    data: Array<{
+      id: string
+      text: string
+      timestamp: string
+      from: {
+        id: string
+        username: string
+      }
+    }>
+    paging?: {
+      cursors?: {
+        after?: string
+        before?: string
+      }
+      next?: string
+      previous?: string
+    }
+  } | InstagramError> {
+    const params: Record<string, string | number> = {
+      fields: 'id,text,timestamp,from',
+      limit: options.limit || 25,
+    }
+
+    if (options.after) {
+      params.after = options.after
+    }
+
+    const result = await this.igFetch(`${commentId}/replies`, params)
+    
+    if (result.error) {
+      return result.error
+    }
+
+    return {
+      data: result.data || [],
+      paging: result.paging,
+    }
+  }
+
+  /**
    * Reply to a comment
    */
   async replyToComment(commentId: string, message: string): Promise<{ success: boolean; id?: string; requiredPermission?: string } | InstagramError> {

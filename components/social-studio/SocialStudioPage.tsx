@@ -8,6 +8,7 @@ import { PlannerTab } from './tabs/PlannerTab'
 import { CreateTab } from './tabs/CreateTab'
 import { InsightsTab } from './tabs/InsightsTab'
 import { InboxTab } from './tabs/InboxTab'
+import { CommentsTab } from './tabs/CommentsTab'
 import { useToast, ToastContainer } from '@/components/ui/toast'
 import { getCadenceStatus, mockCadenceTargets } from '@/lib/social-studio/mock'
 
@@ -15,7 +16,7 @@ interface SocialStudioPageProps {
   businessLocationId: string
 }
 
-type TabId = 'home' | 'planner' | 'create' | 'insights' | 'library' | 'inbox'
+type TabId = 'home' | 'planner' | 'create' | 'insights' | 'library' | 'inbox' | 'comments'
 
 export function SocialStudioPage({ businessLocationId }: SocialStudioPageProps) {
   const router = useRouter()
@@ -26,7 +27,7 @@ export function SocialStudioPage({ businessLocationId }: SocialStudioPageProps) 
   // Sync tab with URL query param
   useEffect(() => {
     const tabParam = searchParams.get('tab') as TabId | null
-    if (tabParam && ['home', 'insights', 'planner', 'create', 'inbox'].includes(tabParam)) {
+    if (tabParam && ['home', 'insights', 'planner', 'create', 'inbox', 'comments'].includes(tabParam)) {
       setActiveTab(tabParam)
     }
     // If scheduledAt or postId params are present, ensure we're on create tab
@@ -61,6 +62,7 @@ export function SocialStudioPage({ businessLocationId }: SocialStudioPageProps) 
     { id: 'planner', label: 'Planner' },
     { id: 'create', label: 'Create' },
     { id: 'inbox', label: 'Inbox' },
+    { id: 'comments', label: 'Comments' },
   ]
 
   return (
@@ -284,6 +286,7 @@ export function SocialStudioPage({ businessLocationId }: SocialStudioPageProps) 
             {activeTab === 'planner' && <PlannerTab businessLocationId={businessLocationId} />}
             {activeTab === 'create' && <CreateTab businessLocationId={businessLocationId} />}
             {activeTab === 'inbox' && <InboxTab businessLocationId={businessLocationId} />}
+            {activeTab === 'comments' && <CommentsTab businessLocationId={businessLocationId} />}
           </div>
         </div>
         <ToastContainer toasts={toasts} onClose={removeToast} />
