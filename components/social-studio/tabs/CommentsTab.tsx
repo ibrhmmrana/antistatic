@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import CommentIcon from '@mui/icons-material/Comment'
 import ReplyIcon from '@mui/icons-material/Reply'
@@ -19,47 +19,62 @@ type InstagramConnection = {
   scopes: string[] | null
 } | null
 
+interface CommentAuthor {
+  id: string | null
+  username: string | null
+}
+
 interface Reply {
   id: string
   text: string
   timestamp: string
-  from: {
-    username: string
-    id: string
-  }
+  from: CommentAuthor | null
 }
 
 interface Comment {
   id: string
   text: string
   timestamp: string
-  from: {
-    username: string
-    id: string
-  }
+  from: CommentAuthor | null
+  replies: Reply[]
+}
+
+interface MediaItem {
   mediaId: string
-  mediaPermalink?: string
+  caption?: string
+  permalink?: string
+  timestamp: string
   mediaThumbnail?: string
-  mediaCaption?: string
-  mediaType?: string
-  replied?: boolean
-  repliedAt?: string | null
-  replyText?: string | null
-  replyStatus?: string | null
-  connectedAccountUsername?: string | null
-  replies?: Reply[]
+  comments: Comment[]
+}
+
+interface CommentsResponse {
+  media: MediaItem[]
+  paging: {
+    after: string | null
+  }
+  connectedAccountUserId?: string | null
 }
 
 export function CommentsTab({ businessLocationId }: CommentsTabProps) {
-  const [loading, setLoading] = useState(true)
-  const [comments, setComments] = useState<Comment[]>([])
-  const [selectedComment, setSelectedComment] = useState<Comment | null>(null)
+  const [loadingInitial, setLoadingInitial] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [mediaFeed, setMediaFeed] = useState<MediaItem[]>([])
+  const [pagingAfter, setPagingAfter] = useState<string | null>(null)
+  const [hasMore, setHasMore] = useState(true)
+  const [selectedComment, setSelectedComment] = useState<{ mediaId: string; comment: Comment } | null>(null)
   const [replyText, setReplyText] = useState('')
   const [replying, setReplying] = useState(false)
   const [instagramConnection, setInstagramConnection] = useState<InstagramConnection>(null)
   const [hasCommentsPermission, setHasCommentsPermission] = useState(false)
+  const [connectedAccountUsername, setConnectedAccountUsername] = useState<string | null>(null)
+  const [connectedAccountUserId, setConnectedAccountUserId] = useState<string | null>(null)
   const { toasts, showToast, removeToast } = useToast()
   const supabase = createClient()
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  const hasFetchedInitialRef = useRef(false)
+  const observerRef = useRef<IntersectionObserver | null>(null)
+  const fetchMediaPageRef = useRef<((params: { reset?: boolean; after?: string | null }) => Promise<void>) | null>(null)
 
   // Check for comments permission
   useEffect(() => {
@@ -70,7 +85,7 @@ export function CommentsTab({ businessLocationId }: CommentsTabProps) {
         } = await supabase.auth.getUser()
 
         if (!user) {
-          setLoading(false)
+          setLoadingInitial(false)
           return
         }
 
@@ -82,6 +97,7 @@ export function CommentsTab({ businessLocationId }: CommentsTabProps) {
           .maybeSingle()
 
         setInstagramConnection(connection || null)
+        setConnectedAccountUsername(connection?.instagram_username || null)
 
         if (connection?.scopes) {
           const scopes = connection.scopes || []
@@ -99,13 +115,45 @@ export function CommentsTab({ businessLocationId }: CommentsTabProps) {
     checkPermission()
   }, [businessLocationId, supabase])
 
-  const fetchComments = useCallback(async () => {
+  const loadingInitialRef = useRef(false)
+  const loadingMoreRef = useRef(false)
+
+  const fetchMediaPage = useCallback(async ({ reset = false, after }: { reset?: boolean; after?: string | null }) => {
+    // Prevent concurrent fetches using refs
+    if (reset && loadingInitialRef.current) {
+      console.log('[CommentsTab] Skipping fetch - already loading initial')
+      return
+    }
+    if (!reset && loadingMoreRef.current) {
+      console.log('[CommentsTab] Skipping fetch - already loading more')
+      return
+    }
+
     try {
-      setLoading(true)
-      // Add cache-busting timestamp to ensure fresh data
-      const timestamp = Date.now()
+      if (reset) {
+        loadingInitialRef.current = true
+        setLoadingInitial(true)
+        hasFetchedInitialRef.current = true
+      } else {
+        loadingMoreRef.current = true
+        setLoadingMore(true)
+      }
+
+      const params = new URLSearchParams({
+        businessLocationId,
+        limitMedia: '12',
+        limitComments: '20',
+        limitReplies: '20',
+      })
+
+      if (after) {
+        params.set('after', after)
+      }
+
+      console.log('[CommentsTab] Fetching media page:', { reset, after, businessLocationId })
+
       const response = await fetch(
-        `/api/social-studio/instagram/comments?businessLocationId=${businessLocationId}&_t=${timestamp}`,
+        `/api/social-studio/instagram/comments?${params.toString()}`,
         { 
           credentials: 'include',
           cache: 'no-store',
@@ -116,14 +164,35 @@ export function CommentsTab({ businessLocationId }: CommentsTabProps) {
       )
 
       if (response.ok) {
-        const data = await response.json()
-        setComments(data.comments || [])
+        const data: CommentsResponse = await response.json()
+        console.log('[CommentsTab] Received data:', { mediaCount: data.media.length, hasMore: !!data.paging?.after })
+        
+        // Store connected account user ID for filtering
+        if (data.connectedAccountUserId) {
+          setConnectedAccountUserId(data.connectedAccountUserId)
+        }
+        
+        // Filter out media items with no comments
+        const mediaWithComments = (data.media || []).filter(m => m.comments && m.comments.length > 0)
+        
+        if (reset) {
+          setMediaFeed(mediaWithComments)
+        } else {
+          // Append new media, dedupe by mediaId, and filter out items with no comments
+          setMediaFeed(prev => {
+            const existingIds = new Set(prev.map(m => m.mediaId))
+            const newMedia = mediaWithComments.filter(m => !existingIds.has(m.mediaId))
+            return [...prev, ...newMedia]
+          })
+        }
+
+        setPagingAfter(data.paging?.after || null)
+        setHasMore(!!data.paging?.after)
       } else {
         const errorData = await response.json().catch(() => ({}))
         
         if (errorData.requiresConnection || errorData.requiresReconnect) {
-          // Permission or connection issue - handled in UI
-          setComments([])
+          setMediaFeed([])
         } else {
           console.error('Error fetching comments:', errorData)
           showToast(errorData.error || 'Failed to fetch comments', 'error')
@@ -133,35 +202,82 @@ export function CommentsTab({ businessLocationId }: CommentsTabProps) {
       console.error('Error fetching comments:', error)
       showToast('Failed to fetch comments', 'error')
     } finally {
-      setLoading(false)
+      loadingInitialRef.current = false
+      loadingMoreRef.current = false
+      setLoadingInitial(false)
+      setLoadingMore(false)
     }
   }, [businessLocationId, showToast])
 
+  // Keep ref updated with latest function
   useEffect(() => {
-    if (hasCommentsPermission) {
-      fetchComments()
-    } else {
-      setLoading(false)
+    fetchMediaPageRef.current = fetchMediaPage
+  }, [fetchMediaPage])
+
+  // Reset fetch flag when businessLocationId changes (new location = new fetch)
+  useEffect(() => {
+    hasFetchedInitialRef.current = false
+  }, [businessLocationId])
+
+  // Initial fetch on mount or when permission is granted - ONLY ONCE per permission state
+  useEffect(() => {
+    if (!hasCommentsPermission) {
+      setLoadingInitial(false)
+      return
     }
-  }, [businessLocationId, hasCommentsPermission])
 
-  // Listen for sync completion event to refresh data
+    // Only fetch if we haven't fetched yet
+    if (!hasFetchedInitialRef.current && fetchMediaPageRef.current) {
+      console.log('[CommentsTab] Initial fetch triggered', { businessLocationId, hasCommentsPermission })
+      hasFetchedInitialRef.current = true
+      fetchMediaPageRef.current({ reset: true })
+    }
+  }, [hasCommentsPermission]) // Only depend on permission - businessLocationId change is handled by reset above
+
+  // Infinite scroll with IntersectionObserver
   useEffect(() => {
-    if (!hasCommentsPermission) return
+    if (!hasCommentsPermission || !hasMore || loadingMore || loadingInitial) {
+      // Clean up observer if conditions aren't met
+      if (observerRef.current) {
+        const sentinel = sentinelRef.current
+        if (sentinel) {
+          observerRef.current.unobserve(sentinel)
+        }
+        observerRef.current = null
+      }
+      return
+    }
 
-    const handleSyncComplete = (event: CustomEvent) => {
-      if (event.detail?.locationId === businessLocationId) {
-        fetchComments()
+    const sentinel = sentinelRef.current
+    if (!sentinel) return
+
+    // Clean up existing observer
+    if (observerRef.current) {
+      observerRef.current.unobserve(sentinel)
+    }
+
+    // Create new observer
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore && !loadingInitial && fetchMediaPageRef.current) {
+          fetchMediaPageRef.current({ reset: false, after: pagingAfter })
+        }
+      },
+      { threshold: 0.1 }
+    )
+
+    observer.observe(sentinel)
+    observerRef.current = observer
+
+    return () => {
+      if (observerRef.current && sentinel) {
+        observerRef.current.unobserve(sentinel)
+        observerRef.current = null
       }
     }
+  }, [hasMore, loadingMore, loadingInitial, pagingAfter, hasCommentsPermission]) // Removed fetchMediaPage from deps
 
-    window.addEventListener('instagram-sync-complete', handleSyncComplete as EventListener)
-    return () => {
-      window.removeEventListener('instagram-sync-complete', handleSyncComplete as EventListener)
-    }
-  }, [businessLocationId, hasCommentsPermission, fetchComments])
-
-  const handleReply = async (comment: Comment) => {
+  const handleReply = async (mediaId: string, comment: Comment) => {
     if (!replyText.trim()) return
 
     setReplying(true)
@@ -174,7 +290,7 @@ export function CommentsTab({ businessLocationId }: CommentsTabProps) {
         body: JSON.stringify({
           locationId: businessLocationId,
           commentId: comment.id,
-          mediaId: comment.mediaId,
+          mediaId: mediaId,
           text: replyText,
         }),
       })
@@ -200,24 +316,12 @@ export function CommentsTab({ businessLocationId }: CommentsTabProps) {
       }
 
       if (response.ok && result.success) {
-        // Optimistically update UI
-        setComments(comments.map(c => 
-          c.id === comment.id 
-            ? { 
-                ...c, 
-                replied: true,
-                repliedAt: new Date().toISOString(),
-                replyText: replyText.trim(),
-                replyStatus: 'sent'
-              }
-            : c
-        ))
         setReplyText('')
         setSelectedComment(null)
         showToast('Reply sent successfully!', 'success')
         
-        // Refresh comments to get the latest data
-        await fetchComments()
+        // Refresh first page to show new reply
+        await fetchMediaPage({ reset: true })
       } else {
         const errorMsg = result.error || `Failed to send reply (${response.status})`
         const errorDetails = result.details ? `\n\nDetails: ${result.details}` : ''
@@ -241,8 +345,42 @@ export function CommentsTab({ businessLocationId }: CommentsTabProps) {
     }
   }
 
+  const formatAuthorName = (from: CommentAuthor | null): string => {
+    if (!from || !from.username) {
+      return 'You'
+    }
+    if (connectedAccountUsername && from.username.toLowerCase() === connectedAccountUsername.toLowerCase()) {
+      return 'You'
+    }
+    return `@${from.username}`
+  }
+
+  // Check if a comment/reply is from the user account
+  // Use both ID and username matching for accuracy
+  const isFromUserAccount = (from: CommentAuthor | null): boolean => {
+    if (!from) {
+      // If from is completely null, show it (might be privacy-restricted, not necessarily user)
+      return false
+    }
+    // Most reliable: check if ID matches connected account ID
+    if (connectedAccountUserId && from.id && from.id === connectedAccountUserId) {
+      return true
+    }
+    // Fallback: check if username matches connected account
+    if (connectedAccountUsername && from.username && from.username.toLowerCase() === connectedAccountUsername.toLowerCase()) {
+      return true
+    }
+    // If username is null but we have an ID that doesn't match, show it (privacy-restricted account)
+    // Only filter null username if we don't have ID info (less reliable)
+    if (from.username === null && !from.id) {
+      // Can't be certain - show it to avoid hiding legitimate replies
+      return false
+    }
+    return false
+  }
+
   // Show loading state
-  if (loading) {
+  if (loadingInitial) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
@@ -310,6 +448,8 @@ export function CommentsTab({ businessLocationId }: CommentsTabProps) {
     )
   }
 
+  const totalComments = mediaFeed.reduce((sum, media) => sum + media.comments.length, 0)
+
   return (
     <div className="space-y-6">
       <ToastContainer toasts={toasts} onClose={removeToast} />
@@ -320,11 +460,11 @@ export function CommentsTab({ businessLocationId }: CommentsTabProps) {
             Comments
           </h2>
           <div className="text-sm text-slate-600" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-            {comments.length} comment{comments.length !== 1 ? 's' : ''}
+            {totalComments} comment{totalComments !== 1 ? 's' : ''} across {mediaFeed.length} post{mediaFeed.length !== 1 ? 's' : ''}
           </div>
         </div>
 
-        {comments.length === 0 ? (
+        {mediaFeed.length === 0 ? (
           <div className="text-center py-12">
             <CommentIcon sx={{ fontSize: 48 }} className="text-slate-300 mb-4 mx-auto" />
             <p className="text-slate-600 mb-2" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
@@ -335,139 +475,144 @@ export function CommentsTab({ businessLocationId }: CommentsTabProps) {
             </p>
           </div>
         ) : (
-          <div className="space-y-3">
-            {comments.map((comment) => (
-              <div
-                key={comment.id}
-                className="border border-slate-200 rounded-lg p-4 hover:bg-slate-50 transition-colors"
-              >
-                <div className="flex items-start gap-3">
-                  {comment.mediaThumbnail ? (
-                    <img
-                      src={comment.mediaThumbnail}
-                      alt="Post"
-                      className="w-16 h-16 object-cover rounded"
-                      onError={(e) => {
-                        // Fallback if image fails to load
-                        const target = e.target as HTMLImageElement
-                        target.style.display = 'none'
-                      }}
-                    />
-                  ) : (
-                    <div className="w-16 h-16 bg-slate-200 rounded flex items-center justify-center">
-                      <span className="text-xs text-slate-500">Post</span>
-                    </div>
-                  )}
-                  <div className="flex-1">
-                          <div className="flex items-center justify-between mb-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-slate-900" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-                                {comment.connectedAccountUsername && 
-                                 comment.from.username.toLowerCase() === comment.connectedAccountUsername.toLowerCase() 
-                                  ? 'You' 
-                                  : `@${comment.from.username}`}
-                              </span>
-                              <span className="text-xs text-slate-500" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-                                {new Date(comment.timestamp).toLocaleDateString()}
-                              </span>
-                            </div>
-                      {comment.mediaPermalink && (
-                        <a
-                          href={comment.mediaPermalink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-[#1a73e8] hover:underline"
-                          style={{ fontFamily: 'var(--font-roboto-stack)' }}
-                        >
-                          View Post →
-                        </a>
+          <div className="space-y-6">
+            {mediaFeed.map((mediaItem) => {
+              // Filter out comments from user account, but keep all comments (even if all replies are from user)
+              // Only filter out replies from user account
+              const visibleComments = mediaItem.comments
+                .filter(comment => !isFromUserAccount(comment.from))
+                .map(comment => ({
+                  ...comment,
+                  replies: comment.replies.filter(reply => !isFromUserAccount(reply.from))
+                }))
+
+              if (visibleComments.length === 0) return null
+
+              return (
+                <div
+                  key={mediaItem.mediaId}
+                  className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm"
+                >
+                  {/* Post Header */}
+                  <div className="p-4 border-b border-slate-100 bg-slate-50">
+                    <div className="flex items-start gap-3">
+                      {mediaItem.mediaThumbnail ? (
+                        <img
+                          src={mediaItem.mediaThumbnail}
+                          alt="Post"
+                          className="w-20 h-20 object-cover rounded-lg flex-shrink-0"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement
+                            target.style.display = 'none'
+                          }}
+                        />
+                      ) : (
+                        <div className="w-20 h-20 bg-slate-200 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <span className="text-xs text-slate-500">Post</span>
+                        </div>
                       )}
-                    </div>
-                    {/* Show original comment */}
-                    <div className="mb-3">
-                      <p className="text-slate-700" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-                        {comment.text}
-                      </p>
-                    </div>
-                    
-                    {/* Show replies nested under the comment */}
-                    {comment.replies && comment.replies.length > 0 && (
-                      <div className="ml-4 pl-4 border-l-2 border-slate-300 mt-3 space-y-2">
-                        {comment.replies.map((reply) => (
-                          <div key={reply.id} className="bg-slate-50 rounded p-2">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="font-medium text-slate-900 text-sm" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-                                {comment.connectedAccountUsername && 
-                                 reply.from.username && 
-                                 reply.from.username.toLowerCase() === comment.connectedAccountUsername.toLowerCase()
-                                  ? 'You'
-                                  : reply.from.username 
-                                    ? `@${reply.from.username}`
-                                    : 'unknown'}
-                              </span>
-                              <span className="text-xs text-slate-500" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-                                {new Date(reply.timestamp).toLocaleDateString()}
-                              </span>
-                            </div>
-                            <p className="text-slate-700 text-sm" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-                              {reply.text}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    
-                    {/* Legacy: Show reply if it exists (for backwards compatibility) */}
-                    {comment.replied && comment.replyText && !comment.replies?.length && (
-                      <div className="ml-4 pl-4 border-l-2 border-[#1a73e8] mb-3 bg-blue-50 rounded p-3">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="font-medium text-[#1a73e8] text-sm" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-                            {comment.connectedAccountUsername ? `@${comment.connectedAccountUsername}` : 'You'} replied to @{comment.from.username}:
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium text-slate-600" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                            {new Date(mediaItem.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                           </span>
-                          {comment.repliedAt && (
-                            <span className="text-xs text-slate-500" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-                              {new Date(comment.repliedAt).toLocaleDateString()}
-                            </span>
-                          )}
-                          {comment.replyStatus === 'sent' && (
-                            <span className="text-xs text-green-600 font-medium" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-                              ✓ Sent
-                            </span>
+                          {mediaItem.permalink && (
+                            <a
+                              href={mediaItem.permalink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-[#1a73e8] hover:text-[#1557b0] font-medium"
+                              style={{ fontFamily: 'var(--font-roboto-stack)' }}
+                            >
+                              View on Instagram →
+                            </a>
                           )}
                         </div>
-                        {/* Show the reply text */}
-                        <p className="text-slate-700 text-sm" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-                          {comment.replyText}
-                        </p>
+                        {mediaItem.caption && (
+                          <p className="text-sm text-slate-700 line-clamp-2 mt-1" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                            {mediaItem.caption}
+                          </p>
+                        )}
                       </div>
-                    )}
-                    
-                    <div className="flex items-center gap-2">
-                      {!comment.replied ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setSelectedComment(comment)}
-                        >
-                          <ReplyIcon sx={{ fontSize: 16 }} className="mr-1" />
-                          Reply
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setSelectedComment(comment)}
-                          className="text-slate-600"
-                        >
-                          <ReplyIcon sx={{ fontSize: 16 }} className="mr-1" />
-                          Reply Again
-                        </Button>
-                      )}
                     </div>
                   </div>
+
+                  {/* Comments Section */}
+                  <div className="p-4 space-y-3">
+                    {visibleComments.map((comment) => (
+                      <div key={comment.id} className="border-b border-slate-100 last:border-b-0 pb-3 last:pb-0">
+                        {/* Comment */}
+                        <div className="flex items-start gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-semibold text-slate-900 text-sm" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                                {formatAuthorName(comment.from)}
+                              </span>
+                              <span className="text-xs text-slate-500" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                                {new Date(comment.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                              </span>
+                            </div>
+                            <p className="text-slate-800 text-sm leading-relaxed mb-2" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                              {comment.text}
+                            </p>
+
+                            {/* Replies */}
+                            {comment.replies.length > 0 && (
+                              <div className="ml-3 mt-2 space-y-2.5">
+                                {comment.replies.map((reply) => (
+                                  <div key={reply.id} className="flex items-start gap-2">
+                                    <div className="w-px h-4 bg-slate-300 mt-1.5 flex-shrink-0" />
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 mb-0.5">
+                                        <span className="font-medium text-slate-900 text-xs" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                                          {formatAuthorName(reply.from)}
+                                        </span>
+                                        <span className="text-xs text-slate-500" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                                          {new Date(reply.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                        </span>
+                                      </div>
+                                      <p className="text-slate-700 text-xs leading-relaxed" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
+                                        {reply.text}
+                                      </p>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Reply Button */}
+                            <div className="mt-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setSelectedComment({ mediaId: mediaItem.mediaId, comment })}
+                                className="h-7 text-xs"
+                              >
+                                <ReplyIcon sx={{ fontSize: 14 }} className="mr-1" />
+                                Reply
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
+
+            {/* Infinite Scroll Sentinel */}
+            <div ref={sentinelRef} className="h-4 flex items-center justify-center">
+              {loadingMore && (
+                <div className="flex items-center gap-2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[#1a73e8]"></div>
+                  <span className="text-xs text-slate-500">Loading more posts...</span>
+                </div>
+              )}
+              {!hasMore && mediaFeed.length > 0 && (
+                <p className="text-xs text-slate-500">No more posts to load</p>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -495,10 +640,10 @@ export function CommentsTab({ businessLocationId }: CommentsTabProps) {
             <div className="p-6">
               <div className="mb-4 p-3 bg-slate-50 rounded-lg">
                 <p className="text-sm text-slate-600 mb-1" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-                  <span className="font-medium">@{selectedComment.from.username}</span> commented:
+                  <span className="font-medium">{formatAuthorName(selectedComment.comment.from)}</span> commented:
                 </p>
                 <p className="text-slate-900" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-                  {selectedComment.text}
+                  {selectedComment.comment.text}
                 </p>
               </div>
               <textarea
@@ -511,7 +656,7 @@ export function CommentsTab({ businessLocationId }: CommentsTabProps) {
               />
               <div className="flex items-center gap-2">
                 <Button
-                  onClick={() => handleReply(selectedComment)}
+                  onClick={() => handleReply(selectedComment.mediaId, selectedComment.comment)}
                   disabled={!replyText.trim() || replying}
                 >
                   {replying ? 'Sending...' : 'Send Reply'}
@@ -534,4 +679,3 @@ export function CommentsTab({ businessLocationId }: CommentsTabProps) {
     </div>
   )
 }
-

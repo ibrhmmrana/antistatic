@@ -48,31 +48,30 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // Check for Supabase auth cookies
+  // Check for Supabase auth cookies (Supabase uses project-specific cookie names)
   const cookies = request.cookies.getAll()
-  const hasAccessToken = cookies.some(c => c.name.includes('sb-access-token') || c.name.includes('access-token'))
-  const hasRefreshToken = cookies.some(c => c.name.includes('sb-refresh-token') || c.name.includes('refresh-token'))
+  const hasAuthToken = cookies.some(c => c.name.includes('auth-token'))
   
   console.log('[Middleware] Cookie check:', {
     pathname: request.nextUrl.pathname,
-    hasAccessToken,
-    hasRefreshToken,
+    hasAuthToken,
     cookieNames: cookies.map(c => c.name),
   })
   
-  // Get session (DO NOT call refreshSession - let Supabase handle it automatically)
-  const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+  // Use getUser() instead of getSession() for proper authentication
+  // getSession() reads from storage and may not be authentic
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser()
   
-  console.log('[Middleware] Session check:', {
+  console.log('[Middleware] User check:', {
     pathname: request.nextUrl.pathname,
-    hasSession: !!session,
-    sessionExpiresAt: session?.expires_at,
-    hasError: !!sessionError,
-    errorMessage: sessionError?.message,
+    hasUser: !!user,
+    userId: user?.id,
+    hasError: !!userError,
+    errorMessage: userError?.message,
   })
-  
-  // Get user from session
-  const user = session?.user ?? null
 
   const pathname = request.nextUrl.pathname
 
@@ -81,8 +80,8 @@ export async function middleware(request: NextRequest) {
     if (!user) {
       console.log('[Middleware] Redirecting to /auth - no user found:', {
         pathname,
-        hasSession: !!session,
-        sessionError: sessionError?.message,
+        hasUser: !!user,
+        userError: userError?.message,
       })
       return NextResponse.redirect(new URL('/auth', request.url))
     }

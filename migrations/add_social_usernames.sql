@@ -28,3 +28,5 @@ COMMENT ON COLUMN business_locations.x_username IS 'X (Twitter) username extract
 
 
 
+
+

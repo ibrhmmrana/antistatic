@@ -111,13 +111,21 @@ export class InstagramAPI {
       }
     }
 
+    // Add timeout to prevent hanging requests
+    const FETCH_TIMEOUT_MS = 10000 // 10 seconds
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+
     try {
       const response = await fetch(url.toString(), {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
         },
+        signal: controller.signal,
       })
+      
+      clearTimeout(timeoutId)
 
       const data = await response.json()
 
@@ -187,15 +195,37 @@ export class InstagramAPI {
 
       return data
     } catch (error: any) {
+      clearTimeout(timeoutId)
+      
+      // Handle timeout errors
+      if (error?.name === 'AbortError' || error?.code === 'UND_ERR_CONNECT_TIMEOUT') {
+        console.error('[Instagram API] Request timeout:', {
+          path,
+          timeout: FETCH_TIMEOUT_MS,
+        })
+        return {
+          error: {
+            type: 'APIError',
+            status: 504,
+            code: 'TIMEOUT',
+            message: 'Request timeout. Instagram API is taking too long to respond.',
+          },
+        }
+      }
+      
       console.error('[Instagram API] Network error:', {
         path,
         message: error.message,
+        code: error.code,
+        name: error.name,
       })
 
       return {
         error: {
           type: 'NetworkError',
-          message: error.message || 'Network error',
+          status: 0,
+          code: error.code || 'FETCH_ERROR',
+          message: error.message || 'Network error connecting to Instagram API',
         },
       }
     }
@@ -368,6 +398,88 @@ export class InstagramAPI {
 
     return {
       data: result.data || [],
+      paging: result.paging,
+    }
+  }
+
+  /**
+   * List media with nested comments and replies in a single request
+   * Uses field expansion to fetch comments and replies in one API call
+   */
+  async listMediaWithCommentsPage(params: {
+    limitMedia: number
+    limitComments: number
+    limitReplies: number
+    after?: string
+  }): Promise<{
+    media: Array<{
+      id: string
+      caption?: string
+      media_type: string
+      media_url?: string
+      thumbnail_url?: string
+      permalink: string
+      timestamp: string
+      comments_count: number
+      comments?: {
+        data?: Array<{
+          id: string
+          text: string
+          timestamp: string
+          from?: {
+            id?: string
+            username?: string
+          } | null
+          replies?: {
+            data?: Array<{
+              id: string
+              text: string
+              timestamp: string
+              from?: {
+                id?: string
+                username?: string
+              } | null
+            }>
+          }
+        }>
+        paging?: {
+          cursors?: {
+            after?: string
+          }
+        }
+      }
+    }>
+    paging?: {
+      cursors?: {
+        after?: string
+        before?: string
+      }
+      next?: string
+      previous?: string
+    }
+  } | InstagramError> {
+    // Build field expansion for nested comments and replies
+    const commentsFields = `id,text,timestamp,from{id,username},replies.limit(${params.limitReplies}){id,text,timestamp,from{id,username}}`
+    const fields = `id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,comments_count,comments.limit(${params.limitComments}){${commentsFields}}`
+    
+    const requestParams: Record<string, string | number> = {
+      fields,
+      limit: params.limitMedia,
+    }
+
+    if (params.after) {
+      requestParams.after = params.after
+    }
+
+    // Use 'me/media' which uses the authenticated user's ID
+    const result = await this.igFetch('me/media', requestParams)
+    
+    if (result.error) {
+      return result.error
+    }
+
+    return {
+      media: result.data || [],
       paging: result.paging,
     }
   }

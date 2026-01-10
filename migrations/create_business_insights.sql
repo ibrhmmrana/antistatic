@@ -122,3 +122,5 @@ COMMENT ON COLUMN business_insights.gbp_metrics_raw IS 'Raw performance metrics 
 
 
 
+
+

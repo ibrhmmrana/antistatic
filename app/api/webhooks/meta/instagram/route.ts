@@ -183,7 +183,7 @@ export async function POST(request: NextRequest) {
       console.error('[Meta Webhook] META_APP_SECRET not configured')
       return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 500 })
     }
-    
+
     // Fix common header parsing pitfalls
     // Accept both "sha256=<hex>" and "<hex>" formats, trim whitespace
     let receivedHex = signatureHeader.trim()
@@ -297,8 +297,8 @@ async function processWebhookEvents(body: any) {
           console.log('[Meta Webhook] Processing messages change')
           // change.value contains the messaging event
           const event = change.value
-          if (event.message) {
-            await handleMessageEvent(event, igAccountId, supabase)
+      if (event.message) {
+        await handleMessageEvent(event, igAccountId, supabase)
           } else {
             console.log('[Meta Webhook] Change value has no message field:', Object.keys(change.value || {}))
           }
@@ -789,10 +789,10 @@ async function handleMessageEvent(
         name: pingError.name,
       })
     }
-    const message = event.message
-    const sender = event.sender
-    const recipient = event.recipient
-    const timestamp = event.timestamp
+  const message = event.message
+  const sender = event.sender
+  const recipient = event.recipient
+  const timestamp = event.timestamp
     const messageId = message?.mid || null
     const messageText = message?.text || null
 
@@ -822,8 +822,8 @@ async function handleMessageEvent(
         messageId,
       })
       console.log('[Meta Webhook] ===== handleMessageEvent END (unmatched) =====')
-      return
-    }
+    return
+  }
 
     const { business_location_id, matched_via } = locationMatch
     const instagram_user_id = (locationMatch as any).instagram_user_id || igAccountId
@@ -938,7 +938,7 @@ async function handleMessageEvent(
             'insert_dm_event_composite',
             (supabase
               .from('instagram_dm_events') as any)
-              .upsert({
+    .upsert({
                 business_location_id,
                 ig_user_id: igAccountId,
                 sender_id: sender?.id || null,
@@ -1065,9 +1065,9 @@ async function handleMessageEvent(
         `Handler exception: ${error.message}`
       )
       console.log('[Meta Webhook] Unmatched DM saved (exception):', {
-        igAccountId,
+    igAccountId,
         messageId: event?.message?.mid || null,
-      })
+  })
     } catch (unmatchedError: any) {
       console.log('[Meta Webhook] Failed to save unmatched event:', unmatchedError.message)
     }
