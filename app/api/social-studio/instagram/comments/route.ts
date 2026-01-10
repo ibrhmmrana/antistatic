@@ -293,8 +293,8 @@ export async function GET(request: NextRequest) {
             .select('id')
             .eq('business_location_id', businessLocationId)
           
-          const existingCommentIds = new Set((existingComments || []).map((c: any) => c.id))
-          const deletedCommentIds = Array.from(existingCommentIds).filter(id => !allInstagramCommentIds.has(id))
+          const existingCommentIds = new Set<string>((existingComments || []).map((c: any) => c.id as string))
+          const deletedCommentIds = Array.from(existingCommentIds).filter((id: string) => !allInstagramCommentIds.has(id))
           
           // Delete comments that no longer exist in Instagram
           if (deletedCommentIds.length > 0) {
