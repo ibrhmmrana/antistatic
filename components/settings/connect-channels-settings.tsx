@@ -746,12 +746,12 @@ export function ConnectChannelsSettings({ locationId, connectedAccounts }: Conne
                   </div>
                   {channel.id === 'instagram' && isInstagramOAuthConnected && instagramStatus?.username && (
                     <p className="text-xs text-green-600 mt-1" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-                      Connected as @{instagramStatus.username}. Username field is for Apify analysis only.
+                      Connected as @{instagramStatus.username}.
                     </p>
                   )}
                   {channel.id === 'instagram' && isInstagramOAuthConnected && !instagramStatus?.username && (
                     <p className="text-xs text-green-600 mt-1" style={{ fontFamily: 'var(--font-roboto-stack)' }}>
-                      Instagram connected via OAuth. Username field is for Apify analysis only.
+                      Instagram connected via OAuth.
                     </p>
                   )}
                 </div>
